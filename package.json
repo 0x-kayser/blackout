@@ -1,0 +1,38 @@
+{
+  "name": "blackout",
+  "private": true,
+  "version": "0.1.0",
+  "description": "BLACKOUT — Every Light Changes the Economy. NEAR Hackathon games track.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @blackout/api dev",
+    "dev:api": "pnpm --filter @blackout/api dev",
+    "dev:web": "pnpm --filter @blackout/web dev",
+    "start": "pnpm --filter @blackout/api start",
+    "build": "pnpm build:web",
+    "build:web": "pnpm --filter @blackout/web build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:contract": "cd contracts/near && cargo test",
+    "build:contract": "bash scripts/build-contract.sh",
+    "sim:replay": "tsx packages/sim/src/cli.ts",
+    "chain:bootstrap": "bash scripts/near-bootstrap.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

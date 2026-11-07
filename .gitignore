@@ -1,0 +1,15 @@
+node_modules/
+package-lock.json
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+data/*.sqlite*
+data/replays/
+contracts/near/target/
+contracts/near/res/*.wasm
+.near-credentials/
+**/*.key.json
+.DS_Store
