@@ -11,10 +11,11 @@ Rules checked 2026-11-07 at nearhackathon.com/HACKATHON.md and the games track b
 - [ ] Submission form incl. mainnet payout account (owner action)
 
 ## Games track brief
-- [x] Items are NEP-245 multi-tokens, one contract for every item type (`contracts/near`)
+- [~] Items are modeled as NEP-245 multi-tokens, one contract for every item type (`contracts/near`); contract is locally tested, **not deployed**
 - [~] Social/email login (Supabase Google + email) implemented and tested against a local JWKS; **needs a Supabase project to go live**. No seed phrases, wallet or gas prompts anywhere.
 - [x] Merchant pricing rules in one readable file + tooltip reasons (`policies/merchantPricing.ts`, `reasons`)
 - [x] Fast-forward simulates a week (Economy Lab: 7 days in ~0.5–3 s; SSE playback over 60 s; downloadable ledger)
+- [x] Player-owned diesel listings, NPC economic evaluation, and two-phase off-chain credit settlement are integrated locally; **live Testnet escrow awaits deployment**
 - [x] Game loop designed on paper (30 s / 5 min / session) — `docs/GAME_DESIGN.md`
 
 ## P0 backend features
@@ -31,7 +32,9 @@ Rules checked 2026-11-07 at nearhackathon.com/HACKATHON.md and the games track b
 | Quotes, reservation, single-use, expiry, last-unit race | done, tested |
 | API + SSE + idempotency + owner scoping + restart recovery | done, tested |
 | 7-day replay, 3 policies, compare endpoint, CLI | done, tested |
-| NEP-245 contract | done, 16 unit tests; **not deployed** |
+| NEP-245 contract | done, 19 unit tests; **not deployed** |
+| Three NPC Testnet accounts + real transfers | **not provisioned** (requires funded parent account and bootstrap) |
+| Player listing escrow + autonomous NPC fill | local API/UI/worker path implemented and fake-RPC tested; **no live transaction yet** |
 | Real testnet transfer with verified hash | **not done** (needs developer-created accounts) |
 | Frontend integrated with live API | done; 7 Playwright journeys pass |
 | Continuous world + saves + offline pause | done, tested |

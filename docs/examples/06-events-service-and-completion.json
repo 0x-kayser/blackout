@@ -1,12 +1,12 @@
 {
   "request": {
-    "sse": "GET /api/runs/run_1762afe1-fde/events"
+    "sse": "GET /api/runs/run_082cb222-8b0/events"
   },
   "response": [
     {
       "seq": 15,
-      "eventId": "run_1762afe1-fde:15",
-      "runId": "run_1762afe1-fde",
+      "eventId": "run_082cb222-8b0:15",
+      "runId": "run_082cb222-8b0",
       "day": 1,
       "tick": 1,
       "clock": "06:06",
@@ -24,12 +24,12 @@
         "provider": "player"
       },
       "txHash": null,
-      "serverTime": "2026-11-08T00:00:59.954Z"
+      "serverTime": "2026-11-08T09:47:12.617Z"
     },
     {
-      "seq": 17,
-      "eventId": "run_1762afe1-fde:17",
-      "runId": "run_1762afe1-fde",
+      "seq": 18,
+      "eventId": "run_082cb222-8b0:18",
+      "runId": "run_082cb222-8b0",
       "day": 1,
       "tick": 9,
       "clock": "06:54",
@@ -48,12 +48,12 @@
         "totalDeliveredWh": 1350
       },
       "txHash": null,
-      "serverTime": "2026-11-08T00:00:59.955Z"
+      "serverTime": "2026-11-08T09:47:12.623Z"
     },
     {
-      "seq": 18,
-      "eventId": "run_1762afe1-fde:18",
-      "runId": "run_1762afe1-fde",
+      "seq": 19,
+      "eventId": "run_082cb222-8b0:19",
+      "runId": "run_082cb222-8b0",
       "day": 1,
       "tick": 9,
       "clock": "06:54",
@@ -68,12 +68,12 @@
         "tankMl": 19595
       },
       "txHash": null,
-      "serverTime": "2026-11-08T00:00:59.955Z"
+      "serverTime": "2026-11-08T09:47:12.623Z"
     },
     {
-      "seq": 19,
-      "eventId": "run_1762afe1-fde:19",
-      "runId": "run_1762afe1-fde",
+      "seq": 20,
+      "eventId": "run_082cb222-8b0:20",
+      "runId": "run_082cb222-8b0",
       "day": 1,
       "tick": 9,
       "clock": "06:54",
@@ -88,12 +88,12 @@
         "allowanceLeftMg": 58914600
       },
       "txHash": null,
-      "serverTime": "2026-11-08T00:00:59.955Z"
+      "serverTime": "2026-11-08T09:47:12.623Z"
     },
     {
-      "seq": 20,
-      "eventId": "run_1762afe1-fde:20",
-      "runId": "run_1762afe1-fde",
+      "seq": 21,
+      "eventId": "run_082cb222-8b0:21",
+      "runId": "run_082cb222-8b0",
       "day": 1,
       "tick": 19,
       "clock": "07:54",
@@ -112,12 +112,12 @@
         "totalDeliveredWh": 2850
       },
       "txHash": null,
-      "serverTime": "2026-11-08T00:00:59.957Z"
+      "serverTime": "2026-11-08T09:47:12.628Z"
     },
     {
-      "seq": 21,
-      "eventId": "run_1762afe1-fde:21",
-      "runId": "run_1762afe1-fde",
+      "seq": 22,
+      "eventId": "run_082cb222-8b0:22",
+      "runId": "run_082cb222-8b0",
       "day": 1,
       "tick": 19,
       "clock": "07:54",
@@ -132,12 +132,12 @@
         "tankMl": 19145
       },
       "txHash": null,
-      "serverTime": "2026-11-08T00:00:59.957Z"
+      "serverTime": "2026-11-08T09:47:12.628Z"
     },
     {
-      "seq": 22,
-      "eventId": "run_1762afe1-fde:22",
-      "runId": "run_1762afe1-fde",
+      "seq": 23,
+      "eventId": "run_082cb222-8b0:23",
+      "runId": "run_082cb222-8b0",
       "day": 1,
       "tick": 19,
       "clock": "07:54",
@@ -152,12 +152,12 @@
         "allowanceLeftMg": 57708600
       },
       "txHash": null,
-      "serverTime": "2026-11-08T00:00:59.957Z"
+      "serverTime": "2026-11-08T09:47:12.628Z"
     },
     {
-      "seq": 24,
-      "eventId": "run_1762afe1-fde:24",
-      "runId": "run_1762afe1-fde",
+      "seq": 25,
+      "eventId": "run_082cb222-8b0:25",
+      "runId": "run_082cb222-8b0",
       "day": 1,
       "tick": 20,
       "clock": "08:00",
@@ -177,7 +177,7 @@
         "customerProfitPerHourCc": 800
       },
       "txHash": null,
-      "serverTime": "2026-11-08T00:00:59.957Z"
+      "serverTime": "2026-11-08T09:47:12.629Z"
     }
   ]
 }

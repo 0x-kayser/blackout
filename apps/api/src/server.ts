@@ -14,6 +14,7 @@ import { openDb, type Db } from "./db.ts";
 import { registerRoutes } from "./routes.ts";
 import { RunService } from "./services.ts";
 import { startChainWorker, startDriver } from "./workers.ts";
+import { ExchangeService, startExchangeDriver } from "./exchange.ts";
 
 export interface BuildOptions {
   dbPath?: string;
@@ -26,12 +27,16 @@ export interface BuildOptions {
   jwks?: JWTVerifyGetKey;
   /** Directory with the built web app to serve at / (single-origin deployment). */
   webDist?: string | null;
+  /** Local demos only: let guests trade on the shared exchange (default: EXCHANGE_ALLOW_GUESTS env). */
+  exchangeAllowGuests?: boolean;
 }
 
-export async function buildServer(opts: BuildOptions = {}): Promise<{ app: FastifyInstance; db: Db; svc: RunService; chain: ChainConfig; auth: AuthService }> {
+export async function buildServer(opts: BuildOptions = {}): Promise<{ app: FastifyInstance; db: Db; svc: RunService; chain: ChainConfig; auth: AuthService; xsvc: ExchangeService }> {
   const db = openDb(opts.dbPath ?? process.env.DATABASE_PATH ?? "data/blackout.sqlite");
   const chain = opts.chain ?? loadChainConfig();
   const svc = new RunService(db, chain, opts.now);
+  const xsvc = new ExchangeService(db, svc, chain);
+  const exchangeAllowGuests = opts.exchangeAllowGuests ?? process.env.EXCHANGE_ALLOW_GUESTS === "true";
   const allowedOrigins = opts.allowedOrigins ?? (process.env.WEB_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173").split(",").map((s) => s.trim()).filter(Boolean);
   const auth = new AuthService(db, opts.supabase ?? loadSupabaseConfig(), opts.jwks);
   const app = Fastify({
@@ -48,7 +53,7 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
     reply.header("x-request-id", req.id);
   });
   await app.register(cors, { origin: allowedOrigins, credentials: true });
-  registerRoutes(app, { db, svc, chain, auth, allowedOrigins, secureCookies: process.env.COOKIE_SECURE === "true" });
+  registerRoutes(app, { db, svc, chain, auth, allowedOrigins, secureCookies: process.env.COOKIE_SECURE === "true", xsvc, exchangeAllowGuests });
   const dist = opts.webDist === undefined ? (process.env.WEB_DIST ?? resolve(import.meta.dirname, "../../../dist")) : opts.webDist;
   if (dist && existsSync(resolve(dist, "index.html"))) {
     await app.register(fastifyStatic, { root: resolve(dist), prefix: "/", wildcard: false });
@@ -58,21 +63,24 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
       return reply.sendFile("index.html");
     });
   }
-  return { app, db, svc, chain, auth };
+  return { app, db, svc, chain, auth, xsvc };
 }
 
 async function main() {
-  const { app, db, svc, chain, auth } = await buildServer({ logger: process.env.LOG_JSON !== "false" });
+  const { app, db, svc, chain, auth, xsvc } = await buildServer({ logger: process.env.LOG_JSON !== "false" });
   const stopDriver = startDriver(svc);
-  const stopChain = startChainWorker(db, svc, chain);
+  const stopExchange = startExchangeDriver(xsvc);
+  const stopChain = startChainWorker(db, svc, chain, 2_000, xsvc);
   const port = Number(process.env.PORT ?? 8787);
   const host = process.env.HOST ?? "127.0.0.1";
   await app.listen({ port, host });
   console.log(`BLACKOUT API listening on http://${host}:${port}`);
   console.log(`chain mode: ${chain.enabled ? `testnet (${chain.resourceContractId})` : `disabled (missing ${chain.missing.join(", ")})`}`);
+  console.log(`exchange: ${xsvc.sandbox ? `sandbox (server ledger only; Testnet exchange needs ${chain.enabled ? chain.exchangeMissing.join(", ") : "chain mode"})` : "testnet"}`);
   console.log(`auth: guest${auth.supabase.enabled ? ` + supabase (${[auth.supabase.providers.google && "google", auth.supabase.providers.email && "email"].filter(Boolean).join(", ")})` : " only (SUPABASE_URL / SUPABASE_ANON_KEY not set)"}`);
   const shutdown = async () => {
     stopDriver();
+    stopExchange();
     stopChain();
     svc.shutdown();
     await app.close();

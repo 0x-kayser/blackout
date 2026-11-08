@@ -244,3 +244,28 @@ export const PRESETS: Record<string, { name: string; description: string; schedu
   solar_boom: { name: "Renewable investment wave", description: "Solar and battery prices −25% from day 2 to 6.", schedule: [{ templateId: "solar_glut", day: 2, days: 5 }] },
 };
 export type PresetId = keyof typeof PRESETS;
+
+/**
+ * Market flashes: short, local Vesper City shocks (30 s to 2.5 min of play) that fire between waves so the market is
+ * always moving. All fictional. Each uses the same bounded modifiers as world events, so merchants, traders and
+ * customers react through their normal rules.
+ */
+export interface FlashTemplate extends Omit<FictionalTemplate, "minDays" | "maxDays"> {
+  minTicks: number;
+  maxTicks: number;
+}
+
+export const FLASH_TEMPLATES: FlashTemplate[] = [
+  { templateId: "flash_tanker_queue", category: "inventory", headline: "Tanker queue at the fuel depot", explanation: "Three tankers wait for one berth. Merchants ration what's on hand.", assumption: "Import capacity −30%, import cost +8%.", region: "Vesper fuel depot", effects: { importCapacityBps: -3_000, logisticsCostBps: 800 }, minTicks: 45, maxTicks: 90, weight: 3 },
+  { templateId: "flash_price_war", category: "inventory", headline: "Price war between fuel merchants", explanation: "Two merchants slash prices to win back customers.", assumption: "Import cost −12%, merchants hold 10% less safety stock.", region: "Market Quarter", effects: { logisticsCostBps: -1_200, cautionBps: -1_000 }, minTicks: 40, maxTicks: 70, weight: 3 },
+  { templateId: "flash_heat_spike", category: "weather", headline: "Heat spike: every AC in town switches on", explanation: "The afternoon turns brutal. Air conditioners strain the grid.", assumption: "Shopper demand +25%, outages last 1 hour longer.", region: "Vesper City", effects: { demandBps: 2_500, gridStressHours: 1 }, minTicks: 50, maxTicks: 90, weight: 2 },
+  { templateId: "flash_night_market", category: "demand", headline: "Night market draws the crowds", explanation: "Stalls, music and street food: every shop wants the lights on.", assumption: "Shopper demand +35%.", region: "Vesper City", effects: { demandBps: 3_500 }, minTicks: 60, maxTicks: 90, weight: 2 },
+  { templateId: "flash_carbon_audit", category: "policy", headline: "Surprise carbon audit", explanation: "The regulator holds back permits while inspectors check every generator.", assumption: "Permit supply −30%.", region: "City Hall", effects: { permitSupplyBps: -3_000 }, minTicks: 60, maxTicks: 120, weight: 2 },
+  { templateId: "flash_panic_buying", category: "inventory", headline: "Panic buying at the pumps", explanation: "A rumour of shortages sends everyone to fill up at once.", assumption: "Merchants want 40% more safety stock; import cost +10%.", region: "Vesper City", effects: { cautionBps: 4_000, logisticsCostBps: 1_000 }, minTicks: 45, maxTicks: 75, weight: 3 },
+  { templateId: "flash_port_strike", category: "shipping", headline: "Dockworkers walk out for the afternoon", explanation: "No cranes, no tankers unloaded.", assumption: "Import capacity −50%, deliveries +1 day.", region: "Port District", effects: { importCapacityBps: -5_000, leadTimeDays: 1 }, minTicks: 90, maxTicks: 150, weight: 1 },
+  { templateId: "flash_solar_sale", category: "renewables", headline: "Solar wholesaler clearance sale", explanation: "A wholesaler dumps last season's panels and batteries.", assumption: "Solar and battery prices −30%.", region: "Industrial Park", effects: { solarCostBps: -3_000 }, minTicks: 60, maxTicks: 120, weight: 2 },
+  { templateId: "flash_convoy", category: "shipping", headline: "Extra tanker convoy arrives", explanation: "An unscheduled convoy docks with spare diesel.", assumption: "Import capacity +30%, import cost −8%.", region: "Port District", effects: { importCapacityBps: 3_000, logisticsCostBps: -800 }, minTicks: 45, maxTicks: 90, weight: 2 },
+  { templateId: "flash_factory_rush", category: "demand", headline: "Factories take a rush export order", explanation: "Every line runs double shifts this afternoon.", assumption: "Shopper demand +20%.", region: "Industrial Park", effects: { demandBps: 2_000 }, minTicks: 60, maxTicks: 90, weight: 2 },
+  { templateId: "flash_cool_rain", category: "weather", headline: "Cool rain sweeps the city", explanation: "Streets empty and fans switch off.", assumption: "Shopper demand −15%.", region: "Vesper City", effects: { demandBps: -1_500 }, minTicks: 45, maxTicks: 90, weight: 2 },
+  { templateId: "flash_holiday_lull", category: "demand", headline: "Holiday lull: shops close early", explanation: "Half the city has gone to the coast.", assumption: "Shopper demand −25%.", region: "Vesper City", effects: { demandBps: -2_500 }, minTicks: 45, maxTicks: 75, weight: 1 },
+];

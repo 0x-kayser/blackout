@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import type { GameStatePublic, MerchantPublic } from '@blackout/shared'
-import { api, explainError, guestUpgradeToken, type ChainStatusResponse } from '../api/client'
-import { sendEmailLink, signInWithGoogle } from '../api/auth'
+import { api, explainError, type ChainStatusResponse } from '../api/client'
+import { SignInOptions } from './SignIn'
+import { exchangeApi, type ExchangeView } from '../api/exchange'
 import type { Game } from '../game/useGame'
 import { VOICES, voiceLine } from './Story'
 import { MOOD_ICON, bizName, fmtCredits, fmtKg, fmtKw, fmtKwh, fmtLitres, fmtPct, fmtRate, secondsLeft, sparkPath } from './format'
@@ -25,7 +26,7 @@ export function Drawer({ title, eyebrow, onClose, children, wide }: { title: str
 }
 
 // ------------------------------------------------------------------ market
-export function MarketPanel({ g, onClose }: { g: Game; onClose: () => void }) {
+export function MarketPanel({ g, onClose, onOpenExchange }: { g: Game; onClose: () => void; onOpenExchange?: () => void }) {
   const s = g.state!
   const w = s.world
   const trend = w.oilTrend === 'up' ? '↗' : w.oilTrend === 'down' ? '↘' : '→'
@@ -48,16 +49,18 @@ export function MarketPanel({ g, onClose }: { g: Game; onClose: () => void }) {
         {s.merchants.map((m) => <MerchantCard key={m.merchantId} g={g} m={m} />)}
       </div>
       <PermitBox g={g} />
-      <PlayerListings g={g} />
+      <PlayerListings g={g} onOpenExchange={onOpenExchange} />
       <TradeList s={s} />
     </Drawer>
   )
 }
 
-function PlayerListings({ g }: { g: Game }) {
+function PlayerListings({ g, onOpenExchange }: { g: Game; onOpenExchange?: () => void }) {
   const s = g.state!
   const p = g.player
   const chainReady = s.run.chainMode === 'testnet'
+  const registered = !!p && p.kind === 'registered'
+  const canList = registered && chainReady
   const [quantityMl, setQuantityMl] = useState(5_000)
   const [price, setPrice] = useState(900)
   const listings = [...s.marketListings].reverse()
@@ -67,14 +70,15 @@ function PlayerListings({ g }: { g: Game }) {
 
   return (
     <section className="player-market" aria-labelledby="player-market-title">
-      <div className="section-heading"><div><p className="eyebrow amber">PLAYER-OWNED MARKET</p><h2 id="player-market-title">Sell fuel to local merchants</h2></div><span className="pill">{fmtLitres(s.player.listableFuelMl)} available</span></div>
-      <p className="fine">Set your ask. Merchants assess stockroom space, recent demand, cash reserves and replacement cost before buying. Fuel returns to your tank if a listing is cancelled or expires.</p>
-      {!p || p.kind !== 'registered' ? (
-        <p className="warn">Sign in with Google or email to create a listing and keep it with your city.</p>
-      ) : !chainReady ? (
-        <p className="fine">Player listings unlock when this server has verified resource custody. Your current city keeps running normally.</p>
+      <div className="section-heading"><div><p className="eyebrow amber">PLAYER-OWNED MARKET</p><h2 id="player-market-title">{canList ? 'Sell fuel to local merchants' : 'Sell your fuel'}</h2></div>{canList && <span className="pill">{fmtLitres(s.player.listableFuelMl)} available</span>}</div>
+      {!canList ? (
+        <div className="x-pointer">
+          <p className="fine">Sell your spare diesel to players and traders in <b>every</b> city on the Vesper Fuel Exchange. Your price, your timing; it can sell while you're offline.</p>
+          {onOpenExchange && g.playing !== 'challenge' && <button className="button primary" onClick={onOpenExchange}>Open the Exchange ⇄</button>}
+        </div>
       ) : (
         <div className="listing-form">
+          <p className="fine">Set your ask. Merchants check stockroom space, recent demand, spare cash and restocking cost before buying. Fuel can be listed once its delivery is confirmed; starter supplies can't be resold. If a listing is cancelled or expires, the fuel returns to your tank.</p>
           <label className="field"><span>Fuel quantity · {fmtLitres(qty)}</span><input type="range" min={100} max={Math.max(100, max)} step={100} value={qty} disabled={max < 100} onChange={(e) => setQuantityMl(Number(e.target.value))} aria-label="Fuel quantity to list" /></label>
           <label className="field"><span>Asking price · credits per litre</span><input type="number" min={1} max={100_000} step={1} value={price} onChange={(e) => setPrice(Math.max(1, Math.min(100_000, Number(e.target.value) || 1)))} /></label>
           <p className="fine">A full sale pays {fmtCredits(total)} fictional game credits. They cannot be withdrawn or exchanged outside BLACKOUT.</p>
@@ -85,7 +89,7 @@ function PlayerListings({ g }: { g: Game }) {
       )}
       {listings.length > 0 && <div className="player-listings">
         {listings.map((listing) => {
-          const status = listing.status === 'reserved' ? 'Preparing your listing' : listing.status === 'active' ? 'Open · merchants are evaluating' : listing.status === 'purchase_pending' ? 'A merchant is arranging delivery' : listing.status === 'cancel_pending' ? 'Returning fuel to your tank' : listing.status === 'filled' ? 'Sold' : listing.status === 'expired' ? 'Expired · fuel returned' : listing.status === 'cancelled' ? 'Cancelled · fuel returned' : 'Could not create listing · fuel returned'
+          const status = listing.status === 'reserved' ? 'Preparing your listing' : listing.status === 'active' ? 'Open · merchants are evaluating' : listing.status === 'purchase_pending' ? 'A merchant is arranging delivery' : listing.status === 'cancel_pending' ? 'Cancellation pending · fuel stays reserved' : listing.status === 'filled' ? 'Sold' : listing.status === 'expired' ? 'Expired · fuel returned' : listing.status === 'cancelled' ? 'Cancelled · fuel returned' : 'Could not create listing · fuel returned'
           return <article className="player-listing" key={listing.listingId}>
             <div className="section-heading"><b>{fmtLitres(listing.quantityMl)} diesel · {fmtCredits(listing.unitPriceCcPerL)}/L</b><span className="pill">{status}</span></div>
             <p className="fine">Full offer: {fmtCredits(listing.totalCc)} credits · expires after seven in-game days</p>
@@ -124,7 +128,7 @@ function MerchantCard({ g, m }: { g: Game; m: MerchantPublic }) {
       </div>
       <p className="row"><span>Stock {fmtLitres(m.stockMl)} / target {fmtLitres(m.targetStockMl)}</span><span>Cash {fmtCredits(m.cashCc)}</span></p>
       {history.length > 1 && <svg className="spark" viewBox="0 0 200 30" aria-label="Price history"><path d={sparkPath(history, 200, 28)} /></svg>}
-      {m.pendingRestockMl > 0 && <p className="fine">🚚 Restock: {fmtLitres(m.pendingRestockMl)} arrives on day {m.restockArrivesDay}</p>}
+      {m.pendingRestockMl > 0 && <p className="fine">🚚 Restock of {fmtLitres(m.pendingRestockMl)} from the exchange traders arrives {m.restockArrivesDay !== null && m.restockArrivesDay <= s.clock.day ? 'soon' : 'next shift'}</p>}
       {m.reasons.rationLimitMl !== null && <p className="warn">Ration limit: up to {fmtLitres(m.reasons.rationLimitMl)} per purchase while crude is rising.</p>}
       <button className="why" onClick={() => setWhy(!why)} aria-expanded={why}>{why ? '▾' : '▸'} See price breakdown</button>
       {why && (
@@ -243,8 +247,8 @@ export function EquipmentPanel({ g, onClose }: { g: Game; onClose: () => void })
             <span className="upgrade-icon">{u.upgradeId === 'solar_2kw' ? '☀' : u.upgradeId === 'battery_10kwh' ? '▮' : '⚡'}</span>
             <h3>{u.name}</h3>
             <p>{u.description}</p>
-            <button className="button primary wide" disabled={u.owned || s.player.creditsCc < u.costCc || g.pending.has(`up:${u.upgradeId}`)} onClick={() => void g.act({ type: 'BUY_UPGRADE', upgradeId: u.upgradeId }, `up:${u.upgradeId}`)}>
-              {u.owned ? 'Installed' : s.player.creditsCc < u.costCc ? `Need ${fmtCredits(u.costCc)}` : `Install · ${fmtCredits(u.costCc)}`}
+            <button className="button primary wide" disabled={u.owned || s.company.stage < u.requiredStage || s.player.creditsCc < u.costCc || g.pending.has(`up:${u.upgradeId}`)} onClick={() => void g.act({ type: 'BUY_UPGRADE', upgradeId: u.upgradeId }, `up:${u.upgradeId}`)}>
+              {u.owned ? 'Installed' : s.company.stage < u.requiredStage ? `Opens at stage ${u.requiredStage}` : s.player.creditsCc < u.costCc ? `Need ${fmtCredits(u.costCc)}` : `Install · ${fmtCredits(u.costCc)}`}
             </button>
           </article>
         ))}
@@ -285,24 +289,69 @@ function TariffRow({ g, districtId }: { g: Game; districtId: string }) {
 // ------------------------------------------------------------------ expansion
 export function ExpansionPanel({ g, onClose }: { g: Game; onClose: () => void }) {
   const s = g.state!
-  const cap = s.generators.reduce((a, x) => a + x.ratedW, 0)
+  const c = s.company
+  const fmtNeed = (r: (typeof c.requirements)[number], v: number) => (r.unit === 'Wh' ? fmtKwh(v) : r.unit === 'W' ? fmtKw(v) : String(v))
+  const plantsW = s.generators.reduce((a, x) => a + x.ratedW, 0)
   return (
-    <Drawer title="Expand the grid" eyebrow="NEW DISTRICTS" onClose={onClose}>
-      {s.districts.map((d) => (
-        <article key={d.districtId} className={`district-card ${d.unlocked ? 'open' : ''}`}>
-          <h3>{d.unlocked ? '✓' : '🔒'} {d.name}</h3>
-          <p className="fine">{d.businessIds.map((id) => bizName(s, id)).join(', ')} · pricing style: {d.payBehaviour.replace('_', ' ')}</p>
-          {!d.unlocked && (
-            <>
-              <p>Needs {fmtKw(d.unlockRequirementW)} of capacity (you have {fmtKw(cap)}) and {fmtCredits(d.unlockCostCc)}.</p>
-              <button className="button primary" disabled={cap < d.unlockRequirementW || s.player.creditsCc < d.unlockCostCc} onClick={() => void g.act({ type: 'UNLOCK_DISTRICT', districtId: d.districtId }, `unlock:${d.districtId}`)}>
-                {cap < d.unlockRequirementW ? 'Build more capacity first' : `Unlock · ${fmtCredits(d.unlockCostCc)}`}
-              </button>
-            </>
-          )}
-          {d.unlocked && <p className="fine">Activity {fmtPct(d.activityIndexBps)} · reliability today {fmtPct(d.reliabilityTodayBps)}</p>}
-        </article>
-      ))}
+    <Drawer title="Your grid" eyebrow="GENERATION · SUBSTATIONS · FEEDERS · DISTRICTS" onClose={onClose} wide>
+      <section className="stage-card">
+        <p className="eyebrow amber">STAGE {c.stage} OF 5</p>
+        <h2>{c.name}</h2>
+        {c.nextStage ? (
+          <>
+            <p className="fine">Next: <b>{c.nextStage.name}</b>. {c.nextStage.unlocks}{c.nextStage.rewardCc ? ` City Council grant: ${fmtCredits(c.nextStage.rewardCc)}.` : ''}</p>
+            <ul className="stage-reqs">
+              {c.requirements.map((r) => (
+                <li key={r.label} className={r.have >= r.need ? 'done' : ''}>
+                  <span>{r.have >= r.need ? '✓' : '○'} {r.label}</span>
+                  <span className="goal-bar"><i style={{ width: `${Math.min(100, (r.have / Math.max(1, r.need)) * 100)}%` }} /></span>
+                  <small>{fmtNeed(r, r.have)} / {fmtNeed(r, r.need)}</small>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="fine">You run the whole city's grid. Keep it lit, keep your streak, and trade on the Exchange.</p>
+        )}
+      </section>
+      <p className="fine">Power flows from your plants ({fmtKw(plantsW)} installed) through a substation and feeder into each district. A feeder can only carry so much; longer feeders lose more energy, so you burn more diesel per kWh sold there.</p>
+      <div className="grid-districts">
+        {s.districts.map((d) => {
+          const locked = !d.unlocked
+          const stageOk = c.stage >= d.requiredStage
+          const pct = d.feederCapacityW ? Math.min(100, (d.feederLoadW / d.feederCapacityW) * 100) : 0
+          return (
+            <article key={d.districtId} className={`district-card ${d.unlocked ? 'open' : ''}`}>
+              <div className="section-heading">
+                <h3>{d.unlocked ? '⚡' : stageOk ? '○' : '🔒'} {d.name}</h3>
+                {d.unlocked ? <span className="pill teal">SUBSTATION L{d.substationLevel}</span> : <span className="pill muted">STAGE {d.requiredStage}</span>}
+              </div>
+              <p className="fine">{d.businessIds.map((id) => bizName(s, id)).join(' · ')}</p>
+              <p className="fine">Peak demand {fmtKw(d.totalDemandW)} · line loss {(d.lossBps / 100).toFixed(1)}% · {d.payBehaviour === 'fixed_low' ? 'fixed tariff' : d.payBehaviour === 'price_sensitive' ? 'price-sensitive' : d.payBehaviour === 'low' ? 'tight budgets' : 'haggles'}</p>
+              {d.unlocked ? (
+                <>
+                  <div className="feeder">
+                    <span>Feeder {fmtKw(d.feederLoadW)} / {fmtKw(d.feederCapacityW)}</span>
+                    <span className={`feeder-bar ${pct > 85 ? 'hot' : ''}`}><i style={{ width: `${pct}%` }} /></span>
+                  </div>
+                  <p className="fine">Reliability this shift {fmtPct(d.reliabilityTodayBps)} · {fmtPct(d.poweredBps)} of businesses lit</p>
+                  {d.nextUpgradeCostCc !== null && d.nextCapacityW !== null ? (
+                    <button className="button" disabled={s.player.creditsCc < d.nextUpgradeCostCc || g.pending.has(`sub:${d.districtId}`)} onClick={() => void g.act({ type: 'UPGRADE_SUBSTATION', districtId: d.districtId }, `sub:${d.districtId}`)}>
+                      Upgrade to {fmtKw(d.nextCapacityW)} · {fmtCredits(d.nextUpgradeCostCc)}
+                    </button>
+                  ) : (
+                    <p className="fine">Substation at full size.</p>
+                  )}
+                </>
+              ) : (
+                <button className="button primary" disabled={!stageOk || s.player.creditsCc < d.unlockCostCc || g.pending.has(`unlock:${d.districtId}`)} onClick={() => void g.act({ type: 'UNLOCK_DISTRICT', districtId: d.districtId }, `unlock:${d.districtId}`)}>
+                  {!stageOk ? `Opens at stage ${d.requiredStage}` : s.player.creditsCc < d.unlockCostCc ? `Need ${fmtCredits(d.unlockCostCc)}` : `Build substation & connect · ${fmtCredits(d.unlockCostCc)}`}
+                </button>
+              )}
+            </article>
+          )
+        })}
+      </div>
     </Drawer>
   )
 }
@@ -316,7 +365,7 @@ export function BusinessPanel({ g, onClose }: { g: Game; onClose: () => void }) 
     <Drawer title="Your power company" eyebrow="CUSTOMERS · BOOKS · RIVAL" onClose={onClose} wide>
       {last ? (
         <div className="report-grid">
-          <Metric label={`Day ${last.day} revenue`} value={fmtCredits(last.revenueCc)} />
+          <Metric label="Last shift's revenue" value={fmtCredits(last.revenueCc)} />
           <Metric label="Fuel burned" value={fmtLitres(last.fuelBurnedMl)} />
           <Metric label="CO₂" value={fmtKg(last.co2Mg)} />
           <Metric label="Reliability" value={fmtPct(last.reliabilityBps)} />
@@ -324,7 +373,7 @@ export function BusinessPanel({ g, onClose }: { g: Game; onClose: () => void }) 
           <Metric label="City GDP" value={fmtCredits(last.gdpCc)} />
         </div>
       ) : (
-        <p className="fine">Your first daily summary appears after this operating day settles.</p>
+        <p className="fine">Your first shift report appears when this shift (24 game hours) settles.</p>
       )}
       {last?.highlights.length ? <ul className="highlights">{last.highlights.map((h) => <li key={h.eventSeq}>{h.text}</li>)}</ul> : null}
       <table className="biz-table">
@@ -352,7 +401,7 @@ export function BusinessPanel({ g, onClose }: { g: Game; onClose: () => void }) 
         <p className="eyebrow">CITY NEWS</p>
         <ul className="news">
           {g.events.slice().reverse().slice(0, 25).map((e) => (
-            <li key={e.seq}><span>Day {e.day} {e.clock}</span> {e.explanation}</li>
+            <li key={e.seq}><span>{e.clock}</span> {e.explanation}</li>
           ))}
         </ul>
       </section>
@@ -369,56 +418,72 @@ export function VerifyPanel({ g, onClose }: { g: Game; onClose: () => void }) {
   const s = g.state!
   const [cs, setCs] = useState<ChainStatusResponse | null>(null)
   const [marketEvidence, setMarketEvidence] = useState<Awaited<ReturnType<typeof api.marketListingEvidence>> | null>(null)
+  const [xv, setXv] = useState<ExchangeView | null>(null)
   const [err, setErr] = useState<string | null>(null)
   useEffect(() => {
     api.chain().then(setCs, (e) => setErr(explainError(e)))
-    api.marketListingEvidence().then(setMarketEvidence, (e) => setErr(explainError(e)))
+    api.marketListingEvidence().then(setMarketEvidence, () => undefined)
+    exchangeApi.view().then(setXv, () => undefined)
   }, [])
   const chainTrades = s.trades.filter((t) => t.chainStatus !== 'simulation_only')
+  const live = cs?.mode === 'testnet'
+  const tx = (h: string | null | undefined) => (h && live && cs?.explorerBaseUrl ? <a href={`${cs.explorerBaseUrl}${h}`} target="_blank" rel="noreferrer">{h.slice(0, 10)}…</a> : <span className="fine">no hash</span>)
+  const acct = (id: string | null | undefined) => (id ? (live ? <a href={`https://testnet.nearblocks.io/address/${id}`} target="_blank" rel="noreferrer">{id}</a> : id) : '—')
+  const x = cs?.exchange
+  const myTx = (xv?.me?.recent ?? []).filter((e) => typeof e.data.txHash === 'string')
   return (
-    <Drawer title="Verify on NEAR" eyebrow="OPTIONAL · RESOURCE RECORDS" onClose={onClose}>
-      <p className="fine">{s.chain.note}</p>
+    <Drawer title="Verify on NEAR" eyebrow="OPTIONAL · FOR THE CURIOUS AND THE JUDGES" onClose={onClose}>
       {err && <p className="warn">{err}</p>}
-      {cs && (
+      <p className="eyebrow">THE SHARED FUEL EXCHANGE</p>
+      <p className="fine">{x?.note ?? 'Loading…'}</p>
+      {cs && x && (
         <dl className="verify">
-          <dt>Network</dt><dd>{cs.mode === 'testnet' ? 'NEAR testnet' : 'Not configured'}</dd>
-          <dt>RPC reachable</dt><dd>{cs.rpcReachable === null ? '—' : cs.rpcReachable ? 'yes' : 'no'}</dd>
-          <dt>Resource contract (NEP-245)</dt><dd>{cs.resourceContractId ?? 'not deployed'}{cs.contractDeployed === false ? ' (no code)' : ''}</dd>
-          <dt>Game vault (custodial)</dt><dd>{cs.vaultAccountId ?? '—'}</dd>
-          {cs.merchantAccounts.map((m) => (<Fragment key={m.merchantId}><dt>Merchant {m.merchantId}</dt><dd>{m.accountId ?? '—'}</dd></Fragment>))}
+          <dt>Settlement</dt><dd>{x.mode === 'testnet' ? 'NEAR testnet' : 'Server ledger (sandbox)'}</dd>
+          <dt>Resource contract (NEP-245)</dt><dd>{acct(cs.resourceContractId)}{cs.contractDeployed === false ? ' (no code)' : ''}</dd>
+          <dt>Vault (operates player ids)</dt><dd>{acct(cs.vaultAccountId)}</dd>
+          {xv?.me?.chainId && <><dt>Your exchange id</dt><dd>{acct(xv.me.chainId)}</dd></>}
+          {x.traderAccounts.map((t) => (<Fragment key={t.traderId}><dt>{t.name}</dt><dd>{acct(t.accountId)}</dd></Fragment>))}
+          <dt>Exchange vs contract</dt>
+          <dd>{x.reconcile ? (x.reconcile.inBalance === true ? `✓ in balance (${x.reconcile.accountsChecked} accounts, ${new Date(x.reconcile.checkedAt).toLocaleTimeString()})` : x.reconcile.inBalance === false ? `✗ ${x.reconcile.note}` : x.reconcile.note) : x.mode === 'testnet' ? 'first check pending' : 'nothing on-chain to compare'}</dd>
         </dl>
       )}
-      {cs?.issues.length ? <ul className="fine">{cs.issues.map((i) => <li key={i}>{i}</li>)}</ul> : null}
-      <p className="eyebrow">ON-CHAIN PURCHASES</p>
-      {chainTrades.length === 0 ? (
-        <p className="fine">No on-chain transfers in this city yet. {s.chain.mode === 'disabled' ? 'Purchases here settle in the game ledger only.' : ''}</p>
-      ) : (
-        chainTrades.map((t) => (
-          <div key={t.tradeId} className="trade-row">
-            <span>{fmtLitres(t.quantity)} · {t.tokenAmount} × {t.tokenId}</span>
-            <span className="pill">{t.chainStatus}</span>
-            {t.explorerUrl ? <a href={t.explorerUrl} target="_blank" rel="noreferrer">{t.txHash?.slice(0, 10)}…</a> : <span className="fine">Transaction hash appears after submission.</span>}
-          </div>
-        ))
+      {myTx.length > 0 && (
+        <>
+          <p className="eyebrow">YOUR EXCHANGE TRANSACTIONS</p>
+          {myTx.slice(0, 10).map((e) => (
+            <div key={e.seq} className="trade-row"><span>{e.explanation}</span>{tx(e.data.txHash as string)}</div>
+          ))}
+        </>
       )}
-      <p className="eyebrow">PLAYER MARKET TRANSFERS</p>
-      {!marketEvidence?.listings.length ? <p className="fine">No player listing transactions recorded for this city.</p> : marketEvidence.listings.map((item, i) => (
-        <div key={`${item.listingId}:${item.operation}:${i}`} className="trade-row">
-          <span>{item.listingId} · {item.operation}{item.merchantId ? ` · ${item.merchantId}` : ''}</span>
-          <span className="pill">{item.status}</span>
-          {item.explorerUrl ? <a href={item.explorerUrl} target="_blank" rel="noreferrer">{item.txHash?.slice(0, 10)}…</a> : <span className="fine">{item.lastError ?? 'Transaction hash appears after submission.'}</span>}
-        </div>
-      ))}
+      {live && cs?.issues.length ? <ul className="fine">{cs.issues.map((i) => <li key={i}>{i}</li>)}</ul> : null}
+      {(chainTrades.length > 0 || (marketEvidence?.listings.length ?? 0) > 0) && (
+        <>
+          <p className="eyebrow">CITY PURCHASES ON-CHAIN (LEGACY)</p>
+          {chainTrades.map((t) => (
+            <div key={t.tradeId} className="trade-row">
+              <span>{fmtLitres(t.quantity)} · {t.tokenAmount} × {t.tokenId}</span>
+              <span className="pill">{t.chainStatus}</span>
+              {t.explorerUrl ? <a href={t.explorerUrl} target="_blank" rel="noreferrer">{t.txHash?.slice(0, 10)}…</a> : <span className="fine">Transaction hash appears after submission.</span>}
+            </div>
+          ))}
+          {marketEvidence?.listings.map((item, i) => (
+            <div key={`${item.listingId}:${item.operation}:${i}`} className="trade-row">
+              <span>{item.listingId} · {item.operation}{item.merchantId ? ` · ${item.merchantId}` : ''}</span>
+              <span className="pill">{item.status}</span>
+              {item.explorerUrl ? <a href={item.explorerUrl} target="_blank" rel="noreferrer">{item.txHash?.slice(0, 10)}…</a> : <span className="fine">{item.lastError ?? 'Transaction hash appears after submission.'}</span>}
+            </div>
+          ))}
+        </>
+      )}
       <p className="fine" style={{ marginTop: 16 }}>{cs?.trustBoundary}</p>
     </Drawer>
   )
 }
 
 // ------------------------------------------------------------------ profile & settings
-export function ProfilePanel({ g, onClose, prefs, setPrefs }: { g: Game; onClose: () => void; prefs: { sound: boolean; reducedMotion: boolean }; setPrefs: (p: { sound: boolean; reducedMotion: boolean }) => void }) {
+export function ProfilePanel({ g, onClose, prefs, setPrefs }: { g: Game; onClose: () => void; prefs: { sound: boolean; music: boolean; reducedMotion: boolean }; setPrefs: (p: { sound: boolean; music: boolean; reducedMotion: boolean }) => void }) {
   const p = g.player!
   const [name, setName] = useState(p.displayName)
-  const [email, setEmail] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const cfg = g.config!
   return (
@@ -432,20 +497,14 @@ export function ProfilePanel({ g, onClose, prefs, setPrefs }: { g: Game; onClose
       {p.kind === 'guest' && (
         <section className="upgrade-account">
           <p className="eyebrow amber">KEEP THIS CITY</p>
-          <p className="fine">Sign in to take this city across devices. Your guest progress moves to the new account; an account with an existing city is never overwritten.</p>
-          {cfg.auth.google && <button className="button wide" onClick={() => { try { sessionStorage.setItem('bo_guest_upgrade', guestUpgradeToken() ?? '') } catch { /* */ } void signInWithGoogle().catch((e) => setMsg(explainError(e))) }}>Continue with Google</button>}
-          {cfg.auth.email && (
-            <form className="email-form" onSubmit={async (e) => { e.preventDefault(); try { await sendEmailLink(email); setMsg(`Check ${email} for a sign-in link.`) } catch (er) { setMsg(explainError(er)) } }}>
-              <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email address" />
-              <button className="button">Email me a link</button>
-            </form>
-          )}
-          {!cfg.auth.google && !cfg.auth.email && <p className="fine">Account sign-in is not configured on this server yet.</p>}
+          <p className="fine">Sign in to play this city on any device. Your guest progress moves to the new account automatically; an account that already has a city is never overwritten.</p>
+          {cfg.auth.google || cfg.auth.email ? <SignInOptions g={g} compact onSignedIn={onClose} /> : <p className="fine">Accounts aren't available on this server yet; your city is saved on this device.</p>}
         </section>
       )}
       {msg && <p className="ok-line">{msg}</p>}
       <div className="settings-list">
-        <label className="setting-toggle"><span><b>Sound</b><small>Soft chimes when power is restored.</small></span><input type="checkbox" checked={prefs.sound} onChange={(e) => setPrefs({ ...prefs, sound: e.target.checked })} /><i aria-hidden /></label>
+        <label className="setting-toggle"><span><b>Sound</b><small>Cues for new calls, restored power, payments, Code Reds and failures.</small></span><input type="checkbox" checked={prefs.sound} onChange={(e) => setPrefs({ ...prefs, sound: e.target.checked })} /><i aria-hidden /></label>
+        <label className="setting-toggle"><span><b>Music</b><small>"Night Shift": a quiet generated synthwave loop.</small></span><input type="checkbox" checked={prefs.music} onChange={(e) => setPrefs({ ...prefs, music: e.target.checked })} /><i aria-hidden /></label>
         <label className="setting-toggle"><span><b>Reduced motion</b><small>Stops pulses, smoke and drifting.</small></span><input type="checkbox" checked={prefs.reducedMotion} onChange={(e) => setPrefs({ ...prefs, reducedMotion: e.target.checked })} /><i aria-hidden /></label>
       </div>
       <p className="fine">{p.near.mode === 'custodial_vault' ? `Purchased resources are held in the game's shared vault (${p.near.accountId}). The game server manages it; withdrawals are not available.` : 'Resources in this city are tracked in its game save.'}</p>
@@ -459,15 +518,26 @@ export function ProfilePanel({ g, onClose, prefs, setPrefs }: { g: Game; onClose
 
 export function HelpPanel({ onClose }: { onClose: () => void }) {
   return (
-    <Drawer title="How to play" eyebrow="THE OUTAGE LOOP" onClose={onClose}>
+    <Drawer title="How to play" eyebrow="YOU ARE THE POWER COMPANY" onClose={onClose}>
+      <p className="fine">You own a diesel generator in a town where the grid keeps failing. Shops pay you to keep their lights on. VoltLine, a rival power company, wants the same customers. Fuel costs money and its price moves. Your job: keep the town lit and finish each day richer.</p>
+      <p className="eyebrow amber">EVERY 30 SECONDS</p>
       <ol className="how-to">
-        <li><b>A shop loses power.</b><span>A request card shows the required kW, duration, offered rate, expected payment, and estimated diesel and CO₂ cost.</span></li>
-        <li><b>Choose the deal.</b><span>Accept the offered rate, make up to two counteroffers, or decline. An unserved request can go to VoltLine.</span></li>
-        <li><b>Assign a generator.</b><span>Select an online generator on the map or from the card. The server checks capacity, fuel, and carbon allowance across every active contract.</span></li>
-        <li><b>Follow delivery.</b><span>When service starts, the cable lights up. Each delivered tick uses diesel, consumes carbon allowance, and bills only the energy delivered.</span></li>
-        <li><b>Build room to grow.</b><span>Buy fuel and permits, add solar, storage, or capacity, and unlock districts. kW is live power; kWh is energy delivered over time.</span></li>
+        <li><b>A shop loses power.</b><span>Its call shows what it needs, what it pays, and your margin after diesel and carbon costs.</span></li>
+        <li><b>Take the deal, or haggle.</b><span>Accept, counter up to twice, or decline. Wait too long and VoltLine takes the customer. 🚨 Code Red calls pay double but give you 7 seconds.</span></li>
+        <li><b>Plug it in.</b><span>Tap a glowing generator. Power flows, the shop lights up, and you're paid for every kWh delivered.</span></li>
       </ol>
-      <p className="fine">Day and night change the city and solar output. Your city pauses when you leave.</p>
+      <p className="eyebrow amber">EVERY FEW MINUTES</p>
+      <ol className="how-to">
+        <li><b>Keep diesel in the tank.</b><span>Market: three merchants price from their own stock, demand and real 2026 oil. Buy before a squeeze.</span></li>
+        <li><b>Trade with other cities.</b><span>Exchange: sell spare fuel to other players and traders at your price, or buy when the board is cheaper than your town. Sales land even while you're away.</span></li>
+        <li><b>Grow.</b><span>Equipment and Expand: solar, batteries, a second generator, new districts with bigger customers.</span></li>
+      </ol>
+      <p className="eyebrow amber">EVERY SHIFT (4 MINUTES)</p>
+      <ol className="how-to">
+        <li><b>Three goals.</b><span>Finish all three for City Council rewards and a streak worth up to +50%.</span></li>
+        <li><b>A world that moves.</b><span>Oil follows real 2026 Brent prices; storms and supply shocks hit every merchant and trader on their own.</span></li>
+      </ol>
+      <p className="fine">The bar at the bottom of the map always says your next move. Your city pauses when you leave; your Exchange offers keep selling.</p>
     </Drawer>
   )
 }
@@ -483,7 +553,8 @@ export function Inspector({ s, id, onClose }: { s: GameStatePublic; id: string; 
         <>
           <p className="eyebrow">{b.status.toUpperCase()} · {b.kind.replace('_', ' ')}</p>
           <h2>{MOOD_ICON[b.mood]} {b.name}</h2>
-          {VOICES[b.businessId] && <p className="voice"><span aria-hidden>{VOICES[b.businessId].face}</span> <b>{VOICES[b.businessId].name}:</b> “{voiceLine(b)}”</p>}
+          {(VOICES[b.businessId] ?? b.owner) && <p className="voice"><span aria-hidden>{(VOICES[b.businessId] ?? b.owner)!.face}</span> <b>{(VOICES[b.businessId] ?? b.owner)!.name}:</b> “{voiceLine(b)}”</p>}
+          {b.owner && <p className="fine">{b.owner.name} {b.owner.trait}.</p>}
           <dl>
             <dt>Needs</dt><dd>{fmtKw(b.demandW)}</dd>
             <dt>Power</dt><dd>{b.powerSource === 'none' ? 'DARK' : b.powerSource}</dd>

@@ -24,6 +24,8 @@ import { lastEventId, openSse } from "./events.ts";
 import { oilSnapshot } from "./oil.ts";
 import { isoWeek, challengeFor } from "./challenge.ts";
 import { ApiError, AUTO_PAUSE_MS, type RunHandle, type RunService } from "./services.ts";
+import type { ExchangeService } from "./exchange.ts";
+import { registerExchangeRoutes } from "./exchangeRoutes.ts";
 
 export const API_VERSION = "2.0.0";
 
@@ -77,10 +79,12 @@ export interface RouteDeps {
   chain: ChainConfig;
   allowedOrigins: string[];
   secureCookies: boolean;
+  /** The shared fuel exchange; omitted only by tools that don't need it. */
+  xsvc?: ExchangeService;
+  /** Local demos only: let guest players trade on the exchange. */
+  exchangeAllowGuests?: boolean;
 }
 
-export const XDEFERRED =
-  "X sign-in is deferred: the X API free tier is closed to new developers (pay-per-use since Feb 2026 per public reports), and this project does not purchase paid API access.";
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   const { db, svc, chain, auth } = deps;
@@ -163,6 +167,38 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   app.get("/api/me", async (req) => ({ ok: true, player: profile(await requireUser(req)) }));
 
+  // ------------------------------------------------------------ local email-code sign-in (no Supabase)
+  const codeLimiter = new RateLimiter(1 / 20, 3); // ~3 codes per minute per address, then one every 20 s
+  const Email = z.string().trim().toLowerCase().email().max(254);
+  app.post("/api/auth/email/start", async (req) => {
+    if (!auth.supabase.local.enabled) throw new ApiError("AUTH_PROVIDER_UNAVAILABLE", "Email sign-in is handled by the account provider on this server.");
+    const body = parse(z.object({ email: Email }), req.body);
+    if (!codeLimiter.take(`ip:${req.ip}`) || !codeLimiter.take(`email:${body.email}`)) throw new ApiError("RATE_LIMITED", "Too many codes requested. Wait a minute and try again.");
+    const code = auth.startEmailCode(body.email);
+    // No mail server in local mode: the code goes to the server log (and, in local test mode, to the page).
+    req.log.info({ emailDomain: body.email.split("@")[1] }, "local sign-in code issued");
+    console.log(`[auth] local sign-in code for ${body.email}: ${code} (valid 10 min)`);
+    return { ok: true, sent: true, ...(auth.supabase.local.showCode ? { devCode: code } : {}) };
+  });
+  app.post("/api/auth/email/verify", async (req, reply) => {
+    if (!auth.supabase.local.enabled) throw new ApiError("AUTH_PROVIDER_UNAVAILABLE", "Email sign-in is handled by the account provider on this server.");
+    const body = parse(z.object({ email: Email, code: z.string().regex(/^\d{6}$/) }), req.body);
+    const current = await auth.authenticate(req);
+    let out;
+    try {
+      out = auth.verifyEmailCode(body.email, body.code, current);
+    } catch (e) {
+      const m = (e as Error).message;
+      if (m === "CODE_WRONG") throw new ApiError("VALIDATION_FAILED", "That code doesn't match. Check the latest email and try again.");
+      if (m === "CODE_LOCKED") throw new ApiError("RATE_LIMITED", "Too many wrong codes. Request a new one.");
+      if (m === "CODE_EXPIRED") throw new ApiError("VALIDATION_FAILED", "That code has expired. Request a new one.");
+      throw e;
+    }
+    if (out.token) setSessionCookie(reply, out.token, deps.secureCookies);
+    const p = auth.player(out.playerId)!;
+    return { ok: true, upgradedGuest: out.upgradedGuest, player: { playerId: p.player_id, displayName: p.display_name, kind: p.kind, activeRunId: p.active_run_id } };
+  });
+
   app.patch("/api/me", async (req) => {
     const u = await requireUser(req);
     writeGuard(req, u.sessionId);
@@ -172,12 +208,17 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   });
 
   /** Guest -> registered upgrade. Caller authenticates with the Supabase JWT; body carries the guest token. */
-  app.post("/api/auth/link-guest", async (req) => {
+  app.post("/api/auth/link-guest", async (req, reply) => {
     const u = await requireUser(req);
     writeGuard(req, u.sessionId);
     if (u.provider !== "supabase") throw new ApiError("UNAUTHORIZED", "Sign in with Google or email first, then link the guest city.");
-    const body = parse(z.object({ guestToken: z.string().min(20).max(200) }), req.body);
-    const guest = auth.guestFromToken(body.guestToken);
+    const body = parse(z.object({ guestToken: z.string().min(20).max(200).optional() }), req.body);
+    // The browser still holds the guest's HTTP-only session cookie after a Google/email redirect, so the
+    // city can be linked without the page ever having stored the guest token.
+    const cookieToken = (req.headers.cookie ?? "").split(";").map((c) => c.trim()).find((c) => c.startsWith("bo_session="))?.slice("bo_session=".length);
+    const guestToken = body.guestToken ?? (cookieToken ? decodeURIComponent(cookieToken) : null);
+    if (!guestToken) throw new ApiError("NOT_FOUND", "No guest city to link on this device.");
+    const guest = auth.guestFromToken(guestToken);
     if (!guest || guest.kind !== "guest") throw new ApiError("NOT_FOUND", "Guest session not found or already linked.");
     const p = auth.player(u.userId);
     const ids = auth.identities(u.userId);
@@ -198,7 +239,8 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     }
     const r = auth.linkGuest(guest, "supabase", row.subject, sub.login_method ?? "unknown", p?.display_name ?? "Operator");
     if (!r.ok) throw new ApiError("ACCOUNT_EXISTS", "This account already has a city.");
-    auth.revokeGuestSession(body.guestToken);
+    auth.revokeGuestSession(guestToken);
+    clearSessionCookie(reply, deps.secureCookies);
     return { ok: true, player: profile({ ...u, userId: r.playerId, kind: "registered" }) };
   });
 
@@ -339,7 +381,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get<{ Params: { id: string } }>("/api/runs/:id/market", async (req) => {
     const u = await requireUser(req);
     const st = svc.publicState(svc.requireOwner(req.params.id, u.userId));
-    return { ok: true, phase: st.clock.phase, marketOpen: st.clock.phase !== "finished", world: st.world, merchants: st.merchants, regulator: st.regulator, quotes: st.quotes, trades: st.trades };
+    return { ok: true, phase: st.clock.phase, marketOpen: st.clock.phase !== "finished", world: st.world, merchants: st.merchants, regulator: st.regulator, quotes: st.quotes, trades: st.trades, marketListings: st.marketListings };
   });
   app.get<{ Params: { id: string }; Querystring: { cursor?: string; limit?: string; eventsAfter?: string; asset?: string } }>("/api/runs/:id/ledger", async (req) => {
     const u = await requireUser(req);
@@ -472,8 +514,16 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       explorerBaseUrl: chain.enabled ? chain.explorerTxBase : null,
       tokenIds: TOKEN_IDS,
       trustBoundary:
-        "Electricity, heat, customers and NPC decisions are simulated by this server and are reproducible from seed + action log. In chain mode, merchant diesel purchases enter the shared custodial vault; player listings move those resources into NEP-245 escrow and NPC purchases transfer them to the merchant account. Listing payments remain off-chain, non-redeemable game credits. No contract verifies that electricity was produced.",
+        "Electricity, heat, customers, city merchants and NPC decisions are simulated by this server and are reproducible from seed + action log. On Testnet, the shared fuel exchange holds every player's warehouse fuel, open offers (escrow) and trader stock as NEP-245 balances; players' ids live in the vault's namespace and only the vault operator can move them, while each trader signs its own trades. Credits are fictional and never touch the chain. No contract verifies that electricity was produced.",
       issues: st.issues,
+      exchange: deps.xsvc
+        ? {
+            mode: deps.xsvc.sandbox ? ("sandbox" as const) : ("testnet" as const),
+            traderAccounts: Object.values(deps.xsvc.state.traders).map((t) => ({ traderId: t.traderId, name: t.params.name, accountId: chain.traders[t.traderId]?.accountId ?? null })),
+            reconcile: deps.xsvc.lastReconcile,
+            note: deps.xsvc.modeConflict ?? (deps.xsvc.sandbox ? "The exchange runs on this server's ledger; NEAR Testnet is not configured for it, so it records no transaction hashes." : "Exchange fuel is held on NEAR Testnet; every deposit, offer, sale and delivery home is a contract call."),
+          }
+        : undefined,
     };
   });
   app.get("/api/chain/market-listings", async (req) => {
@@ -542,16 +592,18 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     offlinePolicy:
       "Leaving pauses your city: no fuel burns, no customer bills, no rent and no bankruptcy while you are away. Contracts resume mid-delivery when you return. Economy Lab simulations never touch your save.",
     chainMode: chain.enabled ? "testnet" : "disabled",
-    authModes: ["guest", ...(auth.supabase.providers.google ? ["google"] : []), ...(auth.supabase.providers.email ? ["email"] : [])],
+    authModes: ["guest", ...(auth.supabase.providers.google ? ["google"] : []), ...(auth.supabase.providers.email || auth.supabase.local.enabled ? ["email"] : [])],
     auth: {
       guest: true as const,
       supabaseUrl: auth.supabase.enabled ? auth.supabase.url : null,
       supabaseAnonKey: auth.supabase.enabled ? auth.supabase.anonKey : null,
       google: auth.supabase.providers.google,
-      email: auth.supabase.providers.email,
-      x: false as const,
-      xDeferredReason: XDEFERRED,
+      email: auth.supabase.providers.email || auth.supabase.local.enabled,
+      local: auth.supabase.local.enabled,
+      localShowsCode: auth.supabase.local.showCode,
     },
     disclaimer: "Credits are imaginary game currency; they cannot be withdrawn, redeemed or traded for money.",
   }));
+
+  if (deps.xsvc) registerExchangeRoutes(app, { xsvc: deps.xsvc, svc, auth, allowGuests: !!deps.exchangeAllowGuests, requireUser, writeGuard, parse, activeRun });
 }

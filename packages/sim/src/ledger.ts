@@ -14,6 +14,8 @@ export const ACC = {
   escrowTrades: "escrow:trades",
   escrowListings: "escrow:listings",
   escrowMarket: "escrow:market",
+  /** Credits held for shared-exchange purchases that are still settling. */
+  escrowExchange: "escrow:exchange",
   business: (id: string) => `business:${id}`,
   merchant: (id: string) => `merchant:${id}`,
   districtPool: (id: string) => `district_pool:${id}`,
@@ -28,6 +30,10 @@ export const ACC = {
   fuelBurned: "world:fuel_burned",
   permitsRetired: "world:permits_retired",
   permitIssuer: "world:permit_issuer",
+  /** The shared Vesper Fuel Exchange, seen from one city: fuel and credits that left for or arrived from it. */
+  exchange: "world:exchange",
+  /** The City Council's emergency fund pays daily-goal rewards. */
+  council: "world:city_council",
 } as const;
 
 export const isWorld = (acct: string): boolean => acct.startsWith("world:");

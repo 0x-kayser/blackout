@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildServer } from "../../apps/api/src/server.ts";
 import { interpretTxResult, loadChainConfig, type ChainConfig, type SubmitResult } from "../../apps/api/src/chain.ts";
-import { processChainJobs, type ChainDeps } from "../../apps/api/src/workers.ts";
+import { processChainJobs, processMarketplaceJobs, type ChainDeps, type MarketplaceDeps } from "../../apps/api/src/workers.ts";
 
 // A fully "configured" chain config pointing at a fake RPC: every RPC interaction
 // in these tests goes through injected fakes, so no network and no real keys.
@@ -17,6 +17,7 @@ const fakeEnv = {
   NEAR_MERCHANT_LANTERN_PRIVATE_KEY: "ed25519:fake",
   NEAR_MERCHANT_HARBOR_ACCOUNT_ID: "harbor.blackout-test.testnet",
   NEAR_MERCHANT_HARBOR_PRIVATE_KEY: "ed25519:fake",
+  NEAR_CITY_PURCHASES_ON_CHAIN: "true",
 };
 
 type Built = Awaited<ReturnType<typeof buildServer>>;
@@ -35,7 +36,7 @@ afterEach(async () => {
 async function pendingTrade() {
   const s = await built.app.inject({ method: "POST", url: "/api/session/start", payload: {} });
   const token = s.json().token as string;
-  const r = await built.app.inject({ method: "POST", url: "/api/runs", headers: { authorization: `Bearer ${token}` }, payload: { seed: 1, mode: "play" } });
+  const r = await built.app.inject({ method: "POST", url: "/api/runs", headers: { authorization: `Bearer ${token}` }, payload: { seed: 1, mode: "play", worldMode: "calm" } });
   const runId = r.json().state.run.runId as string;
   expect(r.json().state.chain.mode).toBe("testnet");
   const h = built.svc.get(runId);
@@ -43,7 +44,7 @@ async function pendingTrade() {
   const q = built.svc.act(h, { action: { type: "REQUEST_QUOTE", sellerId: "merchant:ember", item: "diesel", quantity: 5_000 }, idempotencyKey: "q-123456789" });
   const b = built.svc.act(h, { action: { type: "BUY", quoteId: q.result!.quoteId as string, quantity: 5_000 }, idempotencyKey: "b-123456789" });
   const tradeId = b.result!.tradeId as string;
-  return { h, runId, tradeId, fuelBefore: h.state.balances.fuel_ml.player };
+  return { h, runId, tradeId, token, fuelBefore: h.state.balances.fuel_ml.player };
 }
 
 const HASH = "4ZbV4k1Tcv1oWy1hoxUo4o9b2cUqGgYyU6wF7pK2ZWwz";
@@ -133,6 +134,99 @@ describe("chain worker", () => {
     const r = await built.app.inject({ method: "POST", url: "/api/runs", headers: { authorization: `Bearer ${s.json().token}` }, payload: { mode: "guest_demo" } });
     expect(r.json().state.chain.mode).toBe("disabled");
     expect(r.json().state.merchants.every((m: { accountId: string | null }) => m.accountId === null)).toBe(true);
+  });
+
+  it("requires a registered player for listings, then settles an autonomous purchase and exposes private judge evidence", async () => {
+    const { h, runId, token, tradeId } = await pendingTrade();
+    const purchaseDeps: ChainDeps = {
+      submit: vi.fn(async (_c, _m, _k, _t, _a, onSigned) => {
+        onSigned!(HASH, "ember.blackout-test.testnet");
+        return { txHash: HASH, signerId: "ember.blackout-test.testnet", outcome: { status: "confirmed", txHash: HASH, signerId: "ember.blackout-test.testnet", receiverId: cfg.resourceContractId!, detail: "FINAL" } } satisfies SubmitResult;
+      }),
+      lookup: vi.fn(),
+      contractStatus: vi.fn(),
+    };
+    await processChainJobs(built.db, built.svc, cfg, purchaseDeps);
+    expect(h.state.trades[tradeId].chainStatus).toBe("confirmed");
+
+    const denied = await built.app.inject({
+      method: "POST", url: `/api/runs/${runId}/actions`, headers: { authorization: `Bearer ${token}` },
+      payload: { action: { type: "CREATE_PLAYER_LISTING", listingId: "guest-listing", quantityMl: 1_000, unitPriceCcPerL: 800 }, idempotencyKey: "guest-listing-key" },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe("FORBIDDEN");
+
+    const guest = built.auth.guestFromToken(token)!;
+    built.auth.linkGuest(guest, "supabase", "verified-test-subject", "email", "Tester");
+    built.auth.setActiveRun(h.ownerId, runId);
+    const created = await built.app.inject({
+      method: "POST", url: `/api/runs/${runId}/actions`, headers: { authorization: `Bearer ${token}` },
+      payload: { action: { type: "CREATE_PLAYER_LISTING", listingId: "registered-listing-1", quantityMl: 1_000, unitPriceCcPerL: 800 }, idempotencyKey: "registered-listing-key" },
+    });
+    expect(created.statusCode).toBe(200);
+    expect(created.json().state.marketListings[0].status).toBe("reserved");
+
+    const listHash = "5BbV4k1Tcv1oWy1hoxUo4o9b2cUqGgYyU6wF7pK2ZWwz";
+    const fillHash = "6CbV4k1Tcv1oWy1hoxUo4o9b2cUqGgYyU6wF7pK2ZWwz";
+    const listingDeps: MarketplaceDeps = {
+      submitList: vi.fn(async (_c, _seller, _listing, _token, _amount, _price, onSigned) => {
+        onSigned!(listHash, cfg.vaultAccountId!);
+        return { txHash: listHash, signerId: cfg.vaultAccountId!, outcome: { status: "confirmed", txHash: listHash, signerId: cfg.vaultAccountId!, receiverId: cfg.resourceContractId!, detail: "FINAL" } } satisfies SubmitResult;
+      }),
+      submitCancel: vi.fn(),
+      submitFill: vi.fn(async (_c, _listing, _buyer, onSigned) => {
+        onSigned!(fillHash, cfg.vaultAccountId!);
+        return { txHash: fillHash, signerId: cfg.vaultAccountId!, outcome: { status: "confirmed", txHash: fillHash, signerId: cfg.vaultAccountId!, receiverId: cfg.resourceContractId!, detail: "FINAL" } } satisfies SubmitResult;
+      }),
+      lookup: vi.fn(),
+      listingStatus: vi.fn(),
+    };
+    await processMarketplaceJobs(built.db, built.svc, cfg, listingDeps);
+    expect(h.state.marketListings[0].status).toBe("purchase_pending");
+    expect(h.state.marketListings[0].buyerMerchantId).toBe("ember");
+    await processMarketplaceJobs(built.db, built.svc, cfg, listingDeps);
+    expect(h.state.marketListings[0].status).toBe("filled");
+    expect(listingDeps.submitList).toHaveBeenCalledTimes(1);
+    expect(listingDeps.submitFill).toHaveBeenCalledTimes(1);
+
+    const evidence = await built.app.inject({ method: "GET", url: "/api/chain/market-listings", headers: { authorization: `Bearer ${token}` } });
+    expect(evidence.statusCode).toBe(200);
+    expect(evidence.json().listings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ listingId: "registered-listing-1", operation: "list", status: "confirmed", txHash: listHash }),
+      expect.objectContaining({ listingId: "registered-listing-1", operation: "fill", status: "confirmed", txHash: fillHash }),
+    ]));
+  });
+
+  it("does not re-submit or release a listing while its outcome is unknown", async () => {
+    const { h, token } = await pendingTrade();
+    const purchaseDeps: ChainDeps = {
+      submit: vi.fn(async (_c, _m, _k, _t, _a, onSigned) => {
+        onSigned!(HASH, "ember.blackout-test.testnet");
+        return { txHash: HASH, signerId: "ember.blackout-test.testnet", outcome: { status: "confirmed", txHash: HASH, signerId: "ember.blackout-test.testnet", receiverId: cfg.resourceContractId!, detail: "FINAL" } } satisfies SubmitResult;
+      }), lookup: vi.fn(), contractStatus: vi.fn(),
+    };
+    await processChainJobs(built.db, built.svc, cfg, purchaseDeps);
+    const guest = built.auth.guestFromToken(token)!;
+    built.auth.linkGuest(guest, "supabase", "unknown-outcome-subject", "email", "Tester");
+    built.svc.act(h, { action: { type: "CREATE_PLAYER_LISTING", listingId: "unknown-listing", quantityMl: 1_000, unitPriceCcPerL: 800 }, idempotencyKey: "unknown-listing-key" });
+    const before = h.state.balances.fuel_ml["escrow:listings"];
+    let calls = 0;
+    const deps: MarketplaceDeps = {
+      submitList: vi.fn(async (_c, _seller, _listing, _token, _amount, _price, onSigned) => {
+        calls += 1;
+        onSigned!(HASH, cfg.vaultAccountId!);
+        return { txHash: HASH, signerId: cfg.vaultAccountId!, outcome: { status: "pending" as const, txHash: HASH, detail: "RPC uncertain" } };
+      }),
+      submitCancel: vi.fn(), submitFill: vi.fn(),
+      lookup: vi.fn(async () => ({ status: "unknown" as const, txHash: HASH, detail: "not indexed yet" })),
+      listingStatus: vi.fn(async () => null),
+    };
+    await processMarketplaceJobs(built.db, built.svc, cfg, deps);
+    expect(h.state.marketListings[0].status).toBe("reserved");
+    expect(h.state.balances.fuel_ml["escrow:listings"]).toBe(before);
+    await processMarketplaceJobs(built.db, built.svc, cfg, deps);
+    expect(calls).toBe(1);
+    expect(h.state.marketListings[0].status).toBe("reserved");
   });
 });
 

@@ -81,7 +81,7 @@ The `/api/runs/*` routes remain for tools and tests; the game UI uses `/api/game
 | GET | `/api/runs/:id/state` | owner | canonical snapshot | `RunStateResponseSchema` |
 | POST | `/api/runs/:id/actions` | owner | `{action, idempotencyKey, expectedStateVersion?}` | `ActionResultSchema` |
 | POST | `/api/runs/:id/quote` | owner | server quote `{sellerId, item, quantity, idempotencyKey}` | `ActionResultSchema` (`result.quote`) |
-| GET | `/api/runs/:id/market` | owner | merchants, regulator, quotes, trades | `MarketResponseSchema` |
+| GET | `/api/runs/:id/market` | owner | merchants, regulator, quotes, trades, player listings | `MarketResponseSchema` |
 | GET | `/api/runs/:id/ledger?cursor&limit&eventsAfter&asset` | owner | double-entry ledger + events | `LedgerResponseSchema` |
 | GET | `/api/runs/:id/events` | owner | SSE stream (see §5) | — |
 | POST | `/api/replays` | – | 7-day fast-forward `{seed, scenarioId, policyId, days}` | `ReplayResponseSchema` |
@@ -90,6 +90,7 @@ The `/api/runs/*` routes remain for tools and tests; the game UI uses `/api/game
 | POST | `/api/replays/compare` | – | same seed, two policies | `CompareResponseSchema` |
 | GET | `/api/chain/status` | – | contract/accounts/network, trust boundary | `ChainStatusResponseSchema` |
 | GET | `/api/chain/transfers/:hash` | – | RPC-verified tx status | `TransferStatusResponseSchema` |
+| GET | `/api/chain/market-listings` | ✓ | current player's listing-operation status and verified explorer links for judges | `MarketListingEvidenceResponseSchema` |
 | GET | `/api/health` | – | DB + chain health | `HealthResponseSchema` |
 | GET | `/api/config/public` | – | timing, scenarios, pause policy, disclaimer | `PublicConfigSchema` |
 
@@ -107,6 +108,8 @@ and reject disallowed `Origin` headers. Default allowed origin: `http://localhos
 | `CANCEL_CONTRACT` | `contractId` | operating | refunds only unearned escrow |
 | `REQUEST_QUOTE` | `sellerId` (`merchant:<id>` \| `regulator`), `item` (`diesel`\|`permit`), `quantity` (mL \| permits) | any | `{quoteId}` (prefer `/quote` route which also returns the quote) |
 | `BUY` | `quoteId`, `quantity` | any | `{tradeId, chainStatus}` — the client never sends a price |
+| `CREATE_PLAYER_LISTING` | `listingId`, `quantityMl` (100 mL units), `unitPriceCcPerL` | Testnet city, registered player | reserves confirmed, unreserved fuel and queues contract escrow; listable fuel is exposed as `player.listableFuelMl` |
+| `CANCEL_PLAYER_LISTING` | `listingId` | Testnet city, registered owner | queues a return from contract escrow; fuel stays reserved until confirmed |
 | `SET_TARIFF` | `districtId`, `rateCcPerKwh` (100–3000) | any | affects new requests |
 | `SERVICE_GENERATOR` | `generatorId` | any | 60 credits, wear reset, offline first 12 game hours |
 | `BUY_UPGRADE` | `upgradeId` (`solar_2kw` \| `battery_10kwh` \| `diesel_5kw`) | any | |
@@ -143,6 +146,24 @@ REQUEST_QUOTE ─▶ quote(open, expiresTick) ─BUY─▶ trade(status: reserve
                                                         └unknown─▶ reconcile by hash, then by contract.trade_status(); never re-broadcast
 ```
 `txHash` / `explorerUrl` are `null` until an RPC final outcome is verified.
+
+### Player listing / NPC purchase state machine
+
+```
+CREATE_PLAYER_LISTING ─▶ reserved (local fuel lock) ─▶ list job submitted ─▶ active (NEP-245 escrow confirmed)
+                                                              └definitive failure ─▶ failed + fuel returned
+active ──NPC policy accepts──▶ purchase_pending (NPC credits reserved)
+  ├─fill confirmed ─▶ filled (resource to NPC account; game credits to player)
+  ├─definitive fill failure ─▶ active (NPC credits refunded)
+  └─unknown ─▶ stay purchase_pending while hash / contract view reconcile
+active ──cancel / seven in-game days──▶ cancel_pending ──confirmed──▶ cancelled / expired (fuel returned)
+```
+
+Only registered players in a Testnet-enabled city can list. The NPC rule reads current stockroom space, recent demand,
+replacement cost and spendable cash above its operating reserve; the reason map is sent in the game state. Listing
+prices and settlement credits remain fictional, off-chain credits. A definitive failed transaction compensates once;
+unknown outcomes keep resources and credits reserved until reconciliation. Detailed hashes are only in the optional
+Verify panel and `/api/chain/market-listings`.
 
 ## 5. Server-Sent Events: `GET /api/runs/:id/events`
 

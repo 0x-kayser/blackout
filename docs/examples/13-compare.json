@@ -16,30 +16,28 @@
     "seed": 424242,
     "a": {
       "final": {
-        "netWorthCc": 187080,
-        "reliabilityBps": 9771,
-        "cityGdpCc": 2713494,
+        "netWorthCc": 252141,
+        "reliabilityBps": 9030,
+        "cityGdpCc": 3749729,
         "closures": 0,
-        "score": 5560
+        "score": 7173
       },
-      "traceHash": "0c937443f1d7e3878f6ea9066c47e8190072acbc3d3034b74b7ed91f75fa8bd9"
+      "traceHash": "015c1ffc7f374cb38a50c68b289b8ad04456318837a54d3dcf8951a85d769baa"
     },
     "b": {
       "final": {
-        "netWorthCc": 148313,
-        "reliabilityBps": 8358,
-        "cityGdpCc": 2715994,
+        "netWorthCc": 197717,
+        "reliabilityBps": 9030,
+        "cityGdpCc": 3749729,
         "closures": 0,
-        "score": 5033
+        "score": 6629
       },
-      "traceHash": "36258ec117f11a8ab2ce0cf8b11d39165c981ec7df56cbb4ea2c875d539b8e6f"
+      "traceHash": "071b3c23783f17c2a4d89c96f36a66f8937470af46ac462e7f507e8f6898634c"
     },
     "differences": [
-      "Net worth: diesel ₡1870.80 vs diversified ₡1483.13",
-      "Reliability: diesel 97.7% vs diversified 83.6%",
-      "City GDP: diesel ₡27134.94 vs diversified ₡27159.94",
-      "Solar energy: diesel 0.0 kWh vs diversified 26.2 kWh",
-      "Diesel energy: diesel 308.3 kWh vs diversified 235.8 kWh"
+      "Net worth: diesel ₡2521.41 vs diversified ₡1977.17",
+      "Solar energy: diesel 0.0 kWh vs diversified 30.3 kWh",
+      "Diesel energy: diesel 166.7 kWh vs diversified 107.7 kWh"
     ]
   }
 }

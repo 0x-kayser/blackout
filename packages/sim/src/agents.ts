@@ -14,6 +14,9 @@ import { worldModifiers } from "./world-events/engine.ts";
 // ------------------------------------------------------------------ rival
 
 /** Rival tariff policy: unit cost (fuel + carbon + maintenance) plus an adaptive margin. */
+/** VoltLine starts competing once the player's company has grown past a street generator. */
+export const rivalActive = (s: SimState) => (s.company?.stage ?? 1) >= 2;
+
 export function computeRivalTariff(s: SimState): SimState["rival"]["tariffReasons"] {
   const r = s.rival;
   // daytime solar (if the rival built some) covers roughly a quarter of its energy at zero fuel cost
@@ -41,7 +44,7 @@ export function repriceRival(s: SimState, ctx: Ctx, cause: string): void {
   const r = s.rival;
   // adaptive margin: won lots yesterday -> push margin up; lost bids -> undercut
   if (r.wonToday + r.declinedToday > 0 || cause.startsWith("morning")) {
-    const adj = r.wonToday >= 3 ? 500 : r.wonToday === 0 && s.day > RIVAL.activeFromDay ? -500 : 0;
+    const adj = r.wonToday >= 3 ? 500 : r.wonToday === 0 && rivalActive(s) ? -500 : 0;
     r.marginBps = Math.max(RIVAL.minMarginBps, Math.min(RIVAL.maxMarginBps, r.marginBps + adj));
   }
   const old = r.tariffCcPerKwh;
@@ -122,7 +125,7 @@ export function rivalShop(s: SimState, ctx: Ctx): void {
  * The rival only wins if it can physically supply and the customer accepts its tariff.
  */
 export function rivalBid(s: SimState, ctx: Ctx, req: RequestState, why: string): void {
-  if (s.day < RIVAL.activeFromDay) return;
+  if (!rivalActive(s)) return;
   const r = s.rival;
   const b = s.businesses[req.businessId];
   const reasons: string[] = [];
@@ -160,7 +163,7 @@ export function rivalBid(s: SimState, ctx: Ctx, req: RequestState, why: string):
 
 /** Day 2+: customers re-evaluate their provider from prices, loyalty and gouging history. */
 export function customersChooseProvider(s: SimState, ctx: Ctx): void {
-  if (s.day < RIVAL.activeFromDay) return;
+  if (!rivalActive(s)) return;
   const r = s.rival;
   for (const b of Object.values(s.businesses)) {
     if (b.status === "closed" || !s.districts[b.districtId].unlocked || b.fixedTariffCcPerKwh !== null) continue;
@@ -199,7 +202,9 @@ export function resetRivalDay(s: SimState): void {
 /** Dawn: issue today's permit supply (cap) and set the auction price from yesterday's emissions. */
 export function regulatorMorning(s: SimState, ctx: Ctx): void {
   const reg = s.regulator;
-  const baseCap = REGULATOR.dailyCapPermits[Math.min(s.day - 1, REGULATOR.dailyCapPermits.length - 1)];
+  // the permit supply grows with the part of the city the grid serves
+  const connected = Object.values(s.districts).filter((d) => d.unlocked).length;
+  const baseCap = REGULATOR.dailyCapPermits[Math.min(s.day - 1, REGULATOR.dailyCapPermits.length - 1)] * Math.max(1, connected);
   const policyBps = worldModifiers(s).permitSupplyBps;
   const cap = Math.max(1, Math.round((baseCap * (10_000 + policyBps)) / 10_000));
   const prevCap = reg.dailyCapPermits;
@@ -214,7 +219,7 @@ export function regulatorMorning(s: SimState, ctx: Ctx): void {
   reg.permitPriceCc = Math.round((REGULATOR.basePermitPriceCc * mult) / 10_000 / 10) * 10;
   reg.priceReason = `Base ${cr(REGULATOR.basePermitPriceCc)}; yesterday's emissions ${(reg.emissionsYesterdayMg / 1e6).toFixed(1)} kg vs cap ${(target / 1e6).toFixed(0)} kg (${pressureBps >= 0 ? "+" : ""}${(pressureBps / 100).toFixed(1)}%)${cap < prevCap ? ", cap cut +15%" : ""} → ${cr(reg.permitPriceCc)} per permit.`;
   if (s.day > 1 && cap < prevCap) {
-    const note = `Day ${s.day}: Vesper City's regulator cut the daily permit cap from ${prevCap} to ${cap} permits (${cap * 10} kg CO2)${policyBps ? " — fictional local policy event" : ""}.`;
+    const note = `Vesper City's regulator cut the daily permit cap from ${prevCap} to ${cap} permits (${cap * 10} kg CO2)${policyBps ? " — fictional local policy event" : ""}.`;
     reg.notices.push(note);
     emit(s, ctx, "REGULATOR_NOTICE", ["regulator"], note, { capPermits: cap, prevCapPermits: prevCap });
   }

@@ -7,7 +7,7 @@
  */
 import { seedRng, rngInt, rngRange } from "../prng.ts";
 import { emit, type Ctx, type SimState } from "../state.ts";
-import { FICTIONAL_TEMPLATES, HISTORICAL_ANNOTATIONS, PRESETS, type FictionalTemplate } from "./catalog.ts";
+import { FICTIONAL_TEMPLATES, FLASH_TEMPLATES, HISTORICAL_ANNOTATIONS, PRESETS, type FictionalTemplate } from "./catalog.ts";
 import { MODIFIER_BOUNDS, ZERO_MODIFIERS, type WorldEventState, type WorldMode, type WorldModifiers, type WorldState } from "./types.ts";
 
 const DAY_TICKS = 240;
@@ -68,10 +68,10 @@ function describe(e: Partial<WorldModifiers>, historical: boolean): string[] {
   return out;
 }
 
-function start(s: SimState, ctx: Ctx, ev: Omit<WorldEventState, "eventId" | "startTick" | "endTick" | "startDay" | "phase">, days: number, onStarted: (e: WorldEventState) => void): void {
+function start(s: SimState, ctx: Ctx, ev: Omit<WorldEventState, "eventId" | "startTick" | "endTick" | "startDay" | "phase">, days: number, onStarted: (e: WorldEventState) => void, ticks?: number): void {
   const w = ensureWorld(s);
   w.seq += 1;
-  const e: WorldEventState = { ...ev, eventId: `wev_${w.seq}`, startTick: s.tick, endTick: s.tick + days * DAY_TICKS, startDay: s.day, phase: "building" };
+  const e: WorldEventState = { ...ev, eventId: `wev_${w.seq}`, startTick: s.tick, endTick: s.tick + (ticks ?? days * DAY_TICKS), startDay: s.day, phase: "building" };
   w.active.push(e);
   const effects = describe(e.effects, historicalPrices(s));
   emit(s, ctx, "WORLD_EVENT_STARTED", ["world"], `${e.headline}. In Vesper City: ${effects.join(", ")}. ${e.verification === "sourced" ? `Source: ${e.sourceTitle}.` : "Fictional game scenario."}`, {
@@ -127,6 +127,20 @@ export function worldTick(s: SimState, ctx: Ctx, onChange: (kind: "started" | "e
     }
   }
   if (w.mode === "calm") return;
+  // market flashes: every 15 s after the tutorial, a seeded chance of a short local shock (never in presets/history)
+  if (!w.preset && w.mode !== "historical" && s.wavesTotal > 4 && s.phaseTick % 15 === 7) {
+    const flashes = w.active.filter((e) => e.flash);
+    if (flashes.length < 3 && rngInt(w.rng, 100) < 45) {
+      const pool = FLASH_TEMPLATES.filter((t) => !w.active.some((a) => a.templateId === t.templateId));
+      const total = pool.reduce((a, t) => a + t.weight, 0);
+      if (total > 0) {
+        let r = rngInt(w.rng, total);
+        const t = pool.find((x) => (r -= x.weight) < 0)!;
+        const { minTicks, maxTicks, weight: _w, ...rest } = t;
+        start(s, ctx, { ...fromTemplate({ ...rest, minDays: 1, maxDays: 1, weight: 1 }), flash: true }, 0, (e) => onChange("started", e), rngRange(w.rng, minTicks, maxTicks));
+      }
+    }
+  }
   const dayTick = s.phaseTick;
   if (dayTick !== 0 && dayTick !== 120) return; // decision intervals: 06:00 and 18:00
 
@@ -178,11 +192,11 @@ export function worldTick(s: SimState, ctx: Ctx, onChange: (kind: "started" | "e
   }
 
   // living / scenario: seeded random events once the tutorial is over
-  if (s.wavesTotal <= 4 || w.active.length >= 2) return;
+  if (s.wavesTotal <= 4 || w.active.filter((e) => !e.flash).length >= 2) return;
   // the first event after the tutorial is guaranteed (pacing); later ones are a seeded 45% roll
-  const first = w.history.length === 0 && w.active.length === 0;
+  const first = w.history.filter((e) => !e.flash).length === 0 && w.active.filter((e) => !e.flash).length === 0;
   if (!first && rngInt(w.rng, 100) >= 45) return;
-  const activeCats = new Set(w.active.map((e) => e.category));
+  const activeCats = new Set(w.active.filter((e) => !e.flash).map((e) => e.category));
   const pool = FICTIONAL_TEMPLATES.filter((t) => !activeCats.has(t.category) && !w.active.some((a) => a.templateId === t.templateId));
   if (!pool.length) return;
   const total = pool.reduce((a, t) => a + t.weight, 0);

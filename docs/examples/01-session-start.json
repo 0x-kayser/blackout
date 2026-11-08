@@ -6,13 +6,13 @@
   },
   "response": {
     "ok": true,
-    "sessionId": "sess_eaadc173-1ec1-4902-85b3-edce792e8d54",
+    "sessionId": "sess_1d541290-8228-4c41-839a-eb63f0a5bf8a",
     "token": "<opaque bearer token>",
     "user": {
-      "userId": "guest_434566aa-f325-451b-91cd-d93ab47ef438",
+      "userId": "guest_989cd475-3891-41b5-9e47-6cbe293c577c",
       "kind": "guest"
     },
     "authMode": "guest_local",
-    "note": "Guest session: no email, wallet or seed phrase. Sign in with Google or email later to keep this city on another device."
+    "note": "Guest city started. Sign in with Google or email later to keep it on another device."
   }
 }

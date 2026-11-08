@@ -44,8 +44,8 @@
       "supabaseAnonKey": null,
       "google": false,
       "email": false,
-      "x": false,
-      "xDeferredReason": "X sign-in is deferred: the X API free tier is closed to new developers (pay-per-use since Feb 2026 per public reports), and this project does not purchase paid API access."
+      "local": false,
+      "localShowsCode": false
     },
     "disclaimer": "Credits are imaginary game currency; they cannot be withdrawn, redeemed or traded for money."
   }

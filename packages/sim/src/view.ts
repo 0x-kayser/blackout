@@ -4,7 +4,7 @@
  * rolled when they start). Every number the UI shows comes from here.
  */
 import { CO2_MG_PER_ML, PERMIT_MG, ccForEnergy, type ChainInfo, type GameStatePublic } from "@blackout/shared";
-import { BRENT_DATASET, GRID, OIL_PASS_THROUGH_BPS, SCENARIOS, SOLAR_PROFILE_BPS, TIMING, UPGRADES, brentWeekForDay } from "./config.ts";
+import { BRENT_DATASET, GRID, OWNERS, OIL_PASS_THROUGH_BPS, SCENARIOS, SOLAR_PROFILE_BPS, TIMING, UPGRADES, brentWeekForDay } from "./config.ts";
 import { pressureLevel, upgradeCostCc } from "./engine.ts";
 import { describeEffects, worldModifiers } from "./world-events/engine.ts";
 import type { WorldEventState } from "./world-events/types.ts";
@@ -15,6 +15,9 @@ import { breakEvenRate, businessCash, moodOf, profitPerHourAt, tutorialHint } fr
 import { merchantCash, merchantStock, oilTrend, pendingFuelFor } from "./market.ts";
 import { playerFreeFuelMl, playerListingDecisions } from "./policies/playerMarket.ts";
 import { campaignSummary } from "./economy.ts";
+import { exchangeDepositableFuelMl } from "./exchangeCity.ts";
+import { goalsForView } from "./goals.ts";
+import { companyView, districtFeeder, feederLoadW } from "./company.ts";
 import type { SimState } from "./state.ts";
 
 export interface ViewOptions {
@@ -36,6 +39,7 @@ const DEFAULT_CHAIN: ChainInfo = {
 
 const pubEvent = (s: SimState, e: WorldEventState) => ({
   eventId: e.eventId,
+  flash: !!e.flash,
   templateId: e.templateId,
   category: e.category,
   headline: e.headline,
@@ -114,6 +118,8 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
       upgradesOwned: [...s.player.upgradesOwned],
       pendingFuelMl: pendingFuelFor(s, ACC.player),
       listableFuelMl: s.chainMode === "testnet" ? Math.floor(Math.min(s.player.chainBackedFuelMl ?? 0, playerFreeFuelMl(s)) / 100) * 100 : 0,
+      exchangeDepositableFuelMl: exchangeDepositableFuelMl(s),
+      exchangeReservedCc: bal(s, "credits_cc", ACC.escrowExchange),
     },
     generators: s.player.generatorIds.map((id) => {
       const g = s.generators[id];
@@ -166,12 +172,26 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
         reliabilityTodayBps: d.outageTicksToday ? Math.floor((d.servedOutageTicksToday * 10_000) / d.outageTicksToday) : 10_000,
         businessIds: members.map((b) => b.businessId),
         payBehaviour: d.payBehaviour,
+        ...(() => {
+          const f = districtFeeder(d);
+          return {
+            substationLevel: f.level,
+            feederCapacityW: f.capacityW,
+            feederLoadW: feederLoadW(s, d.districtId),
+            lossBps: f.lossBps,
+            requiredStage: f.requiredStage,
+            nextUpgradeCostCc: f.nextUpgradeCostCc,
+            nextCapacityW: f.nextCapacityW,
+            totalDemandW: members.reduce((a, b) => a + b.demandW, 0),
+          };
+        })(),
       };
     }),
     businesses: Object.values(s.businesses).map((b) => ({
       businessId: b.businessId,
       districtId: b.districtId,
       name: b.name,
+      owner: OWNERS[b.businessId] ?? null,
       kind: b.kind,
       demandW: b.demandW,
       cashCc: businessCash(s, b),
@@ -193,7 +213,8 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
     requests: requests.map((r) => {
       const b = s.businesses[r.businessId];
       const wh = r.requestedW * r.durationHours;
-      const fuelMl = (wh * 3) / 10;
+      // line losses on longer feeders burn extra diesel for the same delivered energy
+      const fuelMl = Math.ceil(((wh * 3) / 10) * (10_000 + districtFeeder(s.districts[r.districtId]).lossBps) / 10_000);
       const co2 = fuelMl * CO2_MG_PER_ML;
       const pay = ccForEnergy(wh, r.offerRateCcPerKwh);
       const fuelCost = Math.round((fuelMl * s.player.fuelCostBasisCcPerL) / 1000);
@@ -211,6 +232,7 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
         lastPlayerCounterCcPerKwh: r.lastPlayerCounterCcPerKwh,
         status: r.status,
         createdTick: r.createdTick,
+        urgency: r.urgency ?? "normal",
         deadlineTick: r.deadlineTick,
         expectedEnergyWh: wh,
         expectedPaymentCc: pay,
@@ -365,7 +387,9 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
       createdTick: listing.createdTick,
       expiresTick: listing.expiresTick,
       buyerMerchantId: listing.buyerMerchantId,
-      decisionReasons: playerListingDecisions(s, listing),
+      decisionReasons: listing.status === "purchase_pending" || listing.status === "filled"
+        ? (listing.decisionReasons ?? playerListingDecisions(s, listing))
+        : playerListingDecisions(s, listing),
       error: listing.error,
     })),
     dayReports: s.dayReports.map((r) => ({ ...r })),
@@ -383,6 +407,8 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
       })),
       currentChapterId: CHAPTERS.find((c) => !s.story?.completed.includes(c.id))?.id ?? null,
     },
+    goals: goalsForView(s),
+    company: companyView(s),
     chain: opts.chain ?? DEFAULT_CHAIN,
     upgradesCatalog: UPGRADES.map((u) => ({ ...u, baseCostCc: u.costCc, costCc: upgradeCostCc(s, u.upgradeId, u.costCc), owned: s.player.upgradesOwned.includes(u.upgradeId) })),
     lastEventSeq: s.eventSeq,

@@ -10,7 +10,7 @@
  *    We never store passwords; email sign-in is Supabase magic link / OTP.
  *  - The frontend never supplies a player id; it is always derived from a verified credential.
  */
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 import { nowIso, tx, type Db } from "./db.ts";
@@ -37,6 +37,11 @@ export interface SupabaseConfig {
   issuer: string | null;
   audience: string;
   providers: { google: boolean; email: boolean };
+  /**
+   * Local email-code sign-in for development and self-hosted demos (no Supabase). The 6-digit code is
+   * logged by the server and, only when `showCode` is on, returned to the page for testing.
+   */
+  local: { enabled: boolean; showCode: boolean };
 }
 
 export function loadSupabaseConfig(env: NodeJS.ProcessEnv = process.env): SupabaseConfig {
@@ -51,6 +56,11 @@ export function loadSupabaseConfig(env: NodeJS.ProcessEnv = process.env): Supaba
     audience: env.SUPABASE_JWT_AUDIENCE?.trim() || "authenticated",
     // A provider is only advertised when the operator says it is configured in the Supabase dashboard.
     providers: { google: enabled && env.AUTH_GOOGLE_ENABLED === "true", email: enabled && env.AUTH_EMAIL_ENABLED !== "false" },
+    local: {
+      enabled: !enabled && env.AUTH_LOCAL_EMAIL === "true",
+      // never hand codes to the page on a production server
+      showCode: !enabled && env.AUTH_LOCAL_EMAIL === "true" && env.AUTH_LOCAL_EMAIL_SHOW_CODE === "true" && env.NODE_ENV !== "production",
+    },
   };
 }
 
@@ -87,6 +97,64 @@ export class AuthService {
       this.db.prepare("INSERT INTO sessions (session_id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)").run(sessionId, userId, hash(token), now, expires);
     });
     return { token, sessionId, userId };
+  }
+
+  // ------------------------------------------------------------ local email codes
+
+  private static readonly CODE_TTL_MS = 10 * 60_000;
+  private static readonly CODE_MAX_ATTEMPTS = 5;
+
+  /** Creates a fresh 6-digit code for this email (replacing any earlier one). Only hashes are stored. */
+  startEmailCode(email: string): string {
+    const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    const now = nowIso();
+    this.db
+      .prepare("INSERT INTO email_codes (email_hash, code_hash, expires_at, attempts, created_at) VALUES (?, ?, ?, 0, ?) ON CONFLICT(email_hash) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0, created_at = excluded.created_at")
+      .run(hash(`email:${email}`), hash(`code:${email}:${code}`), new Date(Date.now() + AuthService.CODE_TTL_MS).toISOString(), now);
+    return code;
+  }
+
+  /**
+   * Verifies a code and signs the caller in. A guest who signs in keeps their city (the guest player becomes
+   * registered); a returning email gets a new session on its existing player; a new email gets a new player.
+   */
+  verifyEmailCode(email: string, code: string, guest: AuthedUser | null): { token: string | null; playerId: string; upgradedGuest: boolean } {
+    const key = hash(`email:${email}`);
+    const row = this.db.prepare("SELECT code_hash, expires_at, attempts FROM email_codes WHERE email_hash = ?").get(key) as { code_hash: string; expires_at: string; attempts: number } | undefined;
+    if (!row || row.expires_at < nowIso()) throw new Error("CODE_EXPIRED");
+    if (row.attempts >= AuthService.CODE_MAX_ATTEMPTS) throw new Error("CODE_LOCKED");
+    if (row.code_hash !== hash(`code:${email}:${code}`)) {
+      this.db.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE email_hash = ?").run(key);
+      throw new Error("CODE_WRONG");
+    }
+    this.db.prepare("DELETE FROM email_codes WHERE email_hash = ?").run(key);
+    const subject = hash(`subject:${email}`);
+    const displayName = (email.split("@")[0] || "Operator").replace(/[^\p{L}\p{N} ._'-]/gu, "").slice(0, 24) || "Operator";
+    const now = nowIso();
+    return tx(this.db, () => {
+      const existing = this.db.prepare("SELECT player_id FROM auth_identities WHERE provider = 'local_email' AND subject = ?").get(subject) as { player_id: string } | undefined;
+      if (existing) {
+        this.db.prepare("UPDATE auth_identities SET last_login_at = ? WHERE provider = 'local_email' AND subject = ?").run(now, subject);
+        return { token: this.newSession(existing.player_id), playerId: existing.player_id, upgradedGuest: false };
+      }
+      if (guest && guest.kind === "guest") {
+        this.db.prepare("INSERT INTO auth_identities (provider, subject, player_id, login_method, created_at, last_login_at) VALUES ('local_email', ?, ?, 'email', ?, ?)").run(subject, guest.userId, now, now);
+        this.db.prepare("UPDATE players SET kind = 'registered', display_name = ?, updated_at = ? WHERE player_id = ?").run(displayName, now, guest.userId);
+        return { token: null, playerId: guest.userId, upgradedGuest: true };
+      }
+      const pid = this.createPlayer("registered", displayName);
+      this.db.prepare("INSERT INTO auth_identities (provider, subject, player_id, login_method, created_at, last_login_at) VALUES ('local_email', ?, ?, 'email', ?, ?)").run(subject, pid, now, now);
+      return { token: this.newSession(pid), playerId: pid, upgradedGuest: false };
+    });
+  }
+
+  /** A cookie session for an existing player (sessions reference `users`, so make sure that row exists). */
+  private newSession(playerId: string): string {
+    const token = randomBytes(32).toString("base64url");
+    const now = nowIso();
+    this.db.prepare("INSERT OR IGNORE INTO users (user_id, kind, created_at) VALUES (?, 'registered', ?)").run(playerId, now);
+    this.db.prepare("INSERT INTO sessions (session_id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)").run(`sess_${randomUUID()}`, playerId, hash(token), now, new Date(Date.now() + SESSION_DAYS * 86_400_000).toISOString());
+    return token;
   }
 
   revokeGuestSession(token: string): void {
@@ -168,7 +236,7 @@ export class AuthService {
       .prepare("SELECT s.session_id, s.user_id, s.expires_at, p.kind FROM sessions s JOIN players p ON p.player_id = s.user_id WHERE s.token_hash = ?")
       .get(hash(t)) as { session_id: string; user_id: string; expires_at: string; kind: "guest" | "registered" } | undefined;
     if (!row || row.expires_at < nowIso()) return null;
-    return { userId: row.user_id, sessionId: row.session_id, provider: "guest", kind: row.kind, loginMethod: "guest" };
+    return { userId: row.user_id, sessionId: row.session_id, provider: "guest", kind: row.kind, loginMethod: row.kind === "registered" ? "email" : "guest" };
   }
 
   /** Resolves the caller from a guest token or a Supabase JWT. Returns null if neither verifies. */

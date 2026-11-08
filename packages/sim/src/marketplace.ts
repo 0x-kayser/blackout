@@ -43,6 +43,7 @@ export function createPlayerListing(s: SimState, ctx: Ctx, input: { listingId: s
     createdTick: s.tick,
     expiresTick: s.tick + 7 * TIMING.OPERATING_TICKS,
     buyerMerchantId: null,
+    decisionReasons: {},
     error: null,
     expireRequested: false,
     fillAttempts: 0,
@@ -52,6 +53,7 @@ export function createPlayerListing(s: SimState, ctx: Ctx, input: { listingId: s
   s.player.chainBackedFuelMl -= input.quantityMl;
   s.marketListings.push(listing);
   const reasons = playerListingDecisions(s, listing);
+  listing.decisionReasons = reasons;
   emit(s, ctx, "PLAYER_LISTING_RESERVED", ["player", `listing:${listing.listingId}`], `${(listing.quantityMl / 1000).toFixed(1)} L reserved for your market listing. Delivery is being confirmed.`, {
     listingId: listing.listingId, quantityMl: listing.quantityMl, unitPriceCcPerL: listing.unitPriceCcPerL, totalCc: listing.totalCc, decisionReasons: reasons,
   });
@@ -87,17 +89,18 @@ export function reserveMarketPurchase(s: SimState, ctx: Ctx, listingId: string, 
   const merchant = s.merchants[merchantId];
   if (!merchant || !decision.merchantId) throw new SimError("INVALID_STATE", "No merchant currently qualifies for this listing.", { decisionReasons: decision.reasons });
   if (decision.merchantId !== merchantId) throw new SimError("INVALID_STATE", "The selected merchant does not meet the listing policy.", { decisionReasons: decision.reasons });
+  listing.decisionReasons = decision.reasons;
   transfer(s, ctx, "credits_cc", ACC.merchant(merchantId), ACC.escrowMarket, listing.totalCc, "player_listing_reserve_payment", listingId);
   listing.status = "purchase_pending";
   listing.buyerMerchantId = merchantId;
   listing.fillAttempts += 1;
-  const reasons = playerListingDecisions(s, listing);
   emit(s, ctx, "PLAYER_LISTING_DECISION", [`merchant:${merchantId}`, `listing:${listingId}`], `${merchant.name} accepted the listing: ${decision.reasons[merchantId]}`, { listingId, merchantId, accepted: true, reason: decision.reasons[merchantId], quantityMl: listing.quantityMl, totalCc: listing.totalCc });
-  return { listingId, status: listing.status, merchantId, marketJob: queueJob(listing, "fill", merchantId), decisionReasons: reasons };
+  return { listingId, status: listing.status, merchantId, marketJob: queueJob(listing, "fill", merchantId), decisionReasons: decision.reasons };
 }
 
 export function settlePlayerListing(s: SimState, ctx: Ctx, input: { listingId: string; operation: "list" | "cancel" | "fill"; outcome: "confirmed" | "failed"; merchantId: string | null; txHash: string | null; error: string | null }) {
   const listing = listingById(s, input.listingId);
+  if (input.outcome === "confirmed" && !input.txHash) throw new SimError("INVALID_STATE", "A Testnet listing operation cannot be confirmed without a verified transaction hash.");
   const onChain = input.outcome === "confirmed" && input.txHash ? { source: "testnet_transaction" as const, txHash: input.txHash } : {};
   if (input.operation === "list") {
     if (listing.status !== "reserved") throw new SimError("ALREADY_PROCESSED", `Listing is ${listing.status}.`);
@@ -143,13 +146,10 @@ export function settlePlayerListing(s: SimState, ctx: Ctx, input: { listingId: s
       listing.status = "active";
       listing.buyerMerchantId = null;
       listing.error = input.error ?? "The resource transfer failed; the merchant's credits were returned.";
+      listing.decisionReasons = playerListingDecisions(s, listing);
       emit(s, ctx, "PLAYER_LISTING_FAILED", ["player", `merchant:${merchant.merchantId}`, `listing:${listing.listingId}`], `${merchant.name}'s purchase failed; its ${cr(listing.totalCc)} credits were returned and your listing is active again.`, { listingId: listing.listingId, merchantId: merchant.merchantId, error: listing.error });
     }
   }
   return { listingId: listing.listingId, status: listing.status };
-}
-
-export function playerListingForWorker(s: SimState, listingId: string) {
-  return listingById(s, listingId);
 }
 

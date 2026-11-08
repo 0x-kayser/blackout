@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "url": "/api/runs/run_1762afe1-fde/state"
+    "url": "/api/runs/run_082cb222-8b0/state"
   },
   "response": {
     "ok": true,
@@ -28,8 +28,12 @@
         "reputationBps": 5000,
         "districtTrustBps": {
           "market_quarter": 5000,
+          "riverside": 5000,
           "hospital_row": 5000,
-          "tech_hub": 5000
+          "tech_hub": 5000,
+          "port_district": 5000,
+          "industrial_park": 5000,
+          "downtown": 5000
         },
         "fuelMl": 20000,
         "fuelReservedMl": 0,
@@ -40,8 +44,12 @@
         "co2TotalMg": 0,
         "tariffsCcPerKwh": {
           "market_quarter": 800,
+          "riverside": 800,
           "hospital_row": 800,
-          "tech_hub": 800
+          "tech_hub": 800,
+          "port_district": 800,
+          "industrial_park": 800,
+          "downtown": 800
         },
         "generatorIds": [
           "gen_1"
@@ -51,7 +59,10 @@
           "market_quarter"
         ],
         "upgradesOwned": [],
-        "pendingFuelMl": 0
+        "pendingFuelMl": 0,
+        "listableFuelMl": 0,
+        "exchangeDepositableFuelMl": 0,
+        "exchangeReservedCc": 0
       },
       "generators": [
         {
@@ -87,6 +98,7 @@
           "lastPlayerCounterCcPerKwh": null,
           "status": "open",
           "createdTick": 0,
+          "urgency": "normal",
           "deadlineTick": null,
           "expectedEnergyWh": 3000,
           "expectedPaymentCc": 2400,

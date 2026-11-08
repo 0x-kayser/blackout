@@ -6,16 +6,22 @@
  *   pnpm chain:bootstrap
  *
  * Creates sub-accounts of the parent:
- *   bo-resources.<parent>  NEP-245 contract (owner)        bo-vault.<parent>  custodial game vault / operator
- *   bo-ember.<parent> / bo-lantern.<parent> / bo-harbor.<parent>  merchant NPCs
- * Deploys contracts/near/res/blackout_resources.wasm, registers tokens, registers storage, mints a shared on-chain
- * diesel warehouse to each merchant, registers merchants as NPCs with a per-call cap, adds FUNCTION-CALL keys
- * (npc_transfer only) and gives the vault a scoped listing escrow key.
+ *   bo-resources.<parent>  NEP-245 contract (owner)        bo-vault.<parent>  game vault / operator of player ids
+ *   bo-harbor-terminal / bo-northline / bo-kettle.<parent>  shared-exchange traders (NPCs with their own keys)
+ *   bo-ember / bo-lantern / bo-harbor.<parent>            legacy city merchants (only used with NEAR_CITY_PURCHASES_ON_CHAIN=true)
+ * Deploys contracts/near/res/blackout_resources.wasm, registers tokens and storage, mints each trader exactly the
+ * starting stock the exchange engine expects, registers traders with a daily import cap, and adds FUNCTION-CALL
+ * keys scoped to the exact methods each actor may call:
+ *   vault operator: exchange_deposit / exchange_redeem / exchange_ask / exchange_cancel / exchange_fill (+ legacy custodial_*)
+ *   each trader:    npc_import / exchange_ask / exchange_cancel / exchange_fill (the contract only lets it act for itself)
+ *   each merchant:  npc_transfer (legacy)
  * Writes server env lines to .env.chain (git-ignored).
  * Full-access keys are written to .near-credentials/blackout/ (git-ignored) and never to the server env.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { Account, JsonRpcProvider, KeyPairEd25519, nearToYocto, teraToGas, type KeyPairString } from "near-api-js";
+import { EXCHANGE_TRADERS } from "../packages/sim/src/policies/exchangeTraders.ts";
+import { DEFAULT_EXCHANGE_CONFIG } from "../packages/sim/src/exchange/engine.ts";
 
 const parentId = process.env.NEAR_PARENT_ACCOUNT_ID;
 const parentKey = process.env.NEAR_PARENT_PRIVATE_KEY as KeyPairString | undefined;
@@ -43,7 +49,8 @@ const GAS = teraToGas(30);
 const call = (acct: Account, contractId: string, methodName: string, args: Record<string, unknown>, deposit: bigint | string = 0n) =>
   acct.callFunction({ contractId, methodName, args, deposit, gas: GAS });
 
-const resources = await sub("bo-resources", "6");
+// the contract pays storage for player ids, offers and receipts it creates, so it gets the larger balance
+const resources = await sub("bo-resources", "10");
 const vault = await sub("bo-vault", "1");
 const merchants = { ember: await sub("bo-ember", "1"), lantern: await sub("bo-lantern", "1"), harbor: await sub("bo-harbor", "1") };
 
@@ -66,8 +73,21 @@ for (const m of Object.values(merchants)) {
   await call(contract, resources.id, "register_npc", { account_id: m.id, max_per_call: "600" }); // <= 60 L per trade
 }
 
+// shared-exchange traders: same ids, names and starting stock as packages/sim/src/policies/exchangeTraders.ts
+const traders: Record<string, { id: string; key: KeyPairString }> = {};
+for (const t of EXCHANGE_TRADERS) traders[t.traderId] = await sub(`bo-${t.traderId.replace(/_/g, "-")}`, "3");
+for (const t of Object.values(traders)) await call(new Account(t.id, provider, t.key), resources.id, "storage_deposit", {}, storage);
+// The engine caps imports per 4-minute exchange day; the contract counts per UTC day (360 exchange days).
+const exchangeDaysPerUtcDay = Math.floor((24 * 3600) / ((DEFAULT_EXCHANGE_CONFIG.ticksPerDay * 5_000) / 1000));
+for (const t of EXCHANGE_TRADERS) {
+  const acct = traders[t.traderId];
+  await call(contract, resources.id, "mt_mint", { owner_id: acct.id, token_ids: ["DIESEL_100ML"], amounts: [String(t.startStockMl / 100)], memo: `starting stock: ${t.name}` });
+  await call(contract, resources.id, "register_trader", { account_id: acct.id, max_import_per_day: String((t.maxImportPerDayMl / 100) * exchangeDaysPerUtcDay) });
+}
+
 const env: string[] = [
   "NEAR_CHAIN_ENABLED=true",
+  "NEAR_CITY_PURCHASES_ON_CHAIN=false",
   `NEAR_RPC_URL=${rpcUrl}`,
   `NEAR_RESOURCE_CONTRACT_ID=${resources.id}`,
   `NEAR_VAULT_ACCOUNT_ID=${vault.id}`,
@@ -76,8 +96,8 @@ const operatorFc = KeyPairEd25519.fromRandom();
 await new Account(vault.id, provider, vault.key).addFunctionCallAccessKey({
   publicKey: operatorFc.getPublicKey(),
   contractId: resources.id,
-  methodNames: ["custodial_list", "custodial_cancel_listing", "custodial_fill_listing"],
-  allowance: nearToYocto("0.5"),
+  methodNames: ["exchange_deposit", "exchange_redeem", "exchange_ask", "exchange_cancel", "exchange_fill", "custodial_list", "custodial_cancel_listing", "custodial_fill_listing"],
+  allowance: nearToYocto("2"),
 });
 env.push(`NEAR_VAULT_OPERATOR_PRIVATE_KEY=${operatorFc.toString()}`);
 for (const [name, m] of Object.entries(merchants)) {
@@ -85,6 +105,14 @@ for (const [name, m] of Object.entries(merchants)) {
   await new Account(m.id, provider, m.key).addFunctionCallAccessKey({ publicKey: fc.getPublicKey(), contractId: resources.id, methodNames: ["npc_transfer"], allowance: nearToYocto("0.25") });
   env.push(`NEAR_MERCHANT_${name.toUpperCase()}_ACCOUNT_ID=${m.id}`, `NEAR_MERCHANT_${name.toUpperCase()}_PRIVATE_KEY=${fc.toString()}`);
 }
+for (const t of EXCHANGE_TRADERS) {
+  const acct = traders[t.traderId];
+  const fc = KeyPairEd25519.fromRandom();
+  await new Account(acct.id, provider, acct.key).addFunctionCallAccessKey({ publicKey: fc.getPublicKey(), contractId: resources.id, methodNames: ["npc_import", "npc_supply_city", "exchange_ask", "exchange_cancel", "exchange_fill"], allowance: nearToYocto("2.5") });
+  const pre = `NEAR_TRADER_${t.traderId.toUpperCase()}`;
+  env.push(`${pre}_ACCOUNT_ID=${acct.id}`, `${pre}_PRIVATE_KEY=${fc.toString()}`);
+}
 writeFileSync(".env.chain", env.join("\n") + "\n", { mode: 0o600 });
 console.log("\nDone. Server env written to .env.chain (git-ignored). Copy its lines into .env, restart the API, then GET /api/chain/status.");
-console.log(`Contract: ${resources.id}\nVault: ${vault.id}\nMerchants: ${Object.values(merchants).map((m) => m.id).join(", ")}`);
+console.log(`Contract: ${resources.id}\nVault: ${vault.id}\nTraders: ${Object.values(traders).map((t) => t.id).join(", ")}\nMerchants (legacy): ${Object.values(merchants).map((m) => m.id).join(", ")}`);
+console.log("Start the API with an EMPTY database (or delete the exchange_state row) so the exchange begins in testnet mode with these traders' stock.");

@@ -1,15 +1,15 @@
 # NEAR testnet setup
 
-Status: **not deployed**. No Testnet credentials or funded parent account were available during this pass. The contract
-and escrow primitives have local tests, but the player exchange API/UI is not connected; nothing here is a live
-contract id or transaction hash. See [NEAR_TRACK_COMPLIANCE.md](NEAR_TRACK_COMPLIANCE.md) for the current gap list.
+Status: **not deployed**. No Testnet credentials or funded parent account were available during this pass. The contract,
+player market API/UI, NPC policy worker, and reconciliation path have local tests; nothing here is a live contract id or
+transaction hash. See [NEAR_TRACK_COMPLIANCE.md](NEAR_TRACK_COMPLIANCE.md) for the current gaps.
 
 ## Model
 | Thing | Where | Notes |
 |---|---|---|
 | Resources (diesel, permits, parts) | one NEP-245 contract `bo-resources.<you>.testnet` | `DIESEL_100ML` = 100 mL, decimals 0 |
 | Merchant NPC wallets | `bo-ember/lantern/harbor.<you>.testnet` | bootstrap would create real accounts; server receives only **function-call keys** scoped to `npc_transfer` on the resource contract (0.25 NEAR gas allowance), per-call cap enforced on-chain, idempotent `trade_id`. Not created yet. |
-| Player resources | custodial game vault `bo-vault.<you>.testnet` | players have no private key; the per-player split is the game DB. This is custody, not player self-custody. Listing escrow exists at contract level, but no player listing API/UI currently calls it. |
+| Player resources | shared custodial game vault `bo-vault.<you>.testnet` plus NEP-245 listing escrow | players have no private key; their allocation is mapped to a signed-in player ID in the game DB and recorded as listing seller ID by the contract. This is custody, not player self-custody. |
 | Credits | off-chain game ledger | non-redeemable; no exchange is claimed atomic |
 | Rival, permits | game ledger only | documented gap |
 
@@ -30,9 +30,9 @@ funded relayer/sponsor); the account model is honestly "custodial vault".
 3. Add the generated `NEAR_VAULT_OPERATOR_PRIVATE_KEY` as well as account and merchant fields to the API secret store,
    restart, and check `GET /api/chain/status`
    (`rpcReachable: true`, `contractDeployed: true`).
-4. Smoke test: sign in (any mode), start a city, Market → buy diesel. The trade shows "Settling on NEAR testnet…" until
-   the worker sees a **final** RPC outcome; then fuel is delivered and "verified on NEAR" links to the explorer.
-   Re-verify with `GET /api/chain/transfers/<hash>` and the contract views `mt_balance_of`, `trade_status`.
+4. Smoke test: sign in, start a city, and buy diesel in Marketplace. The normal game says delivery is being confirmed
+   while the city keeps running. After final RPC confirmation, inspect the transaction in the optional Verify panel;
+   re-verify with `GET /api/chain/transfers/<hash>` and the contract views `mt_balance_of`, `trade_status`.
 
 ## Purchase lifecycle (as implemented)
 `REQUESTED → VALIDATED → RESERVED` (credits + stock into escrow, one DB transaction) `→ SUBMITTED` (signed; hash
@@ -40,13 +40,15 @@ persisted **before** broadcast) `→ CONFIRMED` (RPC final, no failed receipts) 
 player, credits to merchant). Definitive failure → compensated once. Unknown/timeout → reconciled by hash, then by the
 contract's `trade_status(trade_id)` view; never re-broadcast blindly and never auto-compensated while unknown.
 
-## Listing contract primitives
+## Player listing lifecycle
 `custodial_list`, `custodial_cancel_listing` and `custodial_fill_listing` move NEP-245 resources into, out of, or
 between the contract and registered NPC accounts. The bootstrap gives the vault a function-call key scoped to those
-three methods. NPC keys are scoped only to `npc_transfer`. `unit_price_cc` is listing metadata for off-chain,
-non-redeemable credits; the contract does not enforce a credit payment. The server would be trusted to evaluate and
-settle the off-chain credit leg. No game route currently implements that flow, so do not use these methods as a live
-player market yet.
+three methods. NPC keys are scoped only to `npc_transfer`. The API permits registered players to list confirmed,
+chain-backed, unreserved fuel. The deterministic NPC policy checks inventory gap, recent demand, replacement cost, and
+cash above its operating reserve. The API reserves the NPC's fictional credits before the contract call, pays the player
+only after verified resource transfer, and refunds on a definitive failure. An unknown outcome stays reserved until
+hash/contract reconciliation. Listing credits remain off-chain and are never represented as an atomic token payment.
+The per-player allocation is trusted server state; the contract enforces the shared vault's aggregate available balance.
 
 ## Key rotation & recovery
 Rotate an NPC key: add a new function-call key with the full-access key from `.near-credentials`, update the env

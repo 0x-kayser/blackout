@@ -56,6 +56,8 @@ export const SetTariffSchema = z.object({
 export const ServiceGeneratorSchema = z.object({ type: z.literal("SERVICE_GENERATOR"), generatorId: id() });
 export const BuyUpgradeSchema = z.object({ type: z.literal("BUY_UPGRADE"), upgradeId: UpgradeIdSchema });
 export const UnlockDistrictSchema = z.object({ type: z.literal("UNLOCK_DISTRICT"), districtId: id() });
+/** Raise a connected district's substation one level: more feeder capacity into that district. */
+export const UpgradeSubstationSchema = z.object({ type: z.literal("UPGRADE_SUBSTATION"), districtId: id() });
 /** Ends the morning market or the settlement report early. */
 export const ReadySchema = z.object({ type: z.literal("READY") });
 /** Real-time driver controls; handled by the API, not recorded in the sim. */
@@ -76,6 +78,7 @@ export const PlayerActionSchema = z.discriminatedUnion("type", [
   ServiceGeneratorSchema,
   BuyUpgradeSchema,
   UnlockDistrictSchema,
+  UpgradeSubstationSchema,
   ReadySchema,
   PauseSchema,
   ResumeSchema,
@@ -104,11 +107,47 @@ export const MarketListingResultSchema = z.object({
   txHash: z.string().nullable(),
   error: z.string().nullable(),
 });
+/** Shared exchange (server-injected): move tradeable fuel from the city tank to the player's exchange warehouse. */
+export const ExchangeDepositSchema = z.object({
+  type: z.literal("EXCHANGE_DEPOSIT"),
+  depositId: id(),
+  quantityMl: z.number().int().min(100).max(60_000).multipleOf(100),
+});
+/** Shared exchange: hold credits for a purchase until its on-chain transfer settles. */
+export const ExchangeBuyReserveSchema = z.object({
+  type: z.literal("EXCHANGE_BUY_RESERVE"),
+  buyId: id(),
+  totalCc: z.number().int().min(1),
+  quantityMl: z.number().int().min(100).multipleOf(100),
+});
+const cc = () => z.number().int().min(0);
+const ml = () => z.number().int().min(100).multipleOf(100);
+export const ExchangeCityEffectSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("credit"), effectId: id(), amountCc: cc(), fillId: id() }),
+  z.object({ op: z.literal("capture_payment"), effectId: id(), amountCc: cc(), fillId: id() }),
+  z.object({ op: z.literal("release_payment"), effectId: id(), amountCc: cc(), fillId: id() }),
+  z.object({ op: z.literal("deliver_fuel"), effectId: id(), amountMl: ml(), redeemId: id() }),
+  z.object({ op: z.literal("refund_fuel"), effectId: id(), amountMl: ml(), depositId: id() }),
+  z.object({ op: z.literal("charge_fee"), effectId: id(), amountCc: cc(), day: z.number().int() }),
+]);
+export type ExchangeCityEffect = z.infer<typeof ExchangeCityEffectSchema>;
+/** Shared exchange: apply one settled exchange outcome to this city exactly once. */
+export const ExchangeEffectSchema = z.object({ type: z.literal("EXCHANGE_EFFECT"), effect: ExchangeCityEffectSchema });
+/** Shared exchange: the traders' scarcity premium on imported fuel, applied to this city's merchants. */
+export const ExchangePriceSignalSchema = z.object({
+  type: z.literal("EXCHANGE_PRICE_SIGNAL"),
+  premiumBps: z.number().int().min(-2_000).max(5_000),
+  bestAskCcPerL: z.number().int().min(0).nullable(),
+});
 export const SystemActionSchema = z.discriminatedUnion("type", [
   SettleTradeSchema,
   ReserveMarketPurchaseSchema,
   ExpireMarketListingSchema,
   MarketListingResultSchema,
+  ExchangeDepositSchema,
+  ExchangeBuyReserveSchema,
+  ExchangeEffectSchema,
+  ExchangePriceSignalSchema,
 ]);
 
 export const ActionEnvelopeSchema = z.object({

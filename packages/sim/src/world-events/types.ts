@@ -105,6 +105,8 @@ export const ALLOWED_SOURCE_HOSTS = ["eia.gov", "iea.org", "fred.stlouisfed.org"
 
 export interface WorldEventState {
   eventId: string;
+  /** A short market flash (seconds to minutes) rather than a multi-shift world event. */
+  flash?: boolean;
   templateId: string;
   category: WorldCategory;
   headline: string;

@@ -212,6 +212,7 @@ describe("rival operator", () => {
   it("only wins a missed customer when it can physically supply it", () => {
     const { s } = newRun();
     until(s, (x) => x.day === 2 && x.phase === "operating");
+    s.company = { stage: 2 }; // VoltLine competes from stage 2
     const req = { requestId: "r1", waveId: "w", businessId: "bakery", districtId: "market_quarter", requestedW: 1_200, durationHours: 2, offerRateCcPerKwh: 800, counterCount: 0, maxCounters: 2, lastPlayerCounterCcPerKwh: null, status: "expired" as const, createdTick: s.tick, deadlineTick: null, day: s.day, message: "", resolutionReason: null };
     s.requests.r1 = { ...req };
     s.businesses.bakery.activeContractId = null;
@@ -243,6 +244,7 @@ describe("solar and battery", () => {
   it("solar is zero at night and the battery never creates energy", () => {
     const { s } = newRun();
     until(s, (x) => x.day === 2);
+    s.company = { stage: 2 }; // batteries unlock at stage 2
     transfer(s, newCtx(s), "credits_cc", ACC.genesis, ACC.player, 200_000, "test_grant");
     act(s, { type: "BUY_UPGRADE", upgradeId: "solar_2kw" });
     act(s, { type: "BUY_UPGRADE", upgradeId: "battery_10kwh" }).result;

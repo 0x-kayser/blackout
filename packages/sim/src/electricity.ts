@@ -12,6 +12,7 @@ import { CO2_MG_PER_ML, ccForEnergy, fuelMlForWh, whPerTick } from "@blackout/sh
 import { PHYSICS, SOLAR_PROFILE_BPS } from "./config.ts";
 import { ACC, bal, transfer } from "./ledger.ts";
 import { L, SimError, clockHour, emit, kW, type ContractState, type Ctx, type GeneratorState, type SimState } from "./state.ts";
+import { districtFeeder, feederLoadW, stageOf } from "./company.ts";
 
 export const providerAcct = (c: ContractState) => (c.provider === "player" ? ACC.player : ACC.rival);
 
@@ -31,6 +32,14 @@ export const assignedW = (s: SimState, generatorId: string) => activeContractsOn
 
 export const remainingTicks = (c: ContractState) => c.totalTicks - c.deliveredTicks;
 export const contractFuelPerTick = (c: ContractState) => fuelMlForWh(whPerTick(c.allottedW));
+/** Player diesel burned per tick including the feeder's line loss into the customer's district. */
+export function fuelPerTick(s: SimState, c: ContractState): number {
+  const base = contractFuelPerTick(c);
+  if (c.provider !== "player") return base;
+  const d = s.districts[s.businesses[c.businessId]?.districtId ?? ""];
+  const loss = d ? districtFeeder(d).lossBps : 0;
+  return loss ? Math.ceil((base * (10_000 + loss)) / 10_000) : base;
+}
 export const contractEnergyWh = (w: number, hours: number) => w * hours;
 
 function isDieselContract(s: SimState, c: ContractState): boolean {
@@ -44,12 +53,25 @@ export function reservedFuelMl(s: SimState, provider: "player" | "rival", except
   for (const c of Object.values(s.contracts)) {
     if (c.provider !== provider || c.status !== "active" || c.contractId === exceptContractId) continue;
     if (!isDieselContract(s, c)) continue;
-    r += remainingTicks(c) * contractFuelPerTick(c);
+    r += remainingTicks(c) * fuelPerTick(s, c);
   }
   return r;
 }
 export const reservedPermitMg = (s: SimState, provider: "player" | "rival", exceptContractId?: string) =>
   reservedFuelMl(s, provider, exceptContractId) * CO2_MG_PER_ML;
+
+/** Distribution: the district's feeder must carry this load on top of what it already carries. */
+export function assertFeederRoom(s: SimState, c: ContractState): void {
+  const district = s.districts[s.businesses[c.businessId]?.districtId ?? ""];
+  if (!district) return;
+  const f = districtFeeder(district);
+  const carrying = feederLoadW(s, district.districtId, c.contractId);
+  if (carrying + c.allottedW > f.capacityW) {
+    throw new SimError("CAPACITY_EXCEEDED", `The ${district.name} feeder carries ${kW(carrying)} of ${kW(f.capacityW)} kW; this load needs ${kW(c.allottedW)} kW more. Upgrade its substation.`, {
+      districtId: district.districtId, feederCapacityW: f.capacityW, feederLoadW: carrying, requestedW: c.allottedW,
+    });
+  }
+}
 
 /** Validates that a pending contract can be served by `generatorId`; throws a coded SimError otherwise. */
 export function validateAssignment(s: SimState, c: ContractState, generatorId: string): void {
@@ -67,9 +89,10 @@ export function validateAssignment(s: SimState, c: ContractState, generatorId: s
       requestedW: c.allottedW,
     });
   }
+  assertFeederRoom(s, c);
   const totalTicks = c.totalTicks;
   if (g.type === "diesel") {
-    const needFuel = totalTicks * contractFuelPerTick(c);
+    const needFuel = totalTicks * fuelPerTick(s, c);
     const freeFuel = bal(s, "fuel_ml", ACC.player) - reservedFuelMl(s, "player");
     if (needFuel > freeFuel) {
       throw new SimError("INSUFFICIENT_FUEL", `Needs ${L(needFuel)} L; ${L(Math.max(0, freeFuel))} L free after fuel reserved for active contracts.`, { needMl: needFuel, freeMl: freeFuel });
@@ -102,7 +125,7 @@ export interface TickDelivery {
 function deliverDieselTick(s: SimState, ctx: Ctx, c: ContractState): TickDelivery {
   const acct = providerAcct(c);
   const wh = whPerTick(c.allottedW);
-  const fuel = fuelMlForWh(wh);
+  const fuel = fuelPerTick(s, c);
   const co2 = fuel * CO2_MG_PER_ML;
   if (bal(s, "fuel_ml", acct) < fuel) return { delivered: false, failReason: "INSUFFICIENT_FUEL" };
   if (bal(s, "permit_mg", acct) < co2) return { delivered: false, failReason: "INSUFFICIENT_PERMITS" };
@@ -244,7 +267,7 @@ export function dispatchTick(s: SimState, ctx: Ctx): { contract: ContractState; 
 /** Heat & wear for player diesel sets. Returns generators that broke this tick. */
 export function heatTick(s: SimState, ctx: Ctx): GeneratorState[] {
   const broken: GeneratorState[] = [];
-  const heatOn = s.day >= PHYSICS.HEAT_ENABLED_FROM_DAY;
+  const heatOn = stageOf(s) >= 2; // generators start running hot once the company has grown
   for (const gid of s.player.generatorIds) {
     const g = s.generators[gid];
     if (g.type !== "diesel") continue;

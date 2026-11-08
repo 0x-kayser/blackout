@@ -244,7 +244,7 @@ describe("chain transparency, health, config", () => {
     expect(h.chain).toBe("disabled");
     const c = PublicConfigSchema.parse((await built.app.inject({ method: "GET", url: "/api/config/public" })).json());
     expect(c.timing.operatingTicks).toBe(240);
-    expect(c.auth.x).toBe(false);
+    expect(c.auth).not.toHaveProperty("x");
     expect(c.auth.supabaseUrl).toBeNull();
     expect(JSON.stringify(c)).not.toMatch(/PRIVATE|secret|ed25519:/i);
   });

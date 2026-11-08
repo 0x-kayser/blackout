@@ -41,7 +41,28 @@ public by design and served at runtime). Session renewal: supabase-js refresh to
   Cloud with the Supabase callback URL), add your site URL to Supabase "Redirect URLs", then set `SUPABASE_URL`,
   `SUPABASE_ANON_KEY`, `AUTH_GOOGLE_ENABLED=true`.
 
-## X (Twitter) — deferred
-Third-party reports (Feb 2026) say the X API free tier closed to new developers and moved to pay-per-use; the official
-pricing page could not be confirmed as free for login. Per the brief we do not buy access and **do not show an X
-button**. `/api/config/public` returns `auth.x: false` with the reason.
+## Sign-in that works everywhere
+* **One tap Google.** "Continue with Google" opens Google's account picker (`prompt=select_account`) and returns to
+  the same page. Google blocks sign-in inside embedded app browsers (Instagram, Facebook, LinkedIn, TikTok and
+  similar), so the game detects them and offers the email code or a "Copy link" button for Safari/Chrome instead.
+* **Email: link AND code.** One email contains both. The link works in the same browser (PKCE); the 6-digit code
+  works anywhere (another device, an in-app browser, a phone that opens mail in a different app).
+* **Guest cities move automatically.** After sign-in, the server links the guest city using the guest's own
+  HTTP-only cookie, which survives the Google/email redirect. The page never needs to remember a token. An account
+  that already has a city is never overwritten.
+* **No dead ends.** If the server has no Supabase project, the sign-in buttons are simply not shown; players can
+  still play and their city saves on this device.
+
+## Turning it on (operator checklist)
+1. Create a Supabase project. Copy the project URL and the anon (public) key into `SUPABASE_URL` and
+   `SUPABASE_ANON_KEY`.
+2. **Authentication → URL configuration:** set the Site URL to your production origin and add every origin you
+   serve from (production, preview and `http://localhost:5173`) to Redirect URLs.
+3. **Email provider:** enable it. In **Email Templates → Magic Link**, include the code so cross-device sign-in
+   works, for example: `Your BLACKOUT code is {{ .Token }}` next to the `{{ .ConfirmationURL }}` link.
+   For production volume, add your own SMTP sender (Supabase's default sender is rate-limited).
+4. **Google provider:** in Google Cloud, create an OAuth client (Web), and add Supabase's callback URL
+   (`https://<project>.supabase.co/auth/v1/callback`) as an authorized redirect URI. Paste the client id and
+   secret into Supabase, then set `AUTH_GOOGLE_ENABLED=true` on the API.
+5. Restart the API and check `GET /api/config/public` shows `google: true` and `email: true`.
+

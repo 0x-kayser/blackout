@@ -3,7 +3,7 @@ import type { GameStatePublic } from '@blackout/shared'
 import type { Game } from '../game/useGame'
 import { bizName, fmtClock, fmtCredits, fmtKg, fmtKw, fmtKwh, fmtLitres, fmtRate, genName, objectives, secondsLeft } from './format'
 
-export function TopHud({ s, status, onMenu }: { s: GameStatePublic; status: string; onMenu: (m: string) => void }) {
+export function TopHud({ s, status, onMenu, sound, onToggleSound, music, onToggleMusic }: { s: GameStatePublic; status: string; onMenu: (m: string) => void; sound?: boolean; onToggleSound?: () => void; music?: boolean; onToggleMusic?: () => void }) {
   const supply = s.generators.reduce((a, g) => a + g.availableW, 0)
   const load = s.generators.reduce((a, g) => a + g.assignedW, 0)
   const demand = s.requests.filter((r) => r.status === 'open' || r.status === 'customer_countered').reduce((a, r) => a + r.requestedW, 0) + load
@@ -16,9 +16,13 @@ export function TopHud({ s, status, onMenu }: { s: GameStatePublic; status: stri
     <header className="hud">
       <div className="hud-brand">
         <span className="mini-mark"><i /> BLACKOUT</span>
-        <span className="hud-clock" title="Environmental day/night: affects solar output and city lights, never pauses play">
-          {day ? '☀' : '☾'} Day {s.clock.day} · {s.clock.gameMinuteOfDay !== null ? fmtClock(s.clock.gameMinuteOfDay) : '—'}
+        <span className="hud-clock" title="Time of day: affects solar output and city lights, never pauses play">
+          {day ? '☀' : '☾'} {s.clock.gameMinuteOfDay !== null ? fmtClock(s.clock.gameMinuteOfDay) : '—'}
         </span>
+        <button className="hud-stage" onClick={() => onMenu('expansion')} title={s.company.nextStage ? `Next: ${s.company.nextStage.name}. ${s.company.nextStage.unlocks}` : 'Top stage reached'}>
+          <b>Stage {s.company.stage}</b> {s.company.name}
+          <span className="stage-bar" aria-hidden><i style={{ width: `${s.company.progressBps / 100}%` }} /></span>
+        </button>
       </div>
       <div className="hud-stats" role="list">
         <Stat label="Credits" value={fmtCredits(s.player.creditsCc)} icon="₡" tone="amber" />
@@ -29,6 +33,8 @@ export function TopHud({ s, status, onMenu }: { s: GameStatePublic; status: stri
       </div>
       <div className="hud-actions">
         <span className={`conn ${status}`} aria-live="polite">{status === 'live' ? '● Live' : status === 'connecting' ? '○ Connecting' : status === 'reconnecting' ? '◌ Reconnecting' : '✕ Offline'}</span>
+        {onToggleMusic && <button className={`hud-btn ${music ? 'on' : ''}`} onClick={onToggleMusic} aria-label={music ? 'Music on: tap to stop' : 'Music off: tap to play'} aria-pressed={!!music} title={music ? 'Music on' : 'Music off'}>{music ? '🎵' : '🎶'}</button>}
+        {onToggleSound && <button className={`hud-btn ${sound ? 'on' : ''}`} onClick={onToggleSound} aria-label={sound ? 'Sound on: tap to mute' : 'Sound off: tap to turn on'} aria-pressed={!!sound} title={sound ? 'Sound on' : 'Sound off'}>{sound ? '🔊' : '🔇'}</button>}
         <button className="hud-btn" onClick={() => onMenu('help')} aria-label="How to play">?</button>
         <button className="hud-btn" onClick={() => onMenu('profile')} aria-label="Profile and settings">☰</button>
       </div>
@@ -51,15 +57,41 @@ function Stat({ label, value, sub, icon, tone, bar }: { label: string; value: st
 }
 
 export function Objectives({ s }: { s: GameStatePublic }) {
+  const [open, setOpen] = useState(false)
+  const goals = s.goals
+  const done = goals.items.filter((x) => x.done).length
+  const bonus = Math.round((goals.rewardMultiplierBps - 10_000) / 100)
+  if (s.tutorial.active) {
+    return (
+      <section className="objectives" aria-label="Objectives">
+        <p className="eyebrow amber">GETTING STARTED</p>
+        <p className="tutorial-hint">💡 {s.tutorial.hint}</p>
+        <ul>
+          {objectives(s).map((o) => (
+            <li key={o.text} className={o.done ? 'done' : ''}>{o.done ? '✓' : '○'} {o.text}</li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
   return (
-    <section className="objectives" aria-label="Objectives">
-      <p className="eyebrow amber">OBJECTIVES</p>
-      {s.tutorial.active && <p className="tutorial-hint">💡 {s.tutorial.hint}</p>}
+    <section className={`objectives goals ${open ? 'open' : ''}`} aria-label="Today's goals">
+      <button className="goals-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className="eyebrow amber">SHIFT GOALS</span>
+        <span className="goals-score">🎯 {done}/{goals.items.length}{goals.streak > 0 && <> · 🔥 {goals.streak}</>}</span>
+      </button>
       <ul>
-        {objectives(s).map((o) => (
-          <li key={o.text} className={o.done ? 'done' : ''}>{o.done ? '✓' : '○'} {o.text}</li>
+        {goals.items.map((x) => (
+          <li key={x.goalId} className={x.done ? 'done' : ''}>
+            <span className="goal-line">{x.done ? '✓' : '○'} {x.label}</span>
+            <span className="goal-meta">
+              <span className="goal-bar"><i style={{ width: `${Math.min(100, (x.progress / Math.max(1, x.target)) * 100)}%` }} /></span>
+              <small>{x.kind === 'earn' ? `${fmtCredits(x.progress)} / ${fmtCredits(x.target)}` : `${x.progress} / ${x.target}`} · +{fmtCredits(Math.floor((x.rewardCc * goals.rewardMultiplierBps) / 10_000))}</small>
+            </span>
+          </li>
         ))}
       </ul>
+      <p className="goals-foot">{done === goals.items.length ? 'All done! Your streak grows at the end of the shift.' : goals.streak > 0 ? `🔥 ${goals.streak}-shift streak: rewards +${bonus}%. Finish all three to keep it.` : 'Finish all three this shift to start a streak (+10% rewards per shift).'}</p>
     </section>
   )
 }
@@ -161,11 +193,12 @@ function RequestCard({ g, rid, selected, onSelect }: { g: Game; rid: string; sel
   const freeDiesel = s.generators.filter((x) => x.status === 'online').map((x) => x.ratedW - x.assignedW)
   const fits = freeDiesel.some((f) => f >= r.requestedW)
   return (
-    <article className={`req-card ${selected ? 'selected' : ''} ${left !== null && left <= 3 ? 'urgent' : ''}`} onClick={onSelect}>
+    <article className={`req-card ${selected ? 'selected' : ''} ${left !== null && left <= 3 ? 'urgent' : ''} ${r.urgency === 'code_red' ? 'code-red' : ''}`} onClick={onSelect}>
       <div className="req-top">
-        <b>{b.name}</b>
-        {r.status === 'customer_countered' ? <span className="pill blue">COUNTER</span> : left === null ? <span className="pill muted">NO TIMER</span> : <span className="pill coral">◷ {left}s</span>}
+        <b>{r.urgency === 'code_red' && '🚨 '}{b.name}{b.owner && <small className="req-owner"> {b.owner.face} {b.owner.name}</small>}</b>
+        {r.status === 'customer_countered' ? <span className="pill blue">COUNTER</span> : left === null ? <span className="pill muted">NO TIMER</span> : <span className="pill coral">{r.urgency === 'code_red' ? 'CODE RED · ' : '◷ '}{left}s</span>}
       </div>
+      {r.urgency === 'code_red' && left !== null && <span className="cr-timer" aria-hidden><i style={{ width: `${Math.min(100, (left / 7) * 100)}%` }} /></span>}
       <p className="req-msg">“{r.message}”</p>
       <div className="req-grid">
         <span><small>Needs</small><b>{fmtKw(r.requestedW)} × {r.durationHours} h</b></span>

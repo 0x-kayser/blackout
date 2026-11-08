@@ -74,8 +74,22 @@ export interface StoredActionResult {
   error?: { code: ErrorCode; message: string; details?: Record<string, unknown> };
 }
 
+export type RunEventHook = (h: RunHandle, events: EconomyEvent[]) => void;
+
 export class RunService {
   readonly runs = new Map<string, RunHandle>();
+  /** Called after a run's events are persisted (ticks and actions), e.g. so the shared exchange can react. */
+  readonly eventHooks: RunEventHook[] = [];
+  private fireHooks(h: RunHandle, events: EconomyEvent[]): void {
+    if (!events.length) return;
+    for (const hook of this.eventHooks) {
+      try {
+        hook(h, events);
+      } catch (e) {
+        console.error("[runs] event hook failed", e);
+      }
+    }
+  }
   private stmts;
 
   constructor(
@@ -109,7 +123,7 @@ export class RunService {
   ): RunHandle {
     const runId = `run_${randomUUID().slice(0, 12)}`;
     const seed = req.seed ?? Math.floor(Math.random() * 2_000_000_000); // seed choice is not game logic; it is recorded
-    const chainMode = req.mode === "play" && this.chain.enabled ? "testnet" : "disabled";
+    const chainMode = req.mode === "play" && this.chain.enabled && this.chain.cityPurchasesOnChain ? "testnet" : "disabled";
     const merchantAccounts = Object.fromEntries(Object.entries(this.chain.merchants).map(([k, v]) => [k, chainMode === "testnet" ? v.accountId : null]));
     const { state, events, ledger } = createInitialState({
       runId,
@@ -343,6 +357,7 @@ export class RunService {
     });
     if (h.state.phase === "finished") this.onFinished(h);
     this.broadcast(h, ctx.events, true);
+    this.fireHooks(h, ctx.events);
     return ctx.events;
   }
 
@@ -418,6 +433,7 @@ export class RunService {
     }
     if (h.state.phase === "finished" && h.pauseReason !== "finished") this.onFinished(h);
     this.broadcast(h, events, true);
+    this.fireHooks(h, events);
     return { ...stored, replayed: false };
   }
 

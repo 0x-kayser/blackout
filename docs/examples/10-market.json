@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "url": "/api/runs/run_1762afe1-fde/market"
+    "url": "/api/runs/run_082cb222-8b0/market"
   },
   "response": {
     "ok": true,
@@ -13,10 +13,25 @@
       "oilIndexCenti": 10350,
       "referenceIndexCenti": 10000,
       "oilTrend": "up",
-      "oilSourceLabel": "Illustrative sample series — not real Brent data",
+      "oilSourceLabel": "Illustrative sample series; not observed Brent data",
       "observedBrent": null,
       "oilPassThroughBps": 5000,
-      "gridTariffCcPerKwh": 700
+      "gridTariffCcPerKwh": 700,
+      "eventMode": "calm",
+      "eventPreset": null,
+      "modifiers": {
+        "importCapacityBps": 0,
+        "leadTimeDays": 0,
+        "logisticsCostBps": 0,
+        "demandBps": 0,
+        "solarCostBps": 0,
+        "permitSupplyBps": 0,
+        "cautionBps": 0,
+        "gridStressHours": 0
+      },
+      "activeEvents": [],
+      "eventHistory": [],
+      "brentWeekly": []
     },
     "merchants": [
       {
@@ -76,13 +91,13 @@
       "permitsForSaleToday": 8,
       "dailyCapPermits": 8,
       "permitsSoldTotal": 0,
-      "emissionsTodayMg": 884400,
+      "emissionsTodayMg": 0,
       "priceReason": "Base 25; yesterday's emissions 2.4 kg vs cap 80 kg (-48.5%) → 15 per permit.",
       "notices": []
     },
     "quotes": [
       {
-        "quoteId": "quote_19",
+        "quoteId": "quote_17",
         "sellerId": "merchant:lantern",
         "item": "diesel",
         "unitPriceCc": 1050,
@@ -115,8 +130,8 @@
     ],
     "trades": [
       {
-        "tradeId": "trade_20",
-        "quoteId": "quote_19",
+        "tradeId": "trade_18",
+        "quoteId": "quote_17",
         "idempotencyKey": "7d1c0c1e-buy-0002",
         "buyerId": "player",
         "sellerId": "merchant:lantern",
@@ -134,6 +149,7 @@
         "createdTick": 255,
         "settledTick": 255
       }
-    ]
+    ],
+    "marketListings": []
   }
 }

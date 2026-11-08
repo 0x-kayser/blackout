@@ -60,7 +60,6 @@ rectangles; no growth when you buy equipment; HUD shows hard-coded values ("Dist
 | Email sign-in | Supabase project (built-in email works for testing; custom SMTP for volume) |
 | NEAR testnet | a funded testnet account to run `pnpm chain:bootstrap` |
 | Public URL | a host account (Render/Railway/Fly) or reuse of the existing `.openai` static host for the frontend only |
-| X sign-in | deferred: X API free tier closed to new developers (Feb 2026, per third-party reports); no paid access bought |
 
 ## 8. Plan executed after this audit
 1. Engine → continuous world (day/night environmental; background rollover; market/upgrades always open).

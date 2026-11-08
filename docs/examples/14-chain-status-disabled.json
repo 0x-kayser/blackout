@@ -35,9 +35,46 @@
       "SOLAR_COMPONENT",
       "BATTERY_COMPONENT"
     ],
-    "trustBoundary": "Electricity, heat, customers and NPC decisions are simulated by this server and are reproducible from seed + action log. When chain mode is enabled, diesel purchases are real NEP-245 transfers on NEAR testnet from a merchant NPC account into the game's custodial vault; credits are an off-chain, non-redeemable game ledger. No contract verifies that electricity was produced.",
+    "trustBoundary": "Electricity, heat, customers, city merchants and NPC decisions are simulated by this server and are reproducible from seed + action log. On Testnet, the shared fuel exchange holds every player's warehouse fuel, open offers (escrow) and trader stock as NEP-245 balances; players' ids live in the vault's namespace and only the vault operator can move them, while each trader signs its own trades. Credits are fictional and never touch the chain. No contract verifies that electricity was produced.",
     "issues": [
-      "Chain mode disabled; missing: NEAR_CHAIN_ENABLED=true, NEAR_RESOURCE_CONTRACT_ID, NEAR_VAULT_ACCOUNT_ID, NEAR_MERCHANT_EMBER_ACCOUNT_ID, NEAR_MERCHANT_EMBER_PRIVATE_KEY, NEAR_MERCHANT_LANTERN_ACCOUNT_ID, NEAR_MERCHANT_LANTERN_PRIVATE_KEY, NEAR_MERCHANT_HARBOR_ACCOUNT_ID, NEAR_MERCHANT_HARBOR_PRIVATE_KEY"
-    ]
+      "Chain mode disabled; missing: NEAR_CHAIN_ENABLED=true, NEAR_RESOURCE_CONTRACT_ID, NEAR_VAULT_ACCOUNT_ID, NEAR_VAULT_OPERATOR_PRIVATE_KEY, NEAR_MERCHANT_EMBER_ACCOUNT_ID, NEAR_MERCHANT_EMBER_PRIVATE_KEY, NEAR_MERCHANT_LANTERN_ACCOUNT_ID, NEAR_MERCHANT_LANTERN_PRIVATE_KEY, NEAR_MERCHANT_HARBOR_ACCOUNT_ID, NEAR_MERCHANT_HARBOR_PRIVATE_KEY"
+    ],
+    "exchange": {
+      "mode": "sandbox",
+      "traderAccounts": [
+        {
+          "traderId": "harbor_terminal",
+          "name": "Harbor Import Terminal",
+          "accountId": null
+        },
+        {
+          "traderId": "northline",
+          "name": "Northline Haulage",
+          "accountId": null
+        },
+        {
+          "traderId": "kettle",
+          "name": "Kettle & Sons",
+          "accountId": null
+        },
+        {
+          "traderId": "swift_tankers",
+          "name": "Swift Tankers",
+          "accountId": null
+        },
+        {
+          "traderId": "okafor_daughters",
+          "name": "Okafor & Daughters",
+          "accountId": null
+        },
+        {
+          "traderId": "greenline_fund",
+          "name": "Greenline Fuel Fund",
+          "accountId": null
+        }
+      ],
+      "reconcile": null,
+      "note": "The exchange runs on this server's ledger; NEAR Testnet is not configured for it, so it records no transaction hashes."
+    }
   }
 }

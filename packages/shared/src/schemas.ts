@@ -57,7 +57,7 @@ export const GeneratorStatusSchema = z.enum(["online", "broken", "maintenance"])
 export const MarketItemSchema = z.enum(["diesel", "permit"]);
 export const MoodSchema = z.enum(["happy", "neutral", "worried", "angry"]);
 export const TrendSchema = z.enum(["up", "down", "flat"]);
-export const UpgradeIdSchema = z.enum(["solar_2kw", "battery_10kwh", "diesel_5kw"]);
+export const UpgradeIdSchema = z.enum(["solar_2kw", "battery_10kwh", "diesel_5kw", "tank_200l", "diesel_20kw", "battery_50kwh", "solar_10kw"]);
 
 // ---------------------------------------------------------------- clock / run
 export const ClockSchema = z.object({
@@ -120,6 +120,10 @@ export const PlayerSchema = z.object({
   upgradesOwned: z.array(UpgradeIdSchema),
   pendingFuelMl: nonNeg(), // bought, awaiting chain confirmation
   listableFuelMl: nonNeg(), // confirmed custodial fuel not consumed, reserved, or already listed
+  /** Bought (not starter) fuel that is free of contract reservations and may move to the shared exchange. */
+  exchangeDepositableFuelMl: nonNeg(),
+  /** Credits held for exchange purchases that are still settling. */
+  exchangeReservedCc: nonNeg(),
 });
 
 export const GeneratorSchema = z.object({
@@ -167,6 +171,15 @@ export const DistrictSchema = z.object({
   reliabilityTodayBps: nonNeg(),
   businessIds: z.array(id()),
   payBehaviour: z.enum(["haggle", "fixed_low", "price_sensitive", "low"]),
+  /** Grid: substation level (0 = not connected), feeder capacity and the load you're carrying on it. */
+  substationLevel: nonNeg(),
+  feederCapacityW: nonNeg(),
+  feederLoadW: nonNeg(),
+  lossBps: nonNeg(),
+  requiredStage: nonNeg(),
+  nextUpgradeCostCc: nonNeg().nullable(),
+  nextCapacityW: nonNeg().nullable(),
+  totalDemandW: nonNeg(),
 });
 
 export const BusinessDaySchema = z.object({
@@ -184,6 +197,8 @@ export const BusinessSchema = z.object({
   businessId: id(),
   districtId: id(),
   name: z.string(),
+  /** The person who runs it. */
+  owner: z.object({ name: z.string(), face: z.string(), trait: z.string() }).nullable(),
   kind: z.string(),
   demandW: nonNeg(),
   cashCc: nonNeg(),
@@ -219,6 +234,8 @@ export const RequestSchema = z.object({
   createdTick: nonNeg(),
   /** Null during tutorial waves (no timer). */
   deadlineTick: nonNeg().nullable(),
+  /** Code Red: an emergency that pays double, cannot be haggled, has a short timer and costs reputation if missed. */
+  urgency: z.enum(["normal", "code_red"]),
   expectedEnergyWh: nonNeg(),
   expectedPaymentCc: nonNeg(),
   estimatedFuelMl: nonNeg(),
@@ -403,6 +420,8 @@ export const WorldModifiersSchema = z.object({
 });
 export const WorldEventPublicSchema = z.object({
   eventId: z.string(),
+  /** A short market flash (seconds to minutes) rather than a multi-shift world event. */
+  flash: z.boolean(),
   templateId: z.string(),
   category: z.enum(["shipping", "production", "refinery", "inventory", "weather", "demand", "policy", "renewables", "recovery"]),
   headline: z.string(),
@@ -524,6 +543,36 @@ export const ChainInfoSchema = z.object({
   note: z.string(),
 });
 
+export const GoalSchema = z.object({
+  goalId: id(),
+  kind: z.enum(["earn", "lit", "serve", "code_red", "exchange_sell"]),
+  label: z.string(),
+  target: nonNeg(),
+  progress: nonNeg(),
+  rewardCc: nonNeg(),
+  done: z.boolean(),
+});
+export const GoalsSchema = z.object({
+  day: int(),
+  items: z.array(GoalSchema),
+  streak: nonNeg(),
+  bestStreak: nonNeg(),
+  /** Goal rewards multiplier from the streak, in basis points (10000 = no bonus). */
+  rewardMultiplierBps: nonNeg(),
+});
+
+export const CompanySchema = z.object({
+  stage: int(),
+  name: z.string(),
+  nextStage: z.object({ stage: int(), name: z.string(), unlocks: z.string(), rewardCc: nonNeg() }).nullable(),
+  progressBps: nonNeg(),
+  requirements: z.array(z.object({ label: z.string(), have: nonNeg(), need: nonNeg(), unit: z.enum(["Wh", "count", "W"]) })),
+  deliveredWh: nonNeg(),
+  connectedDistricts: nonNeg(),
+  installedCapacityW: nonNeg(),
+  totalDistricts: nonNeg(),
+});
+
 export const GameStatePublicSchema = z.object({
   schemaVersion: z.literal("blackout.state.v1"),
   run: RunSchema,
@@ -547,9 +596,11 @@ export const GameStatePublicSchema = z.object({
   campaign: CampaignSummarySchema,
   tutorial: TutorialSchema,
   story: StorySchema,
+  goals: GoalsSchema,
+  company: CompanySchema,
   chain: ChainInfoSchema,
   upgradesCatalog: z.array(
-    z.object({ upgradeId: UpgradeIdSchema, name: z.string(), costCc: nonNeg(), baseCostCc: nonNeg(), description: z.string(), owned: z.boolean() }),
+    z.object({ upgradeId: UpgradeIdSchema, name: z.string(), costCc: nonNeg(), baseCostCc: nonNeg(), description: z.string(), owned: z.boolean(), requiredStage: nonNeg() }),
   ),
   lastEventSeq: nonNeg(),
 });

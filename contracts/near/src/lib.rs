@@ -22,6 +22,18 @@
 //!     escrow path for game-authenticated player listings. Only escrowed resources can fill;
 //!     the buyer must be a registered NPC. Credits remain off-chain.
 //!   * trade_status(trade_id): lets the game server reconcile an unknown tx outcome.
+//!   * Shared fuel exchange (every city trades on one order book):
+//!       - player balances live under ids in the operator's namespace (`p<hash>.<operator_id>`).
+//!         The operator may mint (exchange_deposit), burn (exchange_redeem), escrow (exchange_ask),
+//!         cancel and buy (exchange_fill) ONLY for ids in that namespace. It can never move a
+//!         trader's or any external account's tokens.
+//!       - registered traders sign their OWN asks, cancels, fills and capped daily imports
+//!         (npc_import) with function-call keys (no deposit required).
+//!       - every deposit / redeem / fill / import id is single-use; escrowed fuel cannot be
+//!         sold twice; partial fills reduce an order's `remaining`. Credits remain off-chain.
+//!       - self-custody: once the vault creates the player's namespaced account with the player's
+//!         own key, the player can call `release_to_owner` (with no open offers). From then on the
+//!         operator can never move that id's tokens again; the player holds them like any account.
 //!   * settle_day: the operator burns the diesel it consumed in simulation from its OWN
 //!     custody balance and the contract checks the batch is internally consistent
 //!     (CO2 = fuel x 2.68 kg/L, permits retired cover the CO2). It cannot verify
@@ -56,6 +68,49 @@ enum StorageKey {
     Approvals,
     Days,
     Listings,
+    Traders,
+    TraderImports,
+    Orders,
+    Ops,
+    Released,
+    OpenOrders,
+}
+
+/// A registered exchange trader (an NPC with its own Testnet account and key).
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct TraderConfig {
+    /// Most units the trader may import (mint to itself) per UTC day.
+    pub max_import_per_day: U128,
+}
+
+/// An ask on the shared exchange. The escrowed tokens are held by the contract account.
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct Order {
+    pub order_id: String,
+    pub owner_id: AccountId,
+    pub token_id: TokenId,
+    pub amount: U128,
+    pub remaining: U128,
+    /// Off-chain, non-redeemable BLACKOUT credits per token unit (recorded for transparency).
+    pub unit_price_cc: U128,
+    /// "open" | "filled" | "cancelled"
+    pub status: String,
+    pub block_height: u64,
+}
+
+/// Receipt for a single-use exchange operation (deposit, redeem, fill, import).
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct OpRecord {
+    pub kind: String,
+    pub account_id: AccountId,
+    pub counterparty_id: Option<AccountId>,
+    pub order_id: Option<String>,
+    pub token_id: TokenId,
+    pub amount: U128,
+    pub block_height: u64,
 }
 
 #[near(serializers = [borsh, json])]
@@ -122,6 +177,20 @@ pub struct Listing {
     pub block_height: u64,
 }
 
+impl OpRecord {
+    fn new(kind: &str, account_id: &AccountId, counterparty_id: Option<&AccountId>, order_id: Option<&String>, token_id: &TokenId, amount: U128) -> Self {
+        Self {
+            kind: kind.to_string(),
+            account_id: account_id.clone(),
+            counterparty_id: counterparty_id.cloned(),
+            order_id: order_id.cloned(),
+            token_id: token_id.clone(),
+            amount,
+            block_height: env::block_height(),
+        }
+    }
+}
+
 #[ext_contract(ext_mt_receiver)]
 pub trait MultiTokenReceiver {
     fn mt_on_transfer(
@@ -161,7 +230,19 @@ pub struct Contract {
     next_approval_id: u64,
     days: LookupMap<String, DaySettlement>,
     listings: LookupMap<String, Listing>,
+    traders: LookupMap<AccountId, TraderConfig>,
+    /// key: "<trader>|<utc day>" -> units imported that day
+    trader_imports: LookupMap<String, u128>,
+    orders: LookupMap<String, Order>,
+    /// key: "<kind>:<id>" -> receipt; makes every exchange operation single-use
+    ops: LookupMap<String, OpRecord>,
+    /// player ids whose owner took self-custody: the operator can no longer act for them
+    released: LookupSet<AccountId>,
+    /// open offers per owner, so self-custody can never strand escrowed fuel
+    open_orders: LookupMap<AccountId, u32>,
 }
+
+const NANOS_PER_DAY: u64 = 86_400_000_000_000;
 
 fn bkey(token_id: &str, account: &AccountId) -> String {
     format!("{}|{}", token_id, account)
@@ -189,6 +270,12 @@ impl Contract {
             next_approval_id: 0,
             days: LookupMap::new(StorageKey::Days),
             listings: LookupMap::new(StorageKey::Listings),
+            traders: LookupMap::new(StorageKey::Traders),
+            trader_imports: LookupMap::new(StorageKey::TraderImports),
+            orders: LookupMap::new(StorageKey::Orders),
+            ops: LookupMap::new(StorageKey::Ops),
+            released: LookupSet::new(StorageKey::Released),
+            open_orders: LookupMap::new(StorageKey::OpenOrders),
         };
         c.registered.insert(owner_id);
         c.registered.insert(operator_id);
@@ -477,6 +564,19 @@ impl Contract {
         }
     }
 
+    /// NEP-245 approval management: revoke every approval the caller granted on these tokens.
+    #[payable]
+    pub fn mt_revoke_all(&mut self, token_ids: Vec<TokenId>) {
+        assert_one_yocto();
+        let owner = env::predecessor_account_id();
+        for t in token_ids.iter() {
+            let k = bkey(t, &owner);
+            if self.approvals.get(&k).is_some() {
+                self.approvals.insert(k, HashMap::new());
+            }
+        }
+    }
+
     /// NEP-245 approval check. Deviation: balances are fungible per (token, owner), so the
     /// owner must be named explicitly (`owner_id`); the standard's signature omits it.
     pub fn mt_is_approved(&self, owner_id: AccountId, token_ids: Vec<TokenId>, approved_account_id: AccountId, amounts: Vec<U128>, approval_ids: Option<Vec<u64>>) -> bool {
@@ -602,6 +702,200 @@ impl Contract {
 
     pub fn day_settlement(&self, run_id: String, day: u32) -> Option<DaySettlement> {
         self.days.get(&format!("{}#{}", run_id, day)).cloned()
+    }
+
+    // ------------------------------------------------------------------ shared fuel exchange
+
+    /// Owner registers an exchange trader. Its own function-call key then signs its asks, fills and imports.
+    pub fn register_trader(&mut self, account_id: AccountId, max_import_per_day: U128) {
+        self.assert_owner();
+        require!(self.registered.contains(&account_id), "Trader must be storage-registered");
+        require!(account_id != self.operator_id && !self.is_player_id(&account_id), "A trader cannot be the operator or a player id");
+        self.traders.insert(account_id, TraderConfig { max_import_per_day });
+    }
+
+    /// Operator moves fuel from a city tank onto the exchange: mints to the player's exchange balance.
+    pub fn exchange_deposit(&mut self, player_id: AccountId, token_id: TokenId, amount: U128, deposit_id: String) {
+        self.assert_operator();
+        self.assert_player_id(&player_id);
+        require!(amount.0 > 0, "Amount must be positive");
+        self.claim_op("deposit", &deposit_id, OpRecord::new("deposit", &player_id, None, None, &token_id, amount));
+        self.registered.insert(player_id.clone());
+        self.internal_mint(&player_id, &token_id, amount.0, &format!("deposit:{}", deposit_id));
+    }
+
+    /// Operator brings fuel home to a city tank: burns it from the player's exchange balance.
+    pub fn exchange_redeem(&mut self, player_id: AccountId, token_id: TokenId, amount: U128, redeem_id: String) {
+        self.assert_operator();
+        self.assert_player_id(&player_id);
+        require!(amount.0 > 0, "Amount must be positive");
+        self.claim_op("redeem", &redeem_id, OpRecord::new("redeem", &player_id, None, None, &token_id, amount));
+        self.internal_burn(&player_id, &token_id, amount.0, &format!("redeem:{}", redeem_id));
+    }
+
+    /// Places an ask and escrows its tokens in the contract. The operator may place asks only for player ids;
+    /// a trader only for itself.
+    pub fn exchange_ask(&mut self, owner_id: AccountId, order_id: String, token_id: TokenId, amount: U128, unit_price_cc: U128) {
+        let caller = env::predecessor_account_id();
+        let by_operator = caller == self.operator_id && self.is_player_id(&owner_id);
+        let by_trader = caller == owner_id && self.traders.get(&owner_id).is_some();
+        require!(by_operator || by_trader, "Only the operator (for a player) or the trader itself can place this ask");
+        require!(!order_id.is_empty() && order_id.len() <= 128, "Bad order id");
+        require!(amount.0 > 0 && unit_price_cc.0 > 0, "Amount and price must be positive");
+        require!(self.orders.get(&order_id).is_none(), "Order already exists");
+        let escrow = env::current_account_id();
+        self.internal_move(&owner_id, &escrow, &token_id, amount.0);
+        self.orders.insert(order_id.clone(), Order {
+            order_id: order_id.clone(), owner_id: owner_id.clone(), token_id: token_id.clone(), amount, remaining: amount,
+            unit_price_cc, status: "open".to_string(), block_height: env::block_height(),
+        });
+        self.bump_open(&owner_id, 1);
+        emit("mt_transfer", serde_json::json!({ "authorized_id": if by_operator { Some(caller) } else { None }, "old_owner_id": owner_id, "new_owner_id": escrow, "token_ids": [token_id], "amounts": [amount], "memo": format!("ask:{}", order_id) }));
+    }
+
+    /// Cancels an open ask and returns what is left in escrow to its owner.
+    pub fn exchange_cancel(&mut self, order_id: String) {
+        let caller = env::predecessor_account_id();
+        let mut order = self.orders.get(&order_id).cloned().unwrap_or_else(|| env::panic_str("Unknown order"));
+        require!(order.status == "open", "Order is not open");
+        let by_operator = caller == self.operator_id && self.is_player_id(&order.owner_id);
+        let by_trader = caller == order.owner_id && self.traders.get(&caller).is_some();
+        require!(by_operator || by_trader, "Only the order's owner can cancel it");
+        let escrow = env::current_account_id();
+        let left = order.remaining;
+        self.internal_move(&escrow, &order.owner_id, &order.token_id, left.0);
+        order.remaining = U128(0);
+        order.status = "cancelled".to_string();
+        self.bump_open(&order.owner_id, -1);
+        order.block_height = env::block_height();
+        self.orders.insert(order_id.clone(), order.clone());
+        emit("mt_transfer", serde_json::json!({ "authorized_id": if by_operator { Some(caller) } else { None }, "old_owner_id": escrow, "new_owner_id": order.owner_id, "token_ids": [order.token_id], "amounts": [left], "memo": format!("cancel:{}", order_id) }));
+    }
+
+    /// Fills all or part of an open ask. The operator may buy only for player ids; a trader only for itself.
+    pub fn exchange_fill(&mut self, order_id: String, buyer_id: AccountId, amount: U128, fill_id: String) {
+        let caller = env::predecessor_account_id();
+        let by_operator = caller == self.operator_id && self.is_player_id(&buyer_id);
+        let by_trader = caller == buyer_id && self.traders.get(&buyer_id).is_some();
+        require!(by_operator || by_trader, "Only the operator (for a player) or the trader itself can buy");
+        let mut order = self.orders.get(&order_id).cloned().unwrap_or_else(|| env::panic_str("Unknown order"));
+        require!(order.status == "open", "Order is not open");
+        require!(order.owner_id != buyer_id, "Cannot buy your own order");
+        require!(amount.0 > 0 && amount.0 <= order.remaining.0, "Amount exceeds what is left on the order");
+        self.claim_op("fill", &fill_id, OpRecord::new("fill", &buyer_id, Some(&order.owner_id), Some(&order_id), &order.token_id, amount));
+        if by_operator {
+            self.registered.insert(buyer_id.clone());
+        }
+        let escrow = env::current_account_id();
+        self.internal_move(&escrow, &buyer_id, &order.token_id, amount.0);
+        order.remaining = U128(order.remaining.0 - amount.0);
+        if order.remaining.0 == 0 {
+            order.status = "filled".to_string();
+            self.bump_open(&order.owner_id, -1);
+        }
+        order.block_height = env::block_height();
+        self.orders.insert(order_id.clone(), order.clone());
+        emit("mt_transfer", serde_json::json!({ "authorized_id": if by_operator { Some(caller) } else { None }, "old_owner_id": escrow, "new_owner_id": buyer_id, "token_ids": [order.token_id], "amounts": [amount], "memo": format!("fill:{}:{}", fill_id, order_id) }));
+    }
+
+    /// A trader imports fuel from outside the city economy, capped per UTC day by the owner.
+    pub fn npc_import(&mut self, token_id: TokenId, amount: U128, import_id: String) {
+        let trader = env::predecessor_account_id();
+        let cfg = self.traders.get(&trader).cloned().unwrap_or_else(|| env::panic_str("Caller is not a registered trader"));
+        require!(amount.0 > 0, "Amount must be positive");
+        let key = format!("{}|{}", trader, env::block_timestamp() / NANOS_PER_DAY);
+        let used = self.trader_imports.get(&key).copied().unwrap_or(0);
+        require!(used.checked_add(amount.0).map_or(false, |t| t <= cfg.max_import_per_day.0), "Daily import cap reached");
+        self.claim_op("import", &import_id, OpRecord::new("import", &trader, None, None, &token_id, amount));
+        self.trader_imports.insert(key, used + amount.0);
+        self.internal_mint(&trader, &token_id, amount.0, &format!("import:{}", import_id));
+    }
+
+    /// A trader sells fuel to the fuel merchants of players' cities: the tokens leave the exchange (burned from the
+    /// trader's own balance). Payment is off-chain game credits. Single-use per `supply_id`.
+    pub fn npc_supply_city(&mut self, token_id: TokenId, amount: U128, supply_id: String) {
+        let trader = env::predecessor_account_id();
+        require!(self.traders.get(&trader).is_some(), "Caller is not a registered trader");
+        require!(amount.0 > 0, "Amount must be positive");
+        self.claim_op("supply", &supply_id, OpRecord::new("supply", &trader, None, None, &token_id, amount));
+        self.internal_burn(&trader, &token_id, amount.0, &format!("supply:{}", supply_id));
+    }
+
+    pub fn exchange_order(&self, order_id: String) -> Option<Order> {
+        self.orders.get(&order_id).cloned()
+    }
+
+    /// Receipt for a single-use operation; `op_id` is "<kind>:<id>", e.g. "fill:abc".
+    pub fn exchange_op(&self, op_id: String) -> Option<OpRecord> {
+        self.ops.get(&op_id).cloned()
+    }
+
+    pub fn trader_config(&self, account_id: AccountId) -> Option<TraderConfig> {
+        self.traders.get(&account_id).cloned()
+    }
+
+    /// Player exchange ids must end with this suffix.
+    pub fn player_namespace(&self) -> String {
+        format!(".{}", self.operator_id)
+    }
+
+    fn assert_operator(&self) {
+        require!(env::predecessor_account_id() == self.operator_id, "Only the game operator");
+    }
+
+    fn is_player_id(&self, account_id: &AccountId) -> bool {
+        let suffix = format!(".{}", self.operator_id);
+        let s = account_id.as_str();
+        s.len() > suffix.len() && s.ends_with(&suffix) && !self.released.contains(account_id)
+    }
+
+    fn bump_open(&mut self, owner: &AccountId, delta: i64) {
+        let n = self.open_orders.get(owner).copied().unwrap_or(0) as i64 + delta;
+        self.open_orders.insert(owner.clone(), n.max(0) as u32);
+    }
+
+    /// A player whose namespaced account now exists (created by the vault with the player's own key)
+    /// takes self-custody: the operator loses all power over this id. Requires no open offers.
+    pub fn release_to_owner(&mut self) {
+        let me = env::predecessor_account_id();
+        require!(self.is_player_id(&me), "Only a player id in the operator's namespace can be released");
+        require!(self.open_orders.get(&me).copied().unwrap_or(0) == 0, "Cancel your open offers first");
+        self.released.insert(me.clone());
+        env::log_str(&format!("released {} to self-custody", me));
+    }
+
+    pub fn is_released(&self, account_id: AccountId) -> bool {
+        self.released.contains(&account_id)
+    }
+
+    fn assert_player_id(&self, account_id: &AccountId) {
+        require!(self.is_player_id(account_id), "Not a player id in the operator's namespace");
+    }
+
+    fn claim_op(&mut self, kind: &str, id: &str, rec: OpRecord) {
+        require!(!id.is_empty() && id.len() <= 128, "Bad operation id");
+        let key = format!("{}:{}", kind, id);
+        require!(self.ops.get(&key).is_none(), "Operation already processed");
+        self.ops.insert(key, rec);
+    }
+
+    fn internal_mint(&mut self, owner_id: &AccountId, token_id: &TokenId, amount: u128, memo: &str) {
+        let s = self.supply.get(token_id).copied().unwrap_or_else(|| env::panic_str("Unknown token"));
+        self.supply.insert(token_id.clone(), s.checked_add(amount).expect("supply overflow"));
+        let k = bkey(token_id, owner_id);
+        let b = self.balances.get(&k).copied().unwrap_or(0);
+        self.balances.insert(k, b.checked_add(amount).expect("balance overflow"));
+        emit("mt_mint", serde_json::json!({ "owner_id": owner_id, "token_ids": [token_id], "amounts": [U128(amount)], "memo": memo }));
+    }
+
+    fn internal_burn(&mut self, owner_id: &AccountId, token_id: &TokenId, amount: u128, memo: &str) {
+        let k = bkey(token_id, owner_id);
+        let b = self.balances.get(&k).copied().unwrap_or(0);
+        require!(b >= amount, "Insufficient balance");
+        self.balances.insert(k, b - amount);
+        let s = self.supply.get(token_id).copied().unwrap_or_else(|| env::panic_str("Unknown token"));
+        self.supply.insert(token_id.clone(), s - amount);
+        emit("mt_burn", serde_json::json!({ "owner_id": owner_id, "authorized_id": env::predecessor_account_id(), "token_ids": [token_id], "amounts": [U128(amount)], "memo": memo }));
     }
 
     pub fn contract_info(&self) -> serde_json::Value {

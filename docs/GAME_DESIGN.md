@@ -1,57 +1,102 @@
 # BLACKOUT — game design (as implemented)
 
-**Every light changes the economy.** You run a small emergency power company in a city whose grid keeps failing.
-Shops lose power, ask you for electricity and offer a price. What you charge and how reliably you deliver decides
-whether they make money, which decides tomorrow's demand.
+**Every light changes the economy.** The grid keeps failing. You start with one diesel set behind a shop and grow
+into the utility that powers the whole city. Shops, homes, hospitals, factories and the arena call you when they go
+dark. What you charge, how reliably you deliver and how well you build the grid decide whether they prosper, and
+that decides your demand. Fuel comes from NPC traders with their own NEAR wallets, shared by every player's city.
 
-Source design: `Blackout Game Loop Design1.pdf` (Abdulsalam, 2026-11-07). This file records what the code does.
+This file records what the code does. The numbers live in `packages/sim/src/config.ts` and
+`packages/sim/src/policies/*.ts`.
 
-## Every 30 seconds — an outage wave
-1. A business goes dark (`OUTAGE_STARTED`) and sends a request card: kW, hours, offered credits/kWh, the money it
-   will escrow, the fuel and CO₂ it will cost you and your expected margin (all server-computed).
-2. Accept, counter (≤ 2 rounds; the customer answers from its own margin, loyalty and the rival's price) or decline.
-   From Day 1 wave 4 requests have a 10 s timer.
-3. Route the load onto a generator. Capacity counts every active contract, not just this wave. Above 90% load heat
-   climbs (from Day 2) until the set breaks.
-4. The next tick the lights come back (`SERVICE_STARTED`); each tick burns fuel, retires permit allowance and bills
-   the customer for energy actually delivered.
-
-Failure moments: fuel or permits run out mid-contract (service drops, unearned escrow refunded, loyalty −15%); a
-generator overheats and is offline 3 game hours; the rival takes a customer you missed.
-
-| Stage | When | Added |
+## The loops
+| Every… | You… | Pressure |
 |---|---|---|
-| Tutorial | first 3 waves | 1 request, no visible timer (customers wait up to 6 game hours), no heat. Wave 1 is always the Cold Room: 1.5 kW × 2 h at 8 credits/kWh |
-| Normal | wave 4 onward | 2 requests, 10 s timers |
-| Pressure | from the second game day | heat & breakdowns; the rival bids for anything you miss; customers may switch provider |
-| Expert | third game day or ≥ 10 kW capacity | up to 3 requests; regulator cuts the permit cap |
+| 30 s (a wave) | take a call: accept, counter ×2 or decline; tap a generator | 10 s timer (7 s for Code Red); VoltLine takes what you miss; capacity, fuel, CO₂ allowance and the feeder must all fit |
+| few minutes | buy diesel (Market), trade on the Vesper Fuel Exchange, service generators, set tariffs | merchant prices move with their stock, real 2026 Brent and the exchange traders' premium |
+| stage | connect districts, upgrade substations, build plants | each stage needs energy delivered, districts connected and capacity installed |
+| shift (24 game hours = 4 min) | finish three goals | streak: +10% goal rewards per consecutive shift, up to +50% |
 
-## Continuous play — no forced days
-The city never stops. Play for three minutes or an hour; leave and it pauses exactly where you were.
+The city never stops for a calendar: there are no day gates. Time of day changes light, solar output and the evening
+peak. Leave and your city pauses (no fuel burns, no bills); your exchange offers keep selling.
 
-* **Day and night (environmental):** 24 game hours = 4 real minutes. Daylight drives solar output, the sky, window
-  glow and street lights; outages cluster into an evening peak. Nothing pauses at night.
-* **Background rollover at 06:00:** shops pay rent and update loyalty (and may struggle, close or reopen), merchants
-  restock or go broke, the regulator issues the day's permit supply and reprices, the rival restocks and reprices, the
-  oil index steps to the next observed Brent week. A `DAY_SETTLED` summary appears in Business → but play continues.
-* **Always open:** the Market (fuel and permits), Equipment (solar, battery, second diesel set, servicing, tariffs)
-  and Expansion (districts unlock with capacity and credits).
-* **Progression:** objectives (restore the Cold Room, earn, buy, install solar or a battery, reach 10 kW, unlock
-  Hospital Row) and pressure that grows with your progress: tutorial → two timed requests → heat + rival → three
-  requests once you have 10 kW.
+## Company stages (progress = the business)
+| Stage | Name | Needs | Opens |
+|---|---|---|---|
+| 1 | Street Generator | start | Market Quarter, rooftop solar, a second diesel set |
+| 2 | Neighbourhood Utility | 25 kWh delivered | Riverside Homes, fuel terminal, batteries; VoltLine competes; Code Red calls; generators run hot |
+| 3 | District Utility | 150 kWh, 2 districts, 10 kW | Hospital Row, Tech Hub, Port District, 20 kW diesel plant, grid battery |
+| 4 | City Utility | 600 kWh, 4 districts, 30 kW | Industrial Park, Downtown, 10 kW solar farm |
+| 5 | Grid Operator | 2,000 kWh, all 7 districts, 60 kW | the whole city on your grid |
 
-## Observatory (fast-forward)
-The same engine runs 7 days with a scripted *player-policy* bot (decisions only, never outcomes) in ~0.5 s and can be
-streamed over 60 s. Same seed + same policy ⇒ byte-identical trace hash. Different policies ⇒ different cash, stock,
-reliability and generation mix.
+Each promotion pays a City Council grant (₡100 → ₡2,000) and VoltLine invests too (+6 kW per stage).
 
-## What makes it an economy (not a script)
-* Outside shoppers are the only ongoing source of credits and only pay powered shops.
-* Merchants hold real stock and cash, price from one readable policy, restock from an importer with cash and capacity
-  limits, can go broke and recover.
-* The rival has its own plant, fuel, permits, cash and an adaptive margin; it can only win what it can physically serve.
-* The regulator's permit price reacts to everyone's emissions; the cap tightens.
-* Only the outside world is scripted: the oil index series per day and the permit cap schedule.
+## Distribution: substations, feeders, losses
+Power flows from your plants through one substation and feeder per district. A call can only be accepted if the
+district's feeder can carry it on top of what it already carries; the error says which feeder is full. Upgrading a
+substation (level 1 → 3) doubles and then doubles again its capacity. Longer feeders lose energy, so every kWh sold
+there burns more diesel.
 
-## Deliberately not in this build
-Session-ending campaigns (removed by design), hedging, NEP-171 generator NFT, Residential district, LLM dialogue, live oil prices, multiplayer generator market.
+| District | Opens at | Connect | Feeder L1 / L2 / L3 | Line loss | Customers |
+|---|---|---|---|---|---|
+| Market Quarter | start | — | 6 / 12 / 24 kW | 0% | Cold Room, bakery, pharmacy, cyber café, corner shop (haggle) |
+| Riverside Homes | 2 | ₡250 | 7 / 14 / 28 kW | 3.5% | flats, school, laundromat (tight budgets) |
+| Hospital Row | 3 | ₡300 | 8 / 16 / 32 kW | 5% | clinic, lab (fixed tariff) |
+| Tech Hub | 3 | ₡500 | 10 / 20 / 40 kW | 5% | co-working, server room (walk away from gougers) |
+| Port District | 3 | ₡1,200 | 14 / 28 / 56 kW | 7% | cold chain, dry dock, fish market |
+| Industrial Park | 4 | ₡2,500 | 22 / 44 / 88 kW | 9% | textile mill, recycler, bottling plant |
+| Downtown | 4 | ₡3,500 | 26 / 52 / 104 kW | 6% | tower, mall, arena (price-sensitive) |
+
+Waves grow with the city: more connected districts means more calls per wave. The regulator's daily permit supply
+also scales with the districts you serve.
+
+## Plants and storage
+Shed diesel 5 kW (start) · second diesel 5 kW · rooftop solar 2 kW · 10 kWh battery · fuel terminal +200 L ·
+20 kW diesel plant · grid battery +50 kWh / +10 kW · 10 kW solar farm. Solar follows the sun; batteries store surplus
+solar at 90% round-trip; diesel needs fuel and CO₂ allowance for every tick it runs.
+
+## The economy (everyone decides for themselves)
+* **Businesses** earn only while powered, from a bounded pool of outside shoppers. They pay wages, stock, rent and your
+  bill; overcharge or fail them and they struggle, switch to VoltLine or close; serve them well and their district
+  grows.
+* **Town fuel merchants** (Ember, Lantern, Harbor) hold finite stock and cash and price from one rule file. They
+  restock with lead time and cash limits **from the exchange traders**: the traders' scarcity premium reaches every town
+  as a recorded price signal, so a busy city anywhere raises diesel prices everywhere.
+* **Exchange traders** are the NPCs with wallets: Ingrid Halvorsen (Harbor Import Terminal: deep, slow, thin spreads),
+  Bayo Northcott (Northline Haulage: fast trucks, rations hard), Old Man Kettle (buys cheap, sells dear), Dayo Swift
+  (Swift Tankers: restocks in hours, undercuts), Chioma Okafor (Okafor & Daughters: hoards dips, sells squeezes) and
+  Professor Lena Brandt (Greenline Fuel Fund: cheap, steady, big). They hold
+  on-chain diesel and a credit budget, post asks and bids from their own stock, cash and recent flow, import within a
+  daily cap, ration at their reserve, buy cheap player offers and supply the towns. Every decision shows its reasons.
+* **VoltLine** has its own plant, fuel, permits, cash and an adaptive margin; it only takes customers it can serve.
+* **The regulator** prices carbon permits from everyone's emissions.
+
+## A market that keeps moving
+On top of the multi-shift world events, a **market flash** can start every 15 seconds once the tutorial is over
+(seeded, at most three at once, 45–150 s each): tanker queue, price war, heat spike, night market, carbon audit,
+panic buying, port strike, solar clearance, convoy, factory rush, cool rain, holiday lull. Each moves the same bounded
+levers as world events (import capacity and cost, merchant caution, shopper demand, permit supply, solar prices,
+outage length), so merchants, traders, customers and VoltLine react through their own rules. Traders decide every
+5 s; every wave each town receives the traders' current premium. Presets (the weekly challenge) and historical mode
+never get flashes, so challenge runs stay comparable.
+
+## People
+44 buildings in seven districts, each run by a named owner with a trait shown on calls, in the inspector and in the
+**People** panel, which also lists every NPC wallet (diesel, credits, prices, reasons and, on Testnet, the account).
+
+## Making it fun
+* **Code Red:** about 15% of calls from stage 2 pay double, can't be haggled and give you 7 seconds.
+* **Shift goals and streaks:** three goals each shift (earn, keep N lit, finish N contracts, answer a Code Red, sell
+  on the Exchange), paid by the City Council; finish all three to grow the streak.
+* **Next move:** a single line under the map always says what matters most right now, with a button to do it.
+* **The map is the game:** feeders glow with load, substations show their level, the Exchange port, fuel depot,
+  VoltLine plant and locked districts are all tappable, trucks carry fuel, and money floats up from lit buildings.
+* **Story:** neighbours with names and chapters that follow your growth.
+* **Sound and music:** synthesized cues and an original generated loop; both stop when you leave the page.
+
+## Why players come back
+Offers that sell while you're away, a streak to protect, the next stage in sight, and a world (oil, events, other
+players) that keeps moving.
+
+## Fast-forward
+The Economy Lab simulates a week of the same rules for two strategies on one seed in about a second, with charts, a
+60-second replay and a downloadable ledger. Same seed + strategy = same trace hash.

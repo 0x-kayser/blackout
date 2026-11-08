@@ -107,7 +107,7 @@ function EventCard({ s, e, reactions }: { s: GameStatePublic; e: WorldEventPubli
       {reactions.length > 0 && (
         <div className="reactions">
           <p className="eyebrow">WHO REACTED (from their own rules)</p>
-          <ul>{reactions.slice(-5).map((r) => <li key={r.seq}><span>Day {r.day} {r.clock}</span> {r.explanation.split('. Import cost')[0]}</li>)}</ul>
+          <ul>{reactions.slice(-5).map((r) => <li key={r.seq}><span>{r.clock}</span> {r.explanation.split('. Import cost')[0]}</li>)}</ul>
         </div>
       )}
     </article>

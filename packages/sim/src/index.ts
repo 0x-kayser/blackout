@@ -13,3 +13,5 @@ export { ingestExternalEvent, MODIFIER_BOUNDS, type WorldMode, type WorldModifie
 export { FICTIONAL_TEMPLATES, HISTORICAL_ANNOTATIONS, PRESETS } from "./world-events/catalog.ts";
 export { CHAPTERS, CHARACTERS } from "./story.ts";
 export { BRENT_DATASET } from "./config.ts";
+export * as exchange from "./exchange/index.ts";
+export { exchangeDepositableFuelMl } from "./exchangeCity.ts";

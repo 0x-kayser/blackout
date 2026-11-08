@@ -7,6 +7,7 @@
  */
 import { createHash } from "node:crypto";
 import { Account, JsonRpcProvider, actions, baseEncode, encodeTransaction, teraToGas, type KeyPairString } from "near-api-js";
+import { exchange } from "@blackout/sim";
 
 export interface ChainConfig {
   enabled: boolean;
@@ -19,7 +20,20 @@ export interface ChainConfig {
   rivalAccountId: string | null;
   merchants: Record<string, { accountId: string | null; privateKey: string | null }>;
   missing: string[];
+  /** Shared-exchange traders, each with its own Testnet account and function-call key. */
+  traders: Record<string, { accountId: string | null; privateKey: string | null }>;
+  /** The exchange settles on Testnet only when chain mode is on AND every trader account is configured. */
+  exchangeEnabled: boolean;
+  exchangeMissing: string[];
+  /**
+   * Legacy path: settle each city's own merchant purchases and player listings on-chain too.
+   * Off by default: NEAR's job is the shared exchange; city merchants are local simulation.
+   */
+  cityPurchasesOnChain: boolean;
 }
+
+export const EXCHANGE_TRADER_IDS = exchange.EXCHANGE_TRADERS.map((t) => t.traderId);
+export const traderEnvPrefix = (traderId: string) => `NEAR_TRADER_${traderId.toUpperCase()}`;
 
 export const TOKEN_IDS = ["DIESEL_100ML", "CARBON_PERMIT_10KG", "REPAIR_PART", "SOLAR_COMPONENT", "BATTERY_COMPONENT"];
 export const MERCHANT_IDS = ["ember", "lantern", "harbor"];
@@ -41,8 +55,23 @@ export function loadChainConfig(env: NodeJS.ProcessEnv = process.env): ChainConf
   }
   const enabledFlag = (env.NEAR_CHAIN_ENABLED ?? "false").toLowerCase() === "true";
   if (!enabledFlag) missing.unshift("NEAR_CHAIN_ENABLED=true");
+  const traders: ChainConfig["traders"] = {};
+  const exchangeMissing: string[] = [];
+  for (const t of EXCHANGE_TRADER_IDS) {
+    const pre = traderEnvPrefix(t);
+    const accountId = env[`${pre}_ACCOUNT_ID`]?.trim() || null;
+    const privateKey = env[`${pre}_PRIVATE_KEY`]?.trim() || null;
+    if (!accountId) exchangeMissing.push(`${pre}_ACCOUNT_ID`);
+    if (!privateKey) exchangeMissing.push(`${pre}_PRIVATE_KEY`);
+    traders[t] = { accountId, privateKey };
+  }
+  const enabled = enabledFlag && missing.length === 0;
   return {
-    enabled: enabledFlag && missing.length === 0,
+    cityPurchasesOnChain: (env.NEAR_CITY_PURCHASES_ON_CHAIN ?? "false").toLowerCase() === "true",
+    traders,
+    exchangeEnabled: enabled && exchangeMissing.length === 0,
+    exchangeMissing,
+    enabled,
     network: "testnet",
     rpcUrl: env.NEAR_RPC_URL?.trim() || "https://rpc.testnet.near.org",
     explorerTxBase: env.NEAR_EXPLORER_TX_BASE?.trim() || "https://testnet.nearblocks.io/txns/",
@@ -262,4 +291,80 @@ export async function contractTradeStatus(cfg: ChainConfig, tradeKey: string): P
   if (!cfg.resourceContractId) return { settled: false, detail: "no contract" };
   const r = await viewCall<{ seller_id: string; amount: string } | null>(cfg, cfg.resourceContractId, "trade_status", { trade_id: tradeKey });
   return r ? { settled: true, detail: `contract recorded trade by ${r.seller_id} amount ${r.amount}` } : { settled: false, detail: "contract has no record of this trade" };
+}
+
+// ------------------------------------------------------------------ shared fuel exchange
+
+/** Contract amount for a fuel quantity: 1 DIESEL_100ML unit = 100 mL. */
+export const exchangeUnits = (ml: number) => String(Math.floor(ml / 100));
+/** Informational on-chain price per 100 mL unit; credits never move on-chain. */
+export const exchangeUnitPriceCc = (ccPerL: number) => String(Math.ceil(ccPerL / 10));
+
+/** A player's namespaced exchange id on the contract: p<hash>.<vault account>. Only the vault can ever create it. */
+export function playerChainId(cfg: ChainConfig, playerId: string): string {
+  if (!cfg.vaultAccountId) throw new Error("CHAIN_UNAVAILABLE");
+  return `p${createHash("sha256").update(playerId).digest("hex").slice(0, 24)}.${cfg.vaultAccountId}`;
+}
+
+export interface ExchangeCall {
+  signerId: string;
+  privateKey: string;
+  method: string;
+  args: Record<string, unknown>;
+}
+
+/**
+ * Maps an exchange chain effect to the one contract call that performs it. Player operations are signed by the
+ * vault operator (the contract only lets it touch ids in its namespace); trader operations by the trader's own key.
+ */
+export function exchangeCall(cfg: ChainConfig, e: exchange.ChainEffect): ExchangeCall {
+  const operator = () => {
+    if (!cfg.vaultAccountId || !cfg.vaultOperatorPrivateKey) throw new Error("CHAIN_UNAVAILABLE");
+    return { signerId: cfg.vaultAccountId, privateKey: cfg.vaultOperatorPrivateKey };
+  };
+  const trader = (id: string) => {
+    const t = cfg.traders[id];
+    if (!t?.accountId || !t.privateKey) throw new Error(`No Testnet account configured for trader ${id}`);
+    return { signerId: t.accountId, privateKey: t.privateKey };
+  };
+  const ownerId = (o: exchange.OwnerRef) => (o.kind === "player" ? playerChainId(cfg, o.id) : trader(o.id).signerId);
+  const signer = (o: exchange.OwnerRef) => (o.kind === "player" ? operator() : trader(o.id));
+  const token_id = "DIESEL_100ML";
+  switch (e.op) {
+    case "deposit":
+      return { ...operator(), method: "exchange_deposit", args: { player_id: playerChainId(cfg, e.playerId), token_id, amount: exchangeUnits(e.amountMl), deposit_id: e.opId } };
+    case "redeem":
+      return { ...operator(), method: "exchange_redeem", args: { player_id: playerChainId(cfg, e.playerId), token_id, amount: exchangeUnits(e.amountMl), redeem_id: e.opId } };
+    case "ask":
+      return { ...signer(e.owner), method: "exchange_ask", args: { owner_id: ownerId(e.owner), order_id: e.opId, token_id, amount: exchangeUnits(e.amountMl), unit_price_cc: exchangeUnitPriceCc(e.unitPriceCcPerL) } };
+    case "cancel":
+      return { ...signer(e.owner), method: "exchange_cancel", args: { order_id: e.opId } };
+    case "fill":
+      return { ...signer(e.buyer), method: "exchange_fill", args: { order_id: e.orderId, buyer_id: ownerId(e.buyer), amount: exchangeUnits(e.amountMl), fill_id: e.opId } };
+    case "import":
+      return { ...trader(e.traderId), method: "npc_import", args: { token_id, amount: exchangeUnits(e.amountMl), import_id: e.opId } };
+    case "supply":
+      return { ...trader(e.traderId), method: "npc_supply_city", args: { token_id, amount: exchangeUnits(e.amountMl), supply_id: e.opId } };
+  }
+}
+
+export async function submitExchangeOp(cfg: ChainConfig, e: exchange.ChainEffect, onSigned: (txHash: string, signerId: string) => void = () => {}): Promise<SubmitResult> {
+  const c = exchangeCall(cfg, e);
+  return submitFunctionCall(cfg, c.signerId, c.privateKey, c.method, c.args, onSigned);
+}
+
+/**
+ * Reconciliation that does not need the transaction: asks the contract whether the operation took effect.
+ * `done: true` only when the contract's own records show it.
+ */
+export async function exchangeOpOnChain(cfg: ChainConfig, e: exchange.ChainEffect): Promise<{ done: boolean; detail: string }> {
+  if (!cfg.resourceContractId) return { done: false, detail: "no contract" };
+  if (e.op === "ask" || e.op === "cancel") {
+    const o = await viewCall<{ status: string } | null>(cfg, cfg.resourceContractId, "exchange_order", { order_id: e.opId });
+    if (!o) return { done: false, detail: `contract has no order ${e.opId}` };
+    const done = e.op === "ask" ? true : o.status === "cancelled";
+    return { done, detail: `contract order ${e.opId} is ${o.status}` };
+  }
+  const r = await viewCall<{ kind: string } | null>(cfg, cfg.resourceContractId, "exchange_op", { op_id: `${e.op}:${e.opId}` });
+  return r ? { done: true, detail: `contract recorded ${e.op} ${e.opId}` } : { done: false, detail: `contract has no ${e.op} ${e.opId}` };
 }

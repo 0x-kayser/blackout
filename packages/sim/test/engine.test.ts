@@ -17,8 +17,8 @@ describe("starting state", () => {
     expect(s.generators.gen_1.ratedW).toBe(5_000);
     expect(s.player.unlockedDistrictIds).toEqual(["market_quarter"]);
     const mq = Object.values(s.businesses).filter((b) => b.districtId === "market_quarter");
-    expect(mq).toHaveLength(5);
-    expect(mq.reduce((a, b) => a + b.demandW, 0)).toBe(5_100); // ~5 kW peak; 5th business pushes past 90%
+    expect(mq).toHaveLength(8);
+    expect(mq.reduce((a, b) => a + b.demandW, 0)).toBe(6_900); // more than one 5 kW set and the 6 kW feeder can carry
     expect(s.phase).toBe("operating"); // Day 1 skips the morning market
   });
 
@@ -268,9 +268,10 @@ describe("negotiation", () => {
 });
 
 describe("heat", () => {
-  it("day 2+: sustained >90% load breaks the set, its contracts fail and refund", () => {
+  it("stage 2+: sustained >90% load breaks the set, its contracts fail and refund", () => {
     const { s } = newRun();
     until(s, (x) => x.day === 2 && x.phase === "operating");
+    s.company = { stage: 2 }; // generators run hot once the company has grown
     // inject a 5 kW load for 3 h (100% load)
     s.requests.req_heat = { requestId: "req_heat", waveId: "w", businessId: "cold_room", districtId: "market_quarter", requestedW: 5_000, durationHours: 3, offerRateCcPerKwh: 800, counterCount: 0, maxCounters: 2, lastPlayerCounterCcPerKwh: null, status: "open", createdTick: s.tick, deadlineTick: null, day: s.day, message: "", resolutionReason: null };
     s.businesses.cold_room.activeContractId = null;

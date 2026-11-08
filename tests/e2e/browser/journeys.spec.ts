@@ -28,7 +28,7 @@ test("new player: guest tutorial restores power and earns credits", async ({ pag
   await page.locator(".req-card.pending").getByRole("button", { name: /Shed Diesel/ }).click();
   await expect(page.locator(".toast").filter({ hasText: "Power restored at Cold Room" })).toBeVisible({ timeout: 10_000 });
   await expect(page.locator(".gen-card").first()).toContainText("Serving Cold Room");
-  await expect(page.getByRole("img", { name: /City map: \d of 5 businesses powered/ })).toBeVisible();
+  await expect(page.getByRole("img", { name: /City map: \d+ of \d+ businesses powered/ })).toBeVisible();
   // money only arrives as energy is delivered (1.20 credits per second)
   await expect.poll(() => credits(page), { timeout: 15_000 }).toBeGreaterThan(before + 3);
 });
@@ -102,3 +102,39 @@ test("mobile: core controls are reachable @mobile", async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
+test("exchange: one city sells to a trader on the shared board while another city buys from it", async ({ page, browser }) => {
+  // city A: buy diesel locally, move it to the exchange, sell it fast to a trader
+  await startGuest(page);
+  await page.getByRole("button", { name: /Market/ }).click();
+  const lantern = page.locator(".merchant-card").filter({ hasText: "Lantern" });
+  await lantern.getByRole("button", { name: "Request quote" }).click();
+  await lantern.getByRole("button", { name: "Buy fuel" }).click();
+  await expect(lantern).toContainText("Purchase complete: 10.0 L");
+  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: /Exchange/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Vesper Fuel Exchange");
+  // normal play never mentions the chain
+  await expect(dialog).not.toContainText(/[Bb]lockchain|[Ww]allet|gas fee|\bNEAR\b/);
+  await dialog.getByRole("button", { name: "Send to warehouse" }).click();
+  await expect(dialog.locator(".x-big")).toHaveText("5.0 L", { timeout: 10_000 });
+  await dialog.getByRole("button", { name: /^Sell fast/ }).click();
+  await dialog.getByRole("button", { name: "Post offer" }).click();
+  // a trader discovers the offer on its next decision (one exchange tick = 5 s)
+  await expect(dialog.locator(".x-orders li.sold").first()).toContainText(/Sold 5\.0 L/, { timeout: 20_000 });
+
+  // city B, a different player: buys from the same shared board
+  const ctxB = await browser.newContext();
+  const b = await ctxB.newPage();
+  await startGuest(b);
+  await b.getByRole("button", { name: /Exchange/ }).click();
+  const dB = b.getByRole("dialog");
+  await expect(dB.getByRole("button", { name: "Buy" })).toBeEnabled({ timeout: 10_000 });
+  await dB.getByRole("button", { name: "Buy" }).click();
+  await expect(dB.locator(".x-big")).toHaveText("10.0 L", { timeout: 10_000 });
+  await dB.getByRole("button", { name: "Deliver to tank" }).click();
+  await expect(dB.locator(".x-big")).toHaveText("5.0 L", { timeout: 10_000 });
+  await ctxB.close();
+});
+

@@ -28,6 +28,7 @@ import type {
 } from "@blackout/shared";
 import type { RngState } from "./prng.ts";
 import type { WorldState } from "./world-events/types.ts";
+import type { GoalsState } from "./goals.ts";
 
 export type Asset = "credits_cc" | "fuel_ml" | "permit_mg";
 
@@ -75,6 +76,8 @@ export interface DistrictState {
   payBehaviour: "haggle" | "fixed_low" | "price_sensitive" | "low";
   outageTicksToday: number;
   servedOutageTicksToday: number;
+  /** Substation level 0 (not connected) .. 3; sets the feeder capacity into the district. */
+  substationLevel?: number;
 }
 
 export interface BusinessState {
@@ -136,6 +139,8 @@ export interface RequestState {
   day: number;
   message: string;
   resolutionReason: string | null;
+  /** Code Red emergencies pay double, cannot be haggled and cost reputation if missed. */
+  urgency?: "normal" | "code_red";
 }
 
 export interface ContractState {
@@ -279,6 +284,7 @@ export interface MarketListingState {
   createdTick: number;
   expiresTick: number;
   buyerMerchantId: string | null;
+  decisionReasons: Record<string, string>;
   error: string | null;
   expireRequested: boolean;
   fillAttempts: number;
@@ -323,6 +329,10 @@ export interface DayStats {
 }
 
 export interface SimState {
+  /** Daily goals and streak (created lazily; older saves start without it). */
+  goals?: GoalsState;
+  /** Company stage (how far the business has grown). Created lazily. */
+  company?: { stage: number };
   schema: "blackout.sim.v1";
   runId: string;
   ownerId: string;
@@ -362,6 +372,8 @@ export interface SimState {
     fuelCostBasisCcPerL: number;
     /** Confirmed NEP-245-backed fuel still available to list or consume. */
     chainBackedFuelMl: number;
+    /** Fuel bought from merchants or the exchange (not starter supplies) that may move to the shared exchange. */
+    exchangeEligibleFuelMl: number;
   };
   generators: Record<string, GeneratorState>;
   battery: BatteryState | null;
@@ -372,7 +384,7 @@ export interface SimState {
   merchants: Record<string, MerchantState>;
   rival: RivalState;
   regulator: RegulatorState;
-  world: { oilIndexCenti: number; prevOilIndexCenti: number; referenceIndexCenti: number; /** Start the oil series N days in (Economy Lab historical window). */ oilDayOffset?: number };
+  world: { oilIndexCenti: number; prevOilIndexCenti: number; referenceIndexCenti: number; /** Start the oil series N days in (Economy Lab historical window). */ oilDayOffset?: number; /** Exchange traders' scarcity premium on imports (recorded EXCHANGE_PRICE_SIGNAL). */ exchangePremiumBps?: number };
   waves: WaveState[];
   quotes: Record<string, QuoteState>;
   trades: Record<string, TradeState>;

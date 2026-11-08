@@ -10,8 +10,10 @@
 import { ccForEnergy, whPerTick } from "@blackout/shared";
 import { CUSTOMER_RULES, GRID, RIVAL, TIMING } from "./config.ts";
 import { ACC, bal, transfer, transferUpTo } from "./ledger.ts";
-import { validateAssignment } from "./electricity.ts";
+import { assertFeederRoom, validateAssignment } from "./electricity.ts";
 import { worldModifiers } from "./world-events/engine.ts";
+import { rngRange } from "./prng.ts";
+import { ensureGoals } from "./goals.ts";
 import { SimError, cr, emit, kW, newId, type BusinessState, type ContractState, type Ctx, type RequestState, type SimState, type WaveState } from "./state.ts";
 
 export const businessCash = (s: SimState, b: BusinessState) => bal(s, "credits_cc", ACC.business(b.businessId));
@@ -25,7 +27,7 @@ export const profitPerHourAt = (b: BusinessState, rateCcPerKwh: number) =>
   b.revenueCcPerPoweredHour - b.variableCostCcPerPoweredHour - Math.floor((b.demandW * rateCcPerKwh) / 1000);
 
 export function rivalCanServe(s: SimState, w: number, hours: number): boolean {
-  if (s.day < RIVAL.activeFromDay) return false;
+  if ((s.company?.stage ?? 1) < 2) return false;
   const assigned = Object.values(s.contracts).filter((c) => c.provider === "rival" && c.status === "active").reduce((a, c) => a + c.allottedW, 0);
   if (assigned + w > Math.floor((s.rival.ratedW * 9) / 10)) return false;
   const fuel = (w * hours * 3) / 10;
@@ -81,9 +83,18 @@ const MESSAGES: Record<string, (kwText: string, h: number, rate: string) => stri
   corner_shop: (k, h, r) => `Lights are out at the shop. Just ${k} for ${h}h, I can do ${r}/kWh.`,
 };
 
+/** Share of non-tutorial requests from day 2 that arrive as Code Red emergencies. */
+export const CODE_RED_CHANCE_PCT = 15;
+export const CODE_RED_DEADLINE_TICKS = 7;
+export const CODE_RED_REPUTATION_PENALTY_BPS = 150;
+
 export function createRequest(s: SimState, ctx: Ctx, wave: WaveState, b: BusinessState, hours: number, fixture?: { rateCcPerKwh: number }): RequestState | null {
   let h = hours;
   let rate = fixture?.rateCcPerKwh ?? openingOffer(s, b, b.demandW, h);
+  // Code Red: a business in real trouble pays double for power right now, no haggling.
+  let codeRed = !fixture && !wave.tutorial && (s.company?.stage ?? 1) >= 2 && b.fixedTariffCcPerKwh === null && rngRange(s.rng, 1, 100) <= CODE_RED_CHANCE_PCT;
+  if (codeRed && ccForEnergy(b.demandW * h, rate * 2) <= businessCash(s, b)) rate *= 2;
+  else codeRed = false;
   // affordability: customer must be able to escrow the full expected payment
   while (h > 1 && ccForEnergy(b.demandW * h, rate) > businessCash(s, b)) h -= 1;
   if (ccForEnergy(b.demandW * h, rate) > businessCash(s, b)) {
@@ -100,20 +111,24 @@ export function createRequest(s: SimState, ctx: Ctx, wave: WaveState, b: Busines
     durationHours: h,
     offerRateCcPerKwh: rate,
     counterCount: 0,
-    maxCounters: b.fixedTariffCcPerKwh !== null ? 0 : CUSTOMER_RULES.maxCounters,
+    maxCounters: b.fixedTariffCcPerKwh !== null || codeRed ? 0 : CUSTOMER_RULES.maxCounters,
     lastPlayerCounterCcPerKwh: null,
     status: "open",
     createdTick: s.tick,
-    deadlineTick: wave.tutorial ? null : s.tick + TIMING.REQUEST_DEADLINE_TICKS,
+    deadlineTick: wave.tutorial ? null : s.tick + (codeRed ? CODE_RED_DEADLINE_TICKS : TIMING.REQUEST_DEADLINE_TICKS),
     day: s.day,
-    message: (MESSAGES[b.kind] ?? ((k, hh, r) => `We need ${k} for ${hh}h at ${r}/kWh.`))(`${kW(b.demandW)} kW`, h, cr(rate)),
+    message: codeRed
+      ? `CODE RED: everything spoils without power. ${kW(b.demandW)} kW for ${h}h, now. We'll pay ${cr(rate)}/kWh, double the usual.`
+      : (MESSAGES[b.kind] ?? ((k, hh, r) => `We need ${k} for ${hh}h at ${r}/kWh.`))(`${kW(b.demandW)} kW`, h, cr(rate)),
     resolutionReason: null,
+    urgency: codeRed ? "code_red" : "normal",
   };
   s.requests[req.requestId] = req;
   wave.requestIds.push(req.requestId);
   s.dayStats.requestsOffered += 1;
   s.dayStats.requestedOutageTicks += h * 10;
   s.totals.requestedOutageTicks += h * 10;
+  if (codeRed) emit(s, ctx, "CODE_RED_CALLED", [`business:${b.businessId}`], `🚨 Code Red at ${b.name}: ${kW(b.demandW)} kW for ${h}h at ${cr(rate)}/kWh (double pay). ${CODE_RED_DEADLINE_TICKS} seconds to answer.`, { requestId: req.requestId, businessId: b.businessId, offerRateCcPerKwh: rate });
   emit(s, ctx, "CUSTOMER_REQUESTED", [`business:${b.businessId}`], `${b.name} asks for ${kW(b.demandW)} kW for ${h} game hour${h > 1 ? "s" : ""} at ${cr(rate)} credits/kWh (${cr(ccForEnergy(b.demandW * h, rate))} credits total).`, {
     requestId: req.requestId,
     businessId: b.businessId,
@@ -134,6 +149,7 @@ function requireOpen(s: SimState, req: RequestState): void {
 
 /** Finds a generator that can take this load right now, or throws the most relevant error. */
 function viabilityCheck(s: SimState, probe: ContractState): void {
+  if (probe.provider === "player") assertFeederRoom(s, probe); // the grid's limit, before any generator's
   let firstErr: SimError | null = null;
   for (const gid of s.player.generatorIds) {
     try {
@@ -212,6 +228,7 @@ export function acceptRequest(s: SimState, ctx: Ctx, requestId: string): Contrac
     customerProfitPerHourCc: profitPerHourAt(b, c.rateCcPerKwh),
   });
   if (s.tutorialStep === "accept_first") setTutorial(s, ctx, "assign_first");
+  if (req.urgency === "code_red") ensureGoals(s).codeRedsAnswered += 1;
   return c;
 }
 

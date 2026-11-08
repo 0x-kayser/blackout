@@ -1,17 +1,15 @@
 import { useState } from 'react'
 import { explainError } from '../api/client'
-import { sendEmailLink, signInWithGoogle } from '../api/auth'
 import { CityCanvas } from '../city/CityCanvas'
 import type { Game } from '../game/useGame'
 import { WeeklyCard } from './Challenge'
+import { SignInOptions } from './SignIn'
 
-export function Welcome({ g, onPlay, onChallenge, onLab, onHelp, reducedMotion }: { g: Game; onPlay: () => Promise<void>; onChallenge: () => Promise<void>; onLab: () => void; onHelp: () => void; reducedMotion: boolean }) {
-  const [mode, setMode] = useState<'home' | 'signin'>('home')
-  const [email, setEmail] = useState('')
+export function Welcome({ g, onPlay, onChallenge, onLab, onHelp, reducedMotion, music, onToggleMusic }: { g: Game; onPlay: () => Promise<void>; onChallenge: () => Promise<void>; onLab: () => void; onHelp: () => void; reducedMotion: boolean; music?: boolean; onToggleMusic?: () => void }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const p = g.player
-  const auth = g.config?.auth
+  const canSignIn = !!(g.config?.auth.google || g.config?.auth.email)
 
   const go = async (fn: () => Promise<void>) => {
     setBusy(true)
@@ -24,6 +22,7 @@ export function Welcome({ g, onPlay, onChallenge, onLab, onHelp, reducedMotion }
       setBusy(false)
     }
   }
+  const start = () => go(async () => { if (!p) await g.playAsGuest(); await onPlay() })
 
   return (
     <section className="welcome2">
@@ -41,41 +40,36 @@ export function Welcome({ g, onPlay, onChallenge, onLab, onHelp, reducedMotion }
             <p className="warn">{g.bootError}</p>
             <button className="button" onClick={() => void g.boot()}>Retry</button>
           </>
-        ) : mode === 'home' ? (
+        ) : (
           <>
-            <p className="intro">Restore power, keep shops open, and respond to a fuel market that changes with stock, demand, and world conditions.</p>
+            <p className="intro">The grid keeps failing. You own the generator. Keep the town's lights on, make money doing it, and beat VoltLine to every customer.</p>
+            <ol className="howto3" aria-label="How you play">
+              <li><b>⚡ Sell power</b><span>A shop goes dark. Take its call, plug it into your generator, get paid for every kWh.</span></li>
+              <li><b>⛽ Run on diesel</b><span>Buy fuel before prices jump. Every merchant prices from its own stock and real 2026 oil.</span></li>
+              <li><b>⇄ Trade with other cities</b><span>Sell spare fuel to other players and traders on the shared Exchange, even while you're away.</span></li>
+            </ol>
             <div className="welcome-actions">
-              {p?.activeRunId ? (
-                <button className="button primary" disabled={busy} onClick={() => void go(onPlay)}>Continue your city <b>→</b></button>
-              ) : (
-                <button className="button primary" disabled={busy} onClick={() => void go(async () => { if (!p) await g.playAsGuest(); await onPlay() })}>{p ? 'Start your city' : 'Play now'} <b>→</b></button>
-              )}
-              {!p || p.kind === 'guest' ? <button className="button secondary" onClick={() => setMode('signin')}>Sign in</button> : <span className="signed-as">Signed in as <b>{p.displayName}</b></span>}
+              <button className="button primary big" disabled={busy} onClick={() => void start()}>
+                {p?.activeRunId ? 'Continue your city' : 'Play now'} <b>→</b>
+              </button>
+              {p?.kind === 'registered' && <span className="signed-as">Signed in as <b>{p.displayName}</b></span>}
             </div>
+            {canSignIn && p?.kind !== 'registered' && (
+              <div className="welcome-signin">
+                <p className="divider"><span>{p?.activeRunId ? 'Keep this city on every device' : 'or sign in to play anywhere'}</span></p>
+                <SignInOptions g={g} onSignedIn={onPlay} />
+              </div>
+            )}
             <WeeklyCard onPlay={() => void go(async () => { if (!p) await g.playAsGuest(); await onChallenge() })} />
             <div className="welcome-links">
               <button onClick={onLab}>Economy Lab</button>
               <button onClick={onHelp}>How to play</button>
+              {onToggleMusic && <button onClick={onToggleMusic} aria-pressed={!!music}>{music ? '🎵 Music on' : '🎶 Music off'}</button>}
               {p && <button onClick={() => void g.logout()}>Log out</button>}
             </div>
           </>
-        ) : (
-          <div className="signin">
-            <p className="intro">Sign in to take this city with you across devices.</p>
-            {auth?.google && <button className="button wide google" disabled={busy} onClick={() => void go(signInWithGoogle)}>Continue with Google</button>}
-            {auth?.email && (
-              <form onSubmit={(e) => { e.preventDefault(); void go(async () => { await sendEmailLink(email); setMsg(`We sent a sign-in link to ${email}. Open it on this device.`) }) }}>
-                <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email address" />
-                <button className="button wide" disabled={busy}>Continue with email</button>
-              </form>
-            )}
-            {!auth?.google && !auth?.email && <p className="fine">Google and email sign-in are not configured on this server. You can still start and save a guest city here.</p>}
-            <button className="button wide secondary" disabled={busy} onClick={() => void go(async () => { if (!p) await g.playAsGuest(); await onPlay() })}>Play as guest</button>
-            <p className="fine">{auth?.xDeferredReason}</p>
-            <button className="text-link" onClick={() => setMode('home')}>← Back</button>
-          </div>
         )}
-        {msg && <p className="ok-line">{msg}</p>}
+        {msg && <p className="warn">{msg}</p>}
       </div>
       <footer className="welcome-foot">Game credits are fictional · Your city saves automatically</footer>
     </section>

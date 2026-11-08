@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "POST",
-    "url": "/api/runs/run_1762afe1-fde/actions",
+    "url": "/api/runs/run_082cb222-8b0/actions",
     "body": {
       "action": {
         "type": "BUY",

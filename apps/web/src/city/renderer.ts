@@ -4,7 +4,7 @@
  * daylight) and plays short effects for confirmed EconomyEvents. No game rules here.
  */
 import type { EconomyEvent, GameStatePublic } from '@blackout/shared'
-import { DISTRICT_AREAS, LOTS, ROADS, TILE_H, TILE_W, type Lot } from './layout'
+import { DISTRICT_AREAS, LOTS, ROADS, SUBSTATIONS, TILE_H, TILE_W, autoLots, type Lot } from './layout'
 
 export interface CityView {
   state: GameStatePublic | null
@@ -50,6 +50,14 @@ export class CityRenderer {
   private pinch: { d: number; z: number } | null = null
   private hit: { id: string; poly: [number, number][] }[] = []
   onPick: (id: string | null) => void = () => {}
+  private lotCache: { key: string; lots: Lot[] } = { key: '', lots: LOTS }
+  /** Hand-drawn lots plus every other business in the city, placed automatically inside its district. */
+  private allLots(s: GameStatePublic | null): Lot[] {
+    if (!s) return LOTS
+    const key = s.businesses.map((b) => b.businessId).join('|')
+    if (key !== this.lotCache.key) this.lotCache = { key, lots: [...LOTS, ...autoLots(s.businesses)] }
+    return this.lotCache.lots
+  }
   onHover: (id: string | null) => void = () => {}
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -78,17 +86,33 @@ export class CityRenderer {
     const s = this.view.state
     if (!s || this.view.reducedMotion) return
     const bid = (ev.data.businessId as string | undefined) ?? ev.actors.find((a) => a.startsWith('business:'))?.slice(9)
-    const lot = LOTS.find((l) => l.id === bid)
+    const lot = this.allLots(s).find((l) => l.id === bid)
     const at = lot ? this.lotTop(lot) : this.lotTop(LOTS.find((l) => l.id === 'gen_1')!)
     const now = performance.now()
     if (ev.type === 'SERVICE_STARTED') this.effects.push({ kind: 'burst', x: at.x, y: at.y, t0: now, color: ev.data.provider === 'rival' ? '#f26f6f' : '#47e4c2' })
-    else if (ev.type === 'CONTRACT_FAILED' || ev.type === 'GENERATOR_BROKEN') this.effects.push({ kind: 'fail', x: at.x, y: at.y, t0: now })
+    else if (ev.type === 'CONTRACT_FAILED' || ev.type === 'GENERATOR_BROKEN' || ev.type === 'CODE_RED_CALLED' || ev.type === 'CODE_RED_MISSED') this.effects.push({ kind: 'fail', x: at.x, y: at.y, t0: now })
+    else if (ev.type === 'STAGE_REACHED') {
+      const g = this.lotTop(LOTS.find((l) => l.id === 'gen_1')!)
+      this.effects.push({ kind: 'burst', x: g.x, y: g.y, t0: now, color: '#ffbf69' })
+      this.effects.push({ kind: 'float', x: g.x, y: g.y - 40, t0: now, text: `STAGE ${ev.data.stage}: ${String(ev.data.name).toUpperCase()}`, color: '#ffbf69' })
+    } else if (ev.type === 'GOAL_COMPLETED') {
+      const g = this.lotTop(LOTS.find((l) => l.id === 'gen_1')!)
+      this.effects.push({ kind: 'float', x: g.x, y: g.y - 24, t0: now, text: `GOAL +₡${((ev.data.rewardCc as number) / 100).toFixed(0)}`, color: '#47e4c2' })
+    }
     else if (ev.type === 'ENERGY_DELIVERED' && typeof ev.data.billedCc === 'number' && ev.data.billedCc > 0)
       this.effects.push({ kind: 'float', x: at.x, y: at.y - 10, t0: now, text: `+₡${(ev.data.billedCc / 100).toFixed(2)}`, color: '#ffd28d' })
     else if (ev.type === 'TRADE_CONFIRMED' && ev.data.item === 'diesel') {
       const g = this.lotTop(LOTS.find((l) => l.id === 'gen_1')!)
       this.effects.push({ kind: 'float', x: g.x, y: g.y - 10, t0: now, text: `+${((ev.data.quantity as number) / 1000).toFixed(1)} L`, color: '#56b6ff' })
     }
+    const port = LOTS.find((l) => l.id === 'exchange_port')!
+    const pt = this.lotTop(port)
+    if (ev.type === 'EXCHANGE_SALE_PAID') this.effects.push({ kind: 'float', x: pt.x, y: pt.y - 30, t0: now, text: `SOLD +₡${((ev.data.amountCc as number) / 100).toFixed(2)}`, color: '#47e4c2' })
+    else if (ev.type === 'EXCHANGE_FUEL_SENT') this.effects.push({ kind: 'float', x: pt.x, y: pt.y - 30, t0: now, text: `+${((ev.data.quantityMl as number) / 1000).toFixed(1)} L stored`, color: '#56b6ff' })
+    else if (ev.type === 'EXCHANGE_FUEL_RECEIVED') {
+      const g = this.lotTop(LOTS.find((l) => l.id === 'gen_1')!)
+      this.effects.push({ kind: 'float', x: g.x, y: g.y - 10, t0: now, text: `+${((ev.data.amountMl as number) / 1000).toFixed(1)} L from exchange`, color: '#56b6ff' })
+    } else if (ev.type === 'EXCHANGE_PAYMENT_CAPTURED') this.effects.push({ kind: 'burst', x: pt.x, y: pt.y, t0: now, color: '#56b6ff' })
     if (this.effects.length > 40) this.effects.splice(0, this.effects.length - 40)
   }
 
@@ -256,15 +280,18 @@ export class CityRenderer {
     this.ground(day, s)
     this.roads(day, t)
     this.hit = []
+    this.districtHits(s)
 
     const unlocked = new Set(s?.districts.filter((d) => d.unlocked).map((d) => d.districtId) ?? ['market_quarter'])
     const gens = new Set(s?.generators.map((x) => x.generatorId) ?? ['gen_1'])
-    const lots = LOTS.filter((l) => {
+    const lots = this.allLots(s).filter((l) => {
       if (l.kind === 'generator' || l.kind === 'solar') return gens.has(l.id)
       if (l.kind === 'battery') return !!s?.battery
       return true
     }).sort((a, b) => a.gx + a.gy + (a.w + a.d) / 2 - (b.gx + b.gy + (b.w + b.d) / 2))
 
+    // distribution grid: feeders from your plants to each connected district's substation
+    if (s) this.feeders(s, t, motion)
     // cables under buildings' tops but over ground
     if (s) this.cables(s, t, motion)
 
@@ -276,6 +303,7 @@ export class CityRenderer {
       else if (l.kind === 'battery') this.battery(l, s)
       else if (l.kind === 'rival') this.rival(l, s, t, motion)
       else if (l.kind === 'depot') this.depot(l, s, t, motion)
+      else if (l.kind === 'exchange') this.exchangePort(l, t, motion)
     }
     if (s) this.trucks(s, t, motion)
     this.effectsDraw(t)
@@ -322,7 +350,7 @@ export class CityRenderer {
 
   private ground(day: number, s: GameStatePublic | null) {
     const ctx = this.ctx
-    this.diamond(-6, -8, 24, 17)
+    this.diamond(-8, -13, 34, 27)
     ctx.fillStyle = mix('#0f1a2e', '#3b5d4a', day * 0.8)
     ctx.fill()
     for (const [id, a] of Object.entries(DISTRICT_AREAS)) {
@@ -381,31 +409,67 @@ export class CityRenderer {
     }
   }
 
-  /** Draws an isometric box and registers its silhouette for hit testing. */
+  /**
+   * Draws an isometric box with simple lighting (sun from the upper left): a soft cast shadow, side faces that
+   * darken toward the ground, a bright roof rim and a lit front edge. Registers its silhouette for hit testing.
+   */
   private box(l: Lot, top: string, left: string, right: string, h = l.h, id = l.id) {
     const ctx = this.ctx
     const a = this.iso(l.gx, l.gy + l.d)
     const b = this.iso(l.gx + l.w, l.gy + l.d)
     const c = this.iso(l.gx + l.w, l.gy)
     const d = this.iso(l.gx, l.gy)
-    // left face
+    const solid = (col: string) => col.startsWith('#')
+    // cast shadow on the ground (down-right), stronger for taller buildings
+    if (h > 4) {
+      const ox = h * 0.55
+      const oy = h * 0.22
+      ctx.beginPath()
+      ctx.moveTo(a.x, a.y)
+      ctx.lineTo(a.x + ox, a.y + oy)
+      ctx.lineTo(b.x + ox, b.y + oy)
+      ctx.lineTo(c.x + ox, c.y + oy)
+      ctx.lineTo(c.x, c.y)
+      ctx.lineTo(b.x, b.y)
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(0,0,0,0.22)'
+      ctx.fill()
+    }
+    const faceFill = (col: string, yTop: number, yBottom: number, light: number) => {
+      if (!solid(col)) return col
+      const gr = ctx.createLinearGradient(0, yTop, 0, yBottom)
+      gr.addColorStop(0, shade(col, 1.08 * light))
+      gr.addColorStop(1, shade(col, 0.72 * light))
+      return gr
+    }
+    // left face (lit)
     ctx.beginPath()
     ctx.moveTo(d.x, d.y)
     ctx.lineTo(a.x, a.y)
     ctx.lineTo(a.x, a.y - h)
     ctx.lineTo(d.x, d.y - h)
     ctx.closePath()
-    ctx.fillStyle = left
+    ctx.fillStyle = faceFill(left, a.y - h, a.y, 1.05)
     ctx.fill()
-    // right face
+    // right face (in shade)
     ctx.beginPath()
     ctx.moveTo(a.x, a.y)
     ctx.lineTo(b.x, b.y)
     ctx.lineTo(b.x, b.y - h)
     ctx.lineTo(a.x, a.y - h)
     ctx.closePath()
-    ctx.fillStyle = right
+    ctx.fillStyle = faceFill(right, a.y - h, a.y, 0.92)
     ctx.fill()
+    // ambient occlusion at the base
+    if (h > 4) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(d.x, d.y)
+      ctx.lineTo(a.x, a.y)
+      ctx.lineTo(b.x, b.y)
+      ctx.stroke()
+    }
     // top
     ctx.beginPath()
     ctx.moveTo(d.x, d.y - h)
@@ -413,13 +477,93 @@ export class CityRenderer {
     ctx.lineTo(b.x, b.y - h)
     ctx.lineTo(c.x, c.y - h)
     ctx.closePath()
-    ctx.fillStyle = top
+    if (solid(top)) {
+      const gr = ctx.createLinearGradient(d.x, c.y - h, b.x, a.y - h)
+      gr.addColorStop(0, shade(top, 1.18))
+      gr.addColorStop(1, shade(top, 0.95))
+      ctx.fillStyle = gr
+    } else ctx.fillStyle = top
     ctx.fill()
+    // roof rim + lit front edge
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)'
+    ctx.lineWidth = 1
+    ctx.stroke()
+    if (h > 4) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.14)'
+      ctx.beginPath()
+      ctx.moveTo(a.x, a.y)
+      ctx.lineTo(a.x, a.y - h)
+      ctx.stroke()
+    }
     const m = ctx.getTransform()
     const toPx = (p: { x: number; y: number }): [number, number] => [(m.a * p.x + m.e) / this.dpr, (m.d * p.y + m.f) / this.dpr]
     const P = 10 // touch-friendly padding (world px)
     this.hit.push({ id, poly: [toPx({ x: d.x - P, y: d.y }), toPx({ x: a.x, y: a.y + P }), toPx({ x: b.x + P, y: b.y }), toPx({ x: b.x + P, y: b.y - h }), toPx({ x: c.x, y: c.y - h - P }), toPx({ x: d.x - P, y: d.y - h })] })
     return { a, b, c, d }
+  }
+
+  /** Small rooftop unit (AC / water tank) so roofs read as roofs. */
+  private roofUnit(l: Lot, h: number, color: string) {
+    if (l.w * l.d < 1 || h < 30) return
+    const ctx = this.ctx
+    const p = this.iso(l.gx + l.w * 0.62, l.gy + l.d * 0.4)
+    const y = p.y - h
+    ctx.fillStyle = shade(color, 0.55)
+    ctx.fillRect(p.x - 6, y - 7, 12, 7)
+    ctx.fillStyle = shade(color, 0.8)
+    ctx.beginPath()
+    ctx.moveTo(p.x - 6, y - 7)
+    ctx.lineTo(p.x, y - 10)
+    ctx.lineTo(p.x + 6, y - 7)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  /** The shared Vesper Fuel Exchange: a warehouse with containers and a crane. Tap it to trade. */
+  private exchangePort(l: Lot, t: number, motion: boolean) {
+    const ctx = this.ctx
+    this.box(l, l.roof, shade(l.wall, 0.95), shade(l.wall, 1.2))
+    // container stacks on the roof
+    const colors = ['#ffbf69', '#56b6ff', '#f26f6f', '#47e4c2']
+    for (let i = 0; i < 4; i++) {
+      const p = this.iso(l.gx + 0.35 + (i % 2) * 0.9, l.gy + 0.45 + Math.floor(i / 2) * 0.9)
+      const y = p.y - l.h
+      ctx.fillStyle = shade(colors[i], 0.75)
+      ctx.fillRect(p.x - 10, y - 8, 20, 8)
+      ctx.fillStyle = colors[i]
+      ctx.fillRect(p.x - 10, y - 10, 20, 3)
+    }
+    // crane
+    const base = this.iso(l.gx + l.w + 0.2, l.gy + 0.2)
+    ctx.strokeStyle = '#d7dde8'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(base.x, base.y)
+    ctx.lineTo(base.x, base.y - 70)
+    ctx.lineTo(base.x - 46, base.y - 52)
+    ctx.stroke()
+    const swing = motion ? Math.sin(t / 1600) * 6 : 0
+    ctx.beginPath()
+    ctx.moveTo(base.x - 30 + swing, base.y - 58)
+    ctx.lineTo(base.x - 30 + swing, base.y - 40)
+    ctx.stroke()
+    ctx.fillStyle = '#ffbf69'
+    ctx.fillRect(base.x - 36 + swing, base.y - 40, 12, 6)
+    if (!this.view.attract) {
+      const top = this.lotTop(l)
+      this.label(top.x, top.y - 18, '⇄ Vesper Exchange', 'TRADE WITH OTHER CITIES', '#47e4c2', this.view.selectedId === l.id, l.id)
+    }
+  }
+
+  /** Locked districts are tappable: they open the expansion panel. Registered after the hit list resets. */
+  private districtHits(s: GameStatePublic | null) {
+    const m = this.ctx.getTransform()
+    const px = (p: { x: number; y: number }): [number, number] => [(m.a * p.x + m.e) / this.dpr, (m.d * p.y + m.f) / this.dpr]
+    for (const [id, a] of Object.entries(DISTRICT_AREAS)) {
+      const unlocked = s?.districts.find((d) => d.districtId === id)?.unlocked ?? id === 'market_quarter'
+      if (unlocked) continue
+      this.hit.push({ id: `district:${id}`, poly: [px(this.iso(a.gx0, a.gy0)), px(this.iso(a.gx1, a.gy0)), px(this.iso(a.gx1, a.gy1)), px(this.iso(a.gx0, a.gy1))] })
+    }
   }
 
   private windows(l: Lot, lit: boolean, warm: string, t: number, flicker: boolean) {
@@ -494,6 +638,7 @@ export class CityRenderer {
     const lit = !closed && b.powerSource !== 'none'
     const dim = closed ? 0.45 : lit ? 1 : 0.6
     const { a } = this.box(l, shade(l.roof, dim * (0.75 + 0.25 * day)), shade(l.wall, dim * 0.85), shade(l.wall, dim * 1.15))
+    this.roofUnit(l, l.h, shade(l.roof, dim))
     const warm = b.powerSource === 'player' ? '#ffd27a' : b.powerSource === 'rival' ? '#ffb0a0' : '#ffe2a8'
     this.windows(l, lit, warm, t, !lit && !closed)
     const top = this.lotTop(l)
@@ -625,7 +770,7 @@ export class CityRenderer {
         ctx.fill()
       }
     }
-    if (!this.view.attract && s) this.label(top.x, top.y - 10, 'VoltLine (rival)', `${(s.rival.tariffCcPerKwh / 100).toFixed(2)} ₡/kWh`, '#f26f6f', this.view.selectedId === l.id)
+    if (!this.view.attract && s) this.label(top.x, top.y - 10, 'VoltLine (rival)', `${(s.rival.tariffCcPerKwh / 100).toFixed(2)} ₡/kWh`, '#f26f6f', this.view.selectedId === l.id, l.id)
   }
 
   private depot(l: Lot, s: GameStatePublic | null, t: number, motion: boolean) {
@@ -651,13 +796,25 @@ export class CityRenderer {
       const top = this.lotTop(l)
       const limited = cap < 0
       const pulse = motion ? 0.6 + 0.4 * Math.sin(t / 300) : 1
-      this.label(top.x, top.y - 28, '⛽ Fuel depot', limited ? `DELIVERIES LIMITED ${cap / 100}%` : `shelves ${(frac * 100).toFixed(0)}%`, limited ? `rgba(242,111,111,${pulse})` : '#9dafca', this.view.selectedId === l.id)
+      this.label(top.x, top.y - 28, '⛽ Fuel depot', limited ? `DELIVERIES LIMITED ${cap / 100}%` : `shelves ${(frac * 100).toFixed(0)}%`, limited ? `rgba(242,111,111,${pulse})` : '#9dafca', this.view.selectedId === l.id, l.id)
     }
   }
 
   /** Tanker trucks on the lower road: fewer and rarer when world events cut import capacity. */
   private trucks(s: GameStatePublic, t: number, motion: boolean) {
     const ctx = this.ctx
+    // the exchange shuttle: fuel moving between the shared exchange and the town
+    {
+      const u = motion ? 0.5 - 0.5 * Math.cos((t / 14000) * Math.PI * 2) : 0.5
+      const p = this.iso(1 + u * 2.6, 4.55)
+      ctx.fillStyle = '#47e4c2'
+      ctx.fillRect(p.x - 8, p.y - 10, 12, 7)
+      ctx.fillStyle = '#e6ebf4'
+      ctx.fillRect(p.x + 4, p.y - 9, 4, 6)
+      ctx.fillStyle = '#1b2233'
+      ctx.fillRect(p.x - 7, p.y - 3, 2, 2)
+      ctx.fillRect(p.x + 3, p.y - 3, 2, 2)
+    }
     const cap = 10_000 + s.world.modifiers.importCapacityBps
     const n = Math.max(0, Math.round((3 * cap) / 10_000))
     for (let i = 0; i < n; i++) {
@@ -684,12 +841,69 @@ export class CityRenderer {
     ctx.fill()
   }
 
+  /** Feeders: one line per connected district, coloured by how full it is, with a substation at the end. */
+  private feeders(s: GameStatePublic, t: number, motion: boolean) {
+    const ctx = this.ctx
+    const hub = this.iso(0.5, -0.5)
+    for (const d of s.districts) {
+      const sp = SUBSTATIONS[d.districtId]
+      if (!sp) continue
+      const p = this.iso(sp.gx, sp.gy)
+      if (!d.unlocked) {
+        // an unbuilt substation site: a faint marker shows where the grid could reach next
+        ctx.strokeStyle = 'rgba(160,176,204,0.25)'
+        ctx.setLineDash([3, 5])
+        ctx.beginPath()
+        ctx.ellipse(p.x, p.y, 10, 5, 0, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.setLineDash([])
+        continue
+      }
+      const ratio = d.feederCapacityW ? d.feederLoadW / d.feederCapacityW : 0
+      const color = ratio > 0.9 ? '#f26f6f' : ratio > 0.7 ? '#ffbf69' : '#47e4c2'
+      const mid = { x: (hub.x + p.x) / 2, y: Math.min(hub.y, p.y) - 26 }
+      ctx.strokeStyle = 'rgba(10,14,26,0.6)'
+      ctx.lineWidth = 4
+      ctx.beginPath()
+      ctx.moveTo(hub.x, hub.y - 18)
+      ctx.quadraticCurveTo(mid.x, mid.y, p.x, p.y - 16)
+      ctx.stroke()
+      ctx.strokeStyle = color
+      ctx.globalAlpha = 0.35 + 0.65 * Math.min(1, ratio + 0.15)
+      ctx.lineWidth = 1.6 + d.substationLevel * 0.6
+      ctx.stroke()
+      ctx.globalAlpha = 1
+      // power flowing: pulses travel faster on busier feeders
+      if (ratio > 0 && motion) {
+        for (let i = 0; i < 2; i++) {
+          const u = (t / (2200 - 1200 * Math.min(1, ratio)) + i / 2) % 1
+          const x = (1 - u) * (1 - u) * hub.x + 2 * (1 - u) * u * mid.x + u * u * p.x
+          const y = (1 - u) * (1 - u) * (hub.y - 18) + 2 * (1 - u) * u * mid.y + u * u * (p.y - 16)
+          ctx.fillStyle = color
+          ctx.beginPath()
+          ctx.arc(x, y, 2.2, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      // substation: a small fenced transformer box with one stripe per level
+      ctx.fillStyle = '#2b3550'
+      ctx.fillRect(p.x - 8, p.y - 16, 16, 14)
+      ctx.fillStyle = '#4a5878'
+      ctx.fillRect(p.x - 8, p.y - 19, 16, 3)
+      for (let lv = 0; lv < d.substationLevel; lv++) {
+        ctx.fillStyle = color
+        ctx.fillRect(p.x - 6 + lv * 5, p.y - 12, 3, 8)
+      }
+    }
+  }
+
   private cables(s: GameStatePublic, t: number, motion: boolean) {
     const ctx = this.ctx
     for (const c of s.contracts) {
       if (c.status !== 'active') continue
-      const from = LOTS.find((l) => l.id === (c.provider === 'rival' ? 'rival_plant' : c.generatorId))
-      const to = LOTS.find((l) => l.id === c.businessId)
+      const all = this.allLots(s)
+      const from = all.find((l) => l.id === (c.provider === 'rival' ? 'rival_plant' : c.generatorId))
+      const to = all.find((l) => l.id === c.businessId)
       if (!from || !to) continue
       const a = this.lotTop(from)
       const b = this.lotTop(to)

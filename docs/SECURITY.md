@@ -16,8 +16,9 @@ No contract verifies that electricity was produced. `settle_day` only checks a b
 ## Custody model
 * Players have **no individual NEAR account** in this build. Diesel bought on-chain lands in a **custodial game vault** account
   (`NEAR_VAULT_ACCOUNT_ID`). The per-run split is the game DB. The UI must say "held by the game's vault", not
-  "owned by you". Withdrawals are not implemented. Contract escrow methods can hold a listing on a player's behalf,
-  but the API/UI currently do not expose them.
+  "owned by you" as a withdrawable wallet asset. Withdrawals are not implemented. Registered players can list only
+  confirmed chain-backed fuel; the contract records the authenticated player id as seller and escrows the resource
+  on that player's behalf.
 * The server can only move merchant tokens with that merchant's scoped key. A separate vault operator function-call key
   can list from vault custody, cancel a listing back to the vault, or deliver an active escrow listing to a registered
   NPC. It cannot call arbitrary contract methods or transfer NEAR.
@@ -57,11 +58,15 @@ merchant's own inventory.
   visible banner; no transfer is ever reported as confirmed.
 * A trade is `confirmed` only from an RPC final execution outcome with no failed receipts. Unknown outcomes stay
   `submitted`/`timeout` and are reconciled; they are never compensated automatically because the tx might still land.
+* Listing and NPC-purchase jobs persist the signed transaction hash before broadcast. Definitive failures release or
+  refund reservations once; unknown outcomes keep them locked while hash and contract listing state are reconciled.
 
 ## Known security gaps
 * Supabase Google/email login code exists, but provider credentials are absent and live login was not verified. Leaderboard is per-server and trivially farmable with new guests.
 * The vault is custodial; a compromised vault operator key could escrow pooled vault resources and direct an active
   escrow to a registered NPC. It cannot transfer from a merchant or an external account, but the shared vault does
   not cryptographically isolate one player's allocation from another's.
-* Marketplace listing escrow is only a contract primitive. There is no API/UI, NPC listing evaluation worker, off-chain credit reservation, or listing reconciliation path yet.
+* Player allocation and game credits are trusted server records in a shared vault model. Simulation fuel consumption
+  reduces listable allocation but is not yet reconciled as an on-chain burn; the contract does not independently know
+  each player's remaining game balance.
 * Rate limiting is in-memory (single process).

@@ -93,6 +93,19 @@ export function ChapterBanner({ ev, onDone }: { ev: EconomyEvent; onDone: () => 
 
 const TICKER_TYPES = new Set(['WORLD_EVENT_STARTED', 'WORLD_EVENT_ENDED', 'MERCHANT_REPRICED', 'RIVAL_REPRICED', 'RIVAL_STRATEGY_CHANGED', 'RIVAL_WON_CONTRACT', 'BUSINESS_STATUS_CHANGED', 'MERCHANT_RESTOCK_ORDERED', 'OIL_INDEX_UPDATED', 'REGULATOR_NOTICE', 'CUSTOMER_SWITCHED_PROVIDER', 'CHAPTER_COMPLETED'])
 
+/** Abbreviations that end in a period but do not end a sentence (e.g. "VoltLine Power Co."). */
+const ABBREVIATION_END = /\b(?:Co|Inc|Ltd|Corp|St|Dr|Mr|Mrs|Ms|vs|approx|No)\.$/
+
+/** First sentence of an event explanation, without splitting inside abbreviations or decimals. */
+export function headline(text: string): string {
+  const end = /[.!?](?=\s|$)/g
+  for (let m = end.exec(text); m; m = end.exec(text)) {
+    const head = text.slice(0, m.index + 1)
+    if (!ABBREVIATION_END.test(head)) return head
+  }
+  return text
+}
+
 export function NewsTicker({ events }: { events: EconomyEvent[] }) {
   const items = events.filter((e) => TICKER_TYPES.has(e.type)).slice(-8).reverse()
   if (!items.length) return null
@@ -101,7 +114,7 @@ export function NewsTicker({ events }: { events: EconomyEvent[] }) {
       <span className="ticker-label">VESPER NEWS</span>
       <div className="ticker-track">
         <div className="ticker-move">
-          {[...items, ...items].map((e, i) => <span key={`${e.seq}-${i}`}>{e.explanation.split('. ')[0]}.</span>)}
+          {[...items, ...items].map((e, i) => <span key={`${e.seq}-${i}`}>{headline(e.explanation)}</span>)}
         </div>
       </div>
     </div>

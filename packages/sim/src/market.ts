@@ -18,7 +18,7 @@ export const oilTrend = (s: SimState) => trendOf(s.world.oilIndexCenti, s.world.
 export function repriceMerchant(s: SimState, ctx: Ctx, m: MerchantState, cause: string): void {
   const mods = worldModifiers(s);
   const reasons = computeMerchantPrice({
-    logisticsCostBps: mods.logisticsCostBps,
+    logisticsCostBps: mods.logisticsCostBps + (s.world.exchangePremiumBps ?? 0),
     cautionBps: mods.cautionBps,
     policy: MERCHANT_POLICIES[m.policyId],
     oilIndexCenti: s.world.oilIndexCenti,
@@ -214,6 +214,7 @@ export function settleTrade(s: SimState, ctx: Ctx, tradeId: string, outcome: "co
   if (!t) throw new SimError("NOT_FOUND", `Unknown trade ${tradeId}`);
   if (t.status !== "reserved") throw new SimError("ALREADY_PROCESSED", `Trade ${tradeId} already ${t.status}.`);
   const viaChain = t.chainStatus !== "simulation_only";
+  if (viaChain && outcome === "confirmed" && !txHash) throw new SimError("INVALID_STATE", "A chain-backed purchase cannot be confirmed without a verified transaction hash.");
   const src = viaChain && txHash ? { source: "testnet_transaction" as const, txHash } : {};
   t.settledTick = s.tick;
   if (outcome === "confirmed") {
@@ -229,6 +230,7 @@ export function settleTrade(s: SimState, ctx: Ctx, tradeId: string, outcome: "co
       }
       transfer(s, ctx, "fuel_ml", ACC.escrowTrades, t.buyerId, t.quantity, "trade_settle_fuel", tradeId, viaChain ? txHash : null);
       if (viaChain && t.buyerId === ACC.player) s.player.chainBackedFuelMl = (s.player.chainBackedFuelMl ?? 0) + t.quantity;
+      if (t.buyerId === ACC.player) s.player.exchangeEligibleFuelMl = (s.player.exchangeEligibleFuelMl ?? 0) + t.quantity;
     } else {
       transfer(s, ctx, "permit_mg", ACC.escrowTrades, t.buyerId, t.quantity * PERMIT_MG, "trade_settle_permits", tradeId);
       s.regulator.permitsSoldToday += t.quantity;
@@ -297,7 +299,8 @@ export function merchantsMorning(s: SimState, ctx: Ctx): void {
 /** Settlement: overhead, reorder decisions bounded by cash/upstream capacity, insolvency. */
 export function merchantsSettlement(s: SimState, ctx: Ctx): void {
   const mods = worldModifiers(s);
-  const importCost = importCostCcPerL(BASE_REFERENCE_CC_PER_L, s.world.oilIndexCenti, s.world.referenceIndexCenti, mods.logisticsCostBps);
+  // town merchants restock from the exchange traders: their scarcity premium is part of the import cost
+  const importCost = importCostCcPerL(BASE_REFERENCE_CC_PER_L, s.world.oilIndexCenti, s.world.referenceIndexCenti, mods.logisticsCostBps + (s.world.exchangePremiumBps ?? 0));
   for (const m of Object.values(s.merchants)) {
     const policy = MERCHANT_POLICIES[m.policyId];
     // World Events change the INPUTS of this policy: how much the importer can ship, how long it takes,

@@ -13,14 +13,15 @@
     "state": {
       "schemaVersion": "blackout.state.v1",
       "run": {
-        "runId": "run_1762afe1-fde",
-        "ownerId": "guest_434566aa-f325-451b-91cd-d93ab47ef438",
+        "runId": "run_082cb222-8b0",
+        "ownerId": "guest_989cd475-3891-41b5-9e47-6cbe293c577c",
         "seed": 424242,
         "scenarioId": "starter",
         "scenarioVersion": "2026.11.07-v1",
         "mode": "guest_demo",
         "stateVersion": 1,
-        "chainMode": "disabled"
+        "chainMode": "disabled",
+        "challengeWeek": null
       },
       "clock": {
         "day": 1,
@@ -44,8 +45,12 @@
         "reputationBps": 5000,
         "districtTrustBps": {
           "market_quarter": 5000,
+          "riverside": 5000,
           "hospital_row": 5000,
-          "tech_hub": 5000
+          "tech_hub": 5000,
+          "port_district": 5000,
+          "industrial_park": 5000,
+          "downtown": 5000
         },
         "fuelMl": 20000,
         "fuelReservedMl": 0,
@@ -56,8 +61,12 @@
         "co2TotalMg": 0,
         "tariffsCcPerKwh": {
           "market_quarter": 800,
+          "riverside": 800,
           "hospital_row": 800,
-          "tech_hub": 800
+          "tech_hub": 800,
+          "port_district": 800,
+          "industrial_park": 800,
+          "downtown": 800
         },
         "generatorIds": [
           "gen_1"
@@ -67,7 +76,10 @@
           "market_quarter"
         ],
         "upgradesOwned": [],
-        "pendingFuelMl": 0
+        "pendingFuelMl": 0,
+        "listableFuelMl": 0,
+        "exchangeDepositableFuelMl": 0,
+        "exchangeReservedCc": 0
       },
       "generators": [
         {
@@ -98,7 +110,7 @@
           "unlockRequirementW": 0,
           "unlockCostCc": 0,
           "activityIndexBps": 10000,
-          "outsideDemandCcPerHour": 16000,
+          "outsideDemandCcPerHour": 21600,
           "poweredBps": 10000,
           "reliabilityTodayBps": 10000,
           "businessIds": [
@@ -106,9 +118,20 @@
             "bakery",
             "pharmacy",
             "cyber_cafe",
-            "corner_shop"
+            "corner_shop",
+            "tailor",
+            "phone_repair",
+            "barber"
           ],
-          "payBehaviour": "haggle"
+          "payBehaviour": "haggle",
+          "substationLevel": 1,
+          "feederCapacityW": 6000,
+          "feederLoadW": 0,
+          "lossBps": 0,
+          "requiredStage": 1,
+          "nextUpgradeCostCc": 40000,
+          "nextCapacityW": 12000,
+          "totalDemandW": 6900
         }
       ],
       "businesses": [
@@ -116,6 +139,11 @@
           "businessId": "cold_room",
           "districtId": "market_quarter",
           "name": "Cold Room",
+          "owner": {
+            "name": "Tunde",
+            "face": "🧔🏾",
+            "trait": "owns the Cold Room and its very nervous freezers"
+          },
           "kind": "cold_storage",
           "demandW": 1500,
           "cashCc": 15000,
@@ -193,21 +221,23 @@
         "fuelMl": 30000,
         "permitAllowanceMg": 80000000,
         "cashCc": 150000,
-        "tariffCcPerKwh": 740,
+        "tariffCcPerKwh": 760,
         "tariffReasons": {
-          "fuelCostCcPerKwh": 300,
+          "fuelCostCcPerKwh": 312,
           "carbonCostCcPerKwh": 201,
-          "unitCostCcPerKwh": 551,
+          "unitCostCcPerKwh": 563,
           "marginBps": 3500,
-          "finalCcPerKwh": 740,
-          "explanation": "Fuel 10/L × 0.3 L/kWh = 3; carbon 25/permit × 0.0804 = 2.01; maintenance 0.50 → unit cost 5.51/kWh, + 35% margin = 7.40/kWh."
+          "finalCcPerKwh": 760,
+          "explanation": "Fuel at replacement cost 10.40/L (paid 10, cheapest seller 10.40) × 0.3 L/kWh = 3.12; carbon 25/permit × 0.0804 = 2.01; maintenance 0.50 → unit cost 5.63/kWh, + 35% margin = 7.60/kWh."
         },
         "activeContractIds": [],
+        "solarW": 0,
+        "stockpileDays": 0,
         "customersServedToday": 0,
         "contractsWon": 0,
         "contractsDeclined": 0,
         "reputationBps": 5000,
-        "lastAction": "Repriced to 7.40/kWh (opening)"
+        "lastAction": "Repriced to 7.60/kWh (opening)"
       },
       "regulator": {
         "permitPriceCc": 2500,
@@ -224,14 +254,30 @@
         "oilIndexCenti": 10000,
         "referenceIndexCenti": 10000,
         "oilTrend": "flat",
-        "oilSourceLabel": "Illustrative sample series — not real Brent data",
+        "oilSourceLabel": "Illustrative sample series; not observed Brent data",
         "observedBrent": null,
         "oilPassThroughBps": 5000,
-        "gridTariffCcPerKwh": 700
+        "gridTariffCcPerKwh": 700,
+        "eventMode": "calm",
+        "eventPreset": null,
+        "modifiers": {
+          "importCapacityBps": 0,
+          "leadTimeDays": 0,
+          "logisticsCostBps": 0,
+          "demandBps": 0,
+          "solarCostBps": 0,
+          "permitSupplyBps": 0,
+          "cautionBps": 0,
+          "gridStressHours": 0
+        },
+        "activeEvents": [],
+        "eventHistory": [],
+        "brentWeekly": []
       },
       "waves": [],
       "quotes": [],
       "trades": [],
+      "marketListings": [],
       "dayReports": [],
       "campaign": {
         "finished": false,
@@ -257,7 +303,7 @@
             "id": "gdp",
             "label": "Main Street Ally",
             "earned": true,
-            "reason": "5/5 businesses still open"
+            "reason": "8/8 businesses still open"
           }
         ],
         "carbonAudit": "Emitted 0.00 kg CO2; every kg was covered by a retired permit (diesel cannot run without allowance), so no fine is due. 60 kg allowance left."
@@ -267,33 +313,225 @@
         "step": "accept_first",
         "hint": "The Cold Room is dark. Accept its request: 1.5 kW for 2 hours at 8 credits/kWh."
       },
+      "story": {
+        "chapters": [
+          {
+            "id": "first_light",
+            "title": "First Light",
+            "goal": "Restore power to the Cold Room.",
+            "character": "Tunde",
+            "characterRole": "owns the Cold Room and its very nervous freezers",
+            "beat": "The compressors kick back in. Tunde leans on the counter and laughs: “You kept the cold room running. Same time tomorrow?”",
+            "done": false
+          },
+          {
+            "id": "open_for_business",
+            "title": "Open for Business",
+            "goal": "Complete 5 power contracts.",
+            "character": "Mama Ade",
+            "characterRole": "runs the corner shop and lent you the generator shed",
+            "beat": "Mama Ade pins your number to the noticeboard: “Five shops say you showed up. Around here, that's a reputation.”",
+            "done": false
+          },
+          {
+            "id": "fuel_run",
+            "title": "Fuel Run",
+            "goal": "Buy diesel from a merchant.",
+            "character": "Lina",
+            "characterRole": "sells diesel at Lantern Corner Fuel",
+            "beat": "Lina chalks your name on her board. “My price follows my stock and demand. Watch it when my tank runs low.”",
+            "done": false
+          },
+          {
+            "id": "rival_in_town",
+            "title": "A Rival in Town",
+            "goal": "VoltLine starts competing for your customers.",
+            "character": "Victor Lane",
+            "characterRole": "runs VoltLine, the rival power company",
+            "beat": "A red van parks across the street. Victor Lane tips his cap: “Miss a call and I will take it. Nothing personal. Just business.”",
+            "done": false
+          },
+          {
+            "id": "storm_season",
+            "title": "Storm Season",
+            "goal": "Complete 3 contracts while a world event is shaking the market.",
+            "character": "Mama Ade",
+            "characterRole": "runs the corner shop and lent you the generator shed",
+            "beat": "“The market is rough,” says Mama Ade, “but my lights stayed on. That is what people will remember.”",
+            "done": false
+          },
+          {
+            "id": "sun_on_the_rooftops",
+            "title": "Sun on the Rooftops",
+            "goal": "Install rooftop solar.",
+            "character": "Dr. Imani",
+            "characterRole": "keeps vaccines cold at the Corner Pharmacy",
+            "beat": "Dr. Imani watches the panels go up. “When the sun is up, we have another source of power.”",
+            "done": false
+          },
+          {
+            "id": "bigger_grid",
+            "title": "Bigger Grid",
+            "goal": "Reach 10 kW of generating capacity.",
+            "character": "Kai",
+            "characterRole": "runs Byte Cyber Café and hates downtime",
+            "beat": "Kai streams the switch-on to his customers: “Ten kilowatts. We could run a tournament on this.”",
+            "done": false
+          },
+          {
+            "id": "night_shift",
+            "title": "The Night Shift",
+            "goal": "Unlock Hospital Row.",
+            "character": "Dr. Imani",
+            "characterRole": "keeps vaccines cold at the Corner Pharmacy",
+            "beat": "The Night Clinic's director calls: “Dr. Imani says you have the capacity to serve Hospital Row. We need reliable power after dark.”",
+            "done": false
+          },
+          {
+            "id": "grid_independent",
+            "title": "Grid Independent",
+            "goal": "Complete 3 contracts powered by solar and battery alone.",
+            "character": "Rosa",
+            "characterRole": "bakes before dawn at Sunrise Bakery",
+            "beat": "Rosa's ovens ran on stored sunshine. “Three contracts without diesel. You did it.”",
+            "done": false
+          }
+        ],
+        "currentChapterId": "first_light"
+      },
+      "goals": {
+        "day": 1,
+        "items": [
+          {
+            "goalId": "d1:lit",
+            "kind": "lit",
+            "label": "Keep 4 businesses on your power at once",
+            "target": 4,
+            "progress": 0,
+            "rewardCc": 3000,
+            "done": false
+          },
+          {
+            "goalId": "d1:serve",
+            "kind": "serve",
+            "label": "Finish 5 power contracts",
+            "target": 5,
+            "progress": 0,
+            "rewardCc": 3000,
+            "done": false
+          },
+          {
+            "goalId": "d1:earn",
+            "kind": "earn",
+            "label": "Earn 200 credits from customers today",
+            "target": 20000,
+            "progress": 0,
+            "rewardCc": 4000,
+            "done": false
+          }
+        ],
+        "streak": 0,
+        "bestStreak": 0,
+        "rewardMultiplierBps": 10000
+      },
+      "company": {
+        "stage": 1,
+        "name": "Street Generator",
+        "nextStage": {
+          "stage": 2,
+          "name": "Neighbourhood Utility",
+          "unlocks": "Riverside Homes, a fuel terminal and batteries. VoltLine starts competing and Code Red calls begin.",
+          "rewardCc": 10000
+        },
+        "progressBps": 5000,
+        "requirements": [
+          {
+            "label": "Energy delivered",
+            "have": 0,
+            "need": 25000,
+            "unit": "Wh"
+          },
+          {
+            "label": "Districts connected",
+            "have": 1,
+            "need": 1,
+            "unit": "count"
+          }
+        ],
+        "deliveredWh": 0,
+        "connectedDistricts": 1,
+        "installedCapacityW": 5000,
+        "totalDistricts": 7
+      },
       "chain": {
         "mode": "disabled",
         "network": null,
         "resourceContractId": null,
         "vaultAccountId": null,
-        "note": "Guest simulation — not connected to NEAR. Trades settle in the game ledger only."
+        "note": "This guest city uses the game ledger and is not connected to NEAR."
       },
       "upgradesCatalog": [
         {
           "upgradeId": "solar_2kw",
           "name": "2 kW Rooftop Solar",
           "costCc": 90000,
-          "description": "2 kW peak, zero fuel and zero CO2. Produces nothing at night.",
-          "owned": false
-        },
-        {
-          "upgradeId": "battery_10kwh",
-          "name": "10 kWh Battery",
-          "costCc": 70000,
-          "description": "Stores surplus solar (2.5 kW max, 90% round-trip) to cover solar contracts after dark.",
+          "requiredStage": 1,
+          "description": "Produces up to 2 kW in daylight. It uses no diesel or CO₂ allowance, and its output follows the sun.",
+          "baseCostCc": 90000,
           "owned": false
         },
         {
           "upgradeId": "diesel_5kw",
           "name": "Second 5 kW Diesel Set",
           "costCc": 120000,
-          "description": "Doubles diesel capacity to 10 kW; needed to unlock Hospital Row.",
+          "requiredStage": 1,
+          "description": "Adds 5 kW of diesel capacity: 10 kW in all, enough for a second district.",
+          "baseCostCc": 120000,
+          "owned": false
+        },
+        {
+          "upgradeId": "battery_10kwh",
+          "name": "10 kWh Battery",
+          "costCc": 70000,
+          "requiredStage": 2,
+          "description": "Stores surplus solar at up to 2.5 kW with 90% round-trip efficiency, then helps cover solar contracts after dark.",
+          "baseCostCc": 70000,
+          "owned": false
+        },
+        {
+          "upgradeId": "tank_200l",
+          "name": "Fuel Terminal (+200 L)",
+          "costCc": 60000,
+          "requiredStage": 2,
+          "description": "Adds 200 L of diesel storage so you can buy ahead of a price spike and run bigger plants through the night.",
+          "baseCostCc": 60000,
+          "owned": false
+        },
+        {
+          "upgradeId": "diesel_20kw",
+          "name": "20 kW Diesel Plant",
+          "costCc": 400000,
+          "requiredStage": 3,
+          "description": "A containerised power plant: 20 kW of firm capacity for the Port District, hospitals and the Tech Hub.",
+          "baseCostCc": 400000,
+          "owned": false
+        },
+        {
+          "upgradeId": "battery_50kwh",
+          "name": "Grid Battery (+50 kWh)",
+          "costCc": 300000,
+          "requiredStage": 3,
+          "description": "Adds 50 kWh of storage and 10 kW of charge/discharge to your battery bank: soak up solar, cover the evening peak.",
+          "baseCostCc": 300000,
+          "owned": false
+        },
+        {
+          "upgradeId": "solar_10kw",
+          "name": "10 kW Solar Farm",
+          "costCc": 500000,
+          "requiredStage": 4,
+          "description": "A field of panels on the edge of town: up to 10 kW in daylight with no fuel and no CO₂.",
+          "baseCostCc": 500000,
           "owned": false
         }
       ],

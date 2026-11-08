@@ -9,6 +9,7 @@ import {
   ChainModeSchema,
   GameStatePublicSchema,
   MarketItemSchema,
+  MarketListingSchema,
   MerchantSchema,
   QuoteSchema,
   RegulatorSchema,
@@ -77,6 +78,8 @@ export const CreateRunRequestSchema = z.object({
   scenarioId: z.enum(["starter", "fuel_squeeze", "oil_shock_2026"]).default("starter"),
   seed: z.number().int().min(0).max(2 ** 31 - 1).optional(),
   mode: RunModeSchema.exclude(["replay", "challenge"]).default("guest_demo"),
+  /** Optional: "calm" turns off world events and market flashes (tests, tutorials, demos of one mechanic). */
+  worldMode: z.enum(["living", "historical", "calm"]).optional(),
 });
 export const RunStateResponseSchema = z.object({ ok: z.literal(true), state: GameStatePublicSchema });
 
@@ -105,6 +108,7 @@ export const MarketResponseSchema = z.object({
   regulator: RegulatorSchema,
   quotes: z.array(QuoteSchema),
   trades: z.array(TradeSchema),
+  marketListings: z.array(MarketListingSchema),
 });
 
 export const QuoteRequestSchema = z.object({
@@ -210,6 +214,17 @@ export const ChainStatusResponseSchema = z.object({
   tokenIds: z.array(z.string()),
   trustBoundary: z.string(),
   issues: z.array(z.string()),
+  /** The shared fuel exchange: where its fuel lives and whether it matches the contract. */
+  exchange: z
+    .object({
+      mode: z.enum(["sandbox", "testnet"]),
+      traderAccounts: z.array(z.object({ traderId: z.string(), name: z.string(), accountId: z.string().nullable() })),
+      reconcile: z
+        .object({ checkedAt: z.string(), inBalance: z.boolean().nullable(), accountsChecked: z.number(), mismatches: z.array(z.object({ label: z.string(), accountId: z.string(), expectedMl: z.number(), onChainMl: z.number() })), note: z.string() })
+        .nullable(),
+      note: z.string(),
+    })
+    .optional(),
 });
 export const TransferStatusResponseSchema = z.object({
   ok: z.literal(true),
@@ -267,8 +282,10 @@ export const PublicConfigSchema = z.object({
     supabaseAnonKey: z.string().nullable(),
     google: z.boolean(),
     email: z.boolean(),
-    x: z.literal(false),
-    xDeferredReason: z.string(),
+    /** Local email-code sign-in (development / self-hosted demo without Supabase). */
+    local: z.boolean(),
+    /** Local test mode only: the code is shown on screen instead of being emailed. */
+    localShowsCode: z.boolean(),
   }),
   offlinePolicy: z.string(),
   disclaimer: z.string(),
@@ -402,6 +419,7 @@ export function createApiClient(baseUrl: string, opts: { token?: string; fetchIm
     replayEventsUrl: (id: string) => `${baseUrl}/api/replays/${id}/events`,
     compare: (req: z.input<typeof CompareRequestSchema>) => call("POST", "/api/replays/compare", CompareResponseSchema, req),
     chainStatus: () => call("GET", "/api/chain/status", ChainStatusResponseSchema),
+    marketListingEvidence: () => call("GET", "/api/chain/market-listings", MarketListingEvidenceResponseSchema),
     transfer: (hash: string) => call("GET", `/api/chain/transfers/${hash}`, TransferStatusResponseSchema),
     health: () => call("GET", "/api/health", HealthResponseSchema),
     me: () => call("GET", "/api/me", MeResponseSchema),

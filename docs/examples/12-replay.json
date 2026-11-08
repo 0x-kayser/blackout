@@ -11,26 +11,27 @@
   "response": {
     "ok": true,
     "replay": {
-      "replayId": "rp_starter_diesel_7_424242",
+      "replayId": "rp_starter_calm_diesel_7_424242",
       "seed": 424242,
       "scenarioId": "starter",
       "scenarioVersion": "2026.11.07-v1",
       "policyId": "diesel",
       "days": 7,
+      "condition": "calm",
       "source": "replay_simulation",
       "label": "SIMULATED FUTURE SCENARIO — no blockchain settlement",
-      "eventCount": 1992,
-      "traceHash": "0c937443f1d7e3878f6ea9066c47e8190072acbc3d3034b74b7ed91f75fa8bd9",
-      "wallMs": 527,
+      "eventCount": 1621,
+      "traceHash": "015c1ffc7f374cb38a50c68b289b8ad04456318837a54d3dcf8951a85d769baa",
+      "wallMs": 1156,
       "daily": [
         {
           "day": 1,
-          "playerCashCc": 117760,
-          "playerFuelMl": 13340,
-          "permitAllowanceMg": 42151200,
-          "revenueCc": 17760,
+          "playerCashCc": 122600,
+          "playerFuelMl": 12650,
+          "permitAllowanceMg": 40302000,
+          "revenueCc": 19600,
           "reliabilityBps": 10000,
-          "gdpCc": 330980,
+          "gdpCc": 448010,
           "oilIndexCenti": 10000,
           "merchantPrices": {
             "ember": 1040,
@@ -42,66 +43,90 @@
             "lantern": 30000,
             "harbor": 200000
           },
-          "rivalTariffCcPerKwh": 740,
+          "rivalTariffCcPerKwh": 760,
           "rivalCashCc": 150000,
-          "openBusinesses": 5,
+          "openBusinesses": 8,
           "closures": [],
           "generationMixWh": {
-            "diesel": 22200,
+            "diesel": 24500,
             "solar": 0,
             "battery": 0
           },
           "businessCashCc": {
-            "cold_room": 25405,
-            "bakery": 14152,
-            "pharmacy": 17768,
-            "cyber_cafe": 13660,
-            "corner_shop": 8984
-          }
+            "cold_room": 24575,
+            "bakery": 14728,
+            "pharmacy": 18072,
+            "cyber_cafe": 14400,
+            "corner_shop": 9012,
+            "tailor": 18323,
+            "phone_repair": 13373,
+            "barber": 16440
+          },
+          "merchantCashCc": {
+            "ember": 117000,
+            "lantern": 28500,
+            "harbor": 78000
+          },
+          "playerCo2Mg": 19698000,
+          "importCapacityBps": 0,
+          "activeWorldEvents": [],
+          "rivalSolarW": 0
         },
         {
           "day": 2,
-          "playerCashCc": 129607,
-          "playerFuelMl": 14630,
-          "permitAllowanceMg": 13448400,
-          "revenueCc": 24327,
+          "playerCashCc": 147376,
+          "playerFuelMl": 18630,
+          "permitAllowanceMg": 21488400,
+          "revenueCc": 20296,
           "reliabilityBps": 10000,
-          "gdpCc": 355747,
+          "gdpCc": 485262,
           "oilIndexCenti": 10350,
           "merchantPrices": {
-            "ember": 1150,
+            "ember": 1160,
             "lantern": 1101,
             "harbor": 1150
           },
           "merchantStockMl": {
-            "ember": 138000,
+            "ember": 137000,
             "lantern": 30000,
             "harbor": 200000
           },
-          "rivalTariffCcPerKwh": 640,
+          "rivalTariffCcPerKwh": 630,
           "rivalCashCc": 150000,
-          "openBusinesses": 5,
+          "openBusinesses": 8,
           "closures": [],
           "generationMixWh": {
-            "diesel": 35700,
+            "diesel": 23400,
             "solar": 0,
             "battery": 0
           },
           "businessCashCc": {
-            "cold_room": 43857,
-            "bakery": 23316,
-            "pharmacy": 28857,
-            "cyber_cafe": 23449,
-            "corner_shop": 13414
-          }
+            "cold_room": 43775,
+            "bakery": 20345,
+            "pharmacy": 29845,
+            "cyber_cafe": 23342,
+            "corner_shop": 13478,
+            "tailor": 31701,
+            "phone_repair": 22870,
+            "barber": 27662
+          },
+          "merchantCashCc": {
+            "ember": 127520,
+            "lantern": 27000,
+            "harbor": 76000
+          },
+          "playerCo2Mg": 38511600,
+          "importCapacityBps": 0,
+          "activeWorldEvents": [],
+          "rivalSolarW": 0
         }
       ],
       "final": {
-        "netWorthCc": 187080,
-        "reliabilityBps": 9771,
-        "cityGdpCc": 2713494,
+        "netWorthCc": 252141,
+        "reliabilityBps": 9030,
+        "cityGdpCc": 3749729,
         "closures": 0,
-        "score": 5560
+        "score": 7173
       },
       "...": "7 rows"
     }

@@ -38,6 +38,7 @@ let bearer: string | null = null
 export const setBearer = (t: string | null) => {
   bearer = t
 }
+export const bearerHeader = (): Record<string, string> => (bearer ? { authorization: `Bearer ${bearer}` } : {})
 
 /** Which run the UI is playing: the player's city (/api/game) or a specific run (weekly challenge). */
 let gameBase = '/api/game'
@@ -71,7 +72,8 @@ export const api = {
   me: () => call('GET', '/api/me', MeResponseSchema),
   rename: (displayName: string) => call('PATCH', '/api/me', MeResponseSchema, { displayName }),
   logout: () => fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) }, body: '{}' }),
-  linkGuest: (guestToken: string) => call('POST', '/api/auth/link-guest', MeResponseSchema, { guestToken }),
+  /** Without a token the server links the guest city held by this browser's guest cookie. */
+  linkGuest: (guestToken?: string | null) => call('POST', '/api/auth/link-guest', MeResponseSchema, guestToken ? { guestToken } : {}),
   startGame: (fresh = false) => call('POST', '/api/game/start', GameStateResponseSchema, { fresh }),
   state: () => call('GET', `${gameBase}/state`, LooseStateSchema),
   act: (action: PlayerAction, idempotencyKey: string) => call('POST', `${gameBase}/actions`, ActionResultSchema, { action, idempotencyKey }),

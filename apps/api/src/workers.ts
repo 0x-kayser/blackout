@@ -7,10 +7,12 @@
  *    blindly re-broadcast.
  */
 import type { ChainConfig } from "./chain.ts";
-import { contractListing, contractTradeStatus, lookupTx, submitCancelListing, submitCustodialListing, submitMerchantSale, submitNpcListingPurchase } from "./chain.ts";
+import { contractListing, contractTradeStatus, exchangeOpOnChain, lookupTx, submitCancelListing, submitCustodialListing, submitExchangeOp, submitMerchantSale, submitNpcListingPurchase } from "./chain.ts";
+import type { ExchangeService } from "./exchange.ts";
+import { reconcileExchange } from "./reconciler.ts";
 import { nowIso, type Db } from "./db.ts";
 import type { RunService } from "./services.ts";
-import { playerListingDecision, type MarketListingState } from "@blackout/sim";
+import { playerListingDecision, type MarketListingState, type exchange as X } from "@blackout/sim";
 
 export function startDriver(svc: RunService, intervalMs = 100): () => void {
   const t = setInterval(() => {
@@ -155,11 +157,16 @@ export async function processMarketplaceJobs(db: Db, svc: RunService, cfg: Chain
     try {
       if (!job.tx_hash) {
         const onSigned = (hash: string, signer: string) => update.run("submitted", hash, signer, "signed; broadcasting", nowIso(), job.job_id);
-        const res = job.kind === "list"
-          ? await deps.submitList(cfg, job.seller_id, job.listing_id, job.token_id, job.amount, job.unit_price_cc, onSigned)
-          : job.kind === "cancel"
-            ? await deps.submitCancel(cfg, job.listing_id, onSigned)
-            : await deps.submitFill(cfg, job.listing_id, cfg.merchants[job.merchant_id ?? ""]?.accountId ?? "", onSigned);
+        let res;
+        if (job.kind === "list") {
+          res = await deps.submitList(cfg, job.seller_id, job.listing_id, job.token_id, job.amount, job.unit_price_cc, onSigned);
+        } else if (job.kind === "cancel") {
+          res = await deps.submitCancel(cfg, job.listing_id, onSigned);
+        } else {
+          const buyerAccountId = cfg.merchants[job.merchant_id ?? ""]?.accountId;
+          if (!buyerAccountId) throw new Error(`No configured Testnet account for listing buyer ${job.merchant_id ?? "(missing)"}`);
+          res = await deps.submitFill(cfg, job.listing_id, buyerAccountId, onSigned);
+        }
         if (res.outcome.status === "confirmed") applyOutcome(job, "confirmed", res.txHash, null);
         else if (res.outcome.status === "failed") applyOutcome(job, "failed", res.txHash, `TX_FAILED: ${res.outcome.detail}`);
         else update.run("submitted", res.txHash, res.signerId, res.outcome.detail, nowIso(), job.job_id);
@@ -209,7 +216,7 @@ export async function processMarketplaceJobs(db: Db, svc: RunService, cfg: Chain
         const listing = raw as MarketListingState;
         if (listing.status !== "active") continue;
         if (h.state.tick >= listing.expiresTick) {
-          svc.act(h, { action: { type: "EXPIRE_MARKET_LISTING", listingId: listing.listingId }, idempotencyKey: `auto-expire:${listing.listingId}` }, "chain_worker");
+          svc.act(h, { action: { type: "EXPIRE_MARKET_LISTING", listingId: listing.listingId }, idempotencyKey: `auto-expire:${listing.listingId}:${listing.cancelAttempts + 1}` }, "chain_worker");
           continue;
         }
         const decision = playerListingDecision(h.state, listing);
@@ -224,15 +231,98 @@ export async function processMarketplaceJobs(db: Db, svc: RunService, cfg: Chain
   return settled;
 }
 
-export function startChainWorker(db: Db, svc: RunService, cfg: ChainConfig, intervalMs = 2_000): () => void {
+interface ExchangeJobRow {
+  op: X.ChainEffect["op"];
+  op_id: string;
+  payload_json: string;
+  status: string;
+  tx_hash: string | null;
+  signer_id: string | null;
+  attempts: number;
+}
+
+export interface ExchangeDeps {
+  submit: typeof submitExchangeOp;
+  lookup: typeof lookupTx;
+  onChain: typeof exchangeOpOnChain;
+}
+
+const defaultExchangeDeps: ExchangeDeps = { submit: submitExchangeOp, lookup: lookupTx, onChain: exchangeOpOnChain };
+
+/**
+ * Submits and reconciles shared-exchange operations. Same rules as the trade worker: the hash is persisted
+ * before broadcast, a submitted job is reconciled by hash and then by the contract's own records, never
+ * re-broadcast, and an outcome we cannot see keeps every reservation in place.
+ */
+export async function processExchangeJobs(db: Db, xsvc: ExchangeService, cfg: ChainConfig, deps: ExchangeDeps = defaultExchangeDeps, limit = 10): Promise<number> {
+  if (!cfg.exchangeEnabled || xsvc.sandbox) return 0;
+  const jobs = db.prepare("SELECT * FROM exchange_jobs WHERE status IN ('pending','submitted','timeout') ORDER BY created_at, rowid LIMIT ?").all(limit) as unknown as ExchangeJobRow[];
+  const update = db.prepare("UPDATE exchange_jobs SET status = ?, tx_hash = COALESCE(?, tx_hash), signer_id = COALESCE(?, signer_id), attempts = attempts + 1, last_error = ?, updated_at = ? WHERE op = ? AND op_id = ?");
+  let settled = 0;
+  const finish = (job: ExchangeJobRow, outcome: "confirmed" | "failed", txHash: string | null, error: string | null) => {
+    xsvc.settleChain({ op: job.op, opId: job.op_id }, outcome, txHash, error);
+    update.run(outcome, null, null, error, nowIso(), job.op, job.op_id);
+    settled += 1;
+  };
+  for (const job of jobs) {
+    const e = JSON.parse(job.payload_json) as X.ChainEffect;
+    try {
+      if (!job.tx_hash) {
+        const res = await deps.submit(cfg, e, (hash, signer) => update.run("submitted", hash, signer, "signed; broadcasting", nowIso(), job.op, job.op_id));
+        if (res.outcome.status === "confirmed") finish(job, "confirmed", res.txHash, null);
+        else if (res.outcome.status === "failed") finish(job, "failed", res.txHash, `TX_FAILED: ${res.outcome.detail}`);
+        else update.run("submitted", res.txHash, res.signerId, res.outcome.detail, nowIso(), job.op, job.op_id);
+        continue;
+      }
+      if (!job.signer_id) {
+        update.run("timeout", null, null, "Submitted transaction has no signer id; operator reconciliation required.", nowIso(), job.op, job.op_id);
+        continue;
+      }
+      const t = await deps.lookup(cfg, job.tx_hash, job.signer_id);
+      if (t.status === "confirmed") {
+        if ("receiverId" in t && cfg.resourceContractId && t.receiverId !== cfg.resourceContractId) {
+          update.run("timeout", null, null, "Receipt receiver did not match the resource contract.", nowIso(), job.op, job.op_id);
+          continue;
+        }
+        finish(job, "confirmed", job.tx_hash, null);
+        continue;
+      }
+      if (t.status === "failed") {
+        finish(job, "failed", job.tx_hash, `TX_FAILED: ${t.detail}`);
+        continue;
+      }
+      const view = await deps.onChain(cfg, e).catch(() => null);
+      if (view?.done) {
+        finish(job, "confirmed", job.tx_hash, null);
+        continue;
+      }
+      update.run(job.attempts + 1 >= RECONCILE_LIMIT ? "timeout" : "submitted", null, null, view?.detail ?? t.detail, nowIso(), job.op, job.op_id);
+    } catch (err) {
+      // With a persisted hash we only ever reconcile; without one, nothing was broadcast and a retry is safe.
+      update.run(job.tx_hash ? "submitted" : "pending", null, null, (err as Error).message.slice(0, 300), nowIso(), job.op, job.op_id);
+    }
+  }
+  return settled;
+}
+
+export function startChainWorker(db: Db, svc: RunService, cfg: ChainConfig, intervalMs = 2_000, xsvc: ExchangeService | null = null): () => void {
   if (!cfg.enabled) return () => {};
   let busy = false;
+  let lastReconcileAt = 0;
   const t = setInterval(async () => {
     if (busy) return;
     busy = true;
     try {
       await processChainJobs(db, svc, cfg);
       await processMarketplaceJobs(db, svc, cfg);
+      if (xsvc) {
+        await processExchangeJobs(db, xsvc, cfg);
+        xsvc.applyCityEffects();
+        if (Date.now() - lastReconcileAt > 60_000) {
+          lastReconcileAt = Date.now();
+          xsvc.lastReconcile = await reconcileExchange(db, xsvc, cfg).catch((e) => ({ checkedAt: new Date().toISOString(), inBalance: null, accountsChecked: 0, mismatches: [], note: `Reconciliation failed: ${(e as Error).message}` }));
+        }
+      }
     } catch (e) {
       console.error("[chain] worker error", e);
     } finally {

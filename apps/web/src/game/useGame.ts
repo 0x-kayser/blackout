@@ -33,9 +33,18 @@ const TOAST_EVENTS: Partial<Record<EconomyEvent['type'], Toast['tone']>> = {
   GENERATOR_BROKEN: 'bad',
   OVERHEAT_WARNING: 'bad',
   RIVAL_WON_CONTRACT: 'bad',
-  CUSTOMER_SWITCHED_PROVIDER: 'info',
-  BUSINESS_STATUS_CHANGED: 'info',
   TRADE_FAILED: 'bad',
+  GOAL_COMPLETED: 'good',
+  STAGE_REACHED: 'good',
+  WORLD_EVENT_STARTED: 'info',
+  SUBSTATION_UPGRADED: 'good',
+  EXCHANGE_PRICE_SIGNAL: 'info',
+  STREAK_UPDATED: 'good',
+  CODE_RED_CALLED: 'bad',
+  CODE_RED_MISSED: 'bad',
+  EXCHANGE_SALE_PAID: 'good',
+  PLAYER_LISTING_FILLED: 'good',
+  PLAYER_LISTING_FAILED: 'bad',
   REQUEST_EXPIRED: 'bad',
   MERCHANT_CLOSED: 'info',
   REGULATOR_NOTICE: 'info',
@@ -63,7 +72,8 @@ export function useGame() {
 
   const toast = useCallback((text: string, tone: Toast['tone'] = 'info') => {
     const id = ++toastId.current
-    setToasts((t) => [...t.slice(-3), { id, tone, text }])
+    // at most three on screen; the news ticker carries everything else
+    setToasts((t) => [...t.filter((x) => x.text !== text).slice(-2), { id, tone, text }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6500)
   }, [])
 
@@ -77,7 +87,8 @@ export function useGame() {
         if (!fromHistory && e.seq > historyCutoff.current) {
           for (const l of listeners.current) l(e)
           if (e.type === 'CHAPTER_COMPLETED') setChapter(e)
-          const tone = TOAST_EVENTS[e.type]
+          // the rival's own deliveries are news, not something the player needs to act on
+          const tone = e.type === 'SERVICE_STARTED' && e.data.provider !== 'player' ? undefined : TOAST_EVENTS[e.type]
           if (tone) toast(e.explanation.split('. ').slice(0, 2).join('. '), tone)
         }
       }
@@ -105,13 +116,13 @@ export function useGame() {
       try {
         const me = await api.me()
         setPlayer(me.player)
-        // a guest who just signed in with Google/email: offer to carry the guest city over
-        const gt = guestUpgradeToken()
-        if (gt && me.player.kind === 'registered' && !me.player.activeRunId) {
+        // a guest who just signed in with Google/email: carry the guest city over automatically
+        // (the server finds it from this browser's guest cookie; the stored token is only a fallback)
+        if (me.player.kind === 'registered' && !me.player.activeRunId) {
           try {
-            const linked = await api.linkGuest(gt)
+            const linked = await api.linkGuest(guestUpgradeToken())
             setPlayer(linked.player)
-            toast('Your guest city is now saved to your account.', 'good')
+            if (linked.player.activeRunId) toast('Signed in. Your city is saved to your account.', 'good')
           } catch (e) {
             if (e instanceof BlackoutApiError && e.code === 'ACCOUNT_EXISTS') toast('This account already had a city; your guest city was left untouched.', 'info')
           } finally {

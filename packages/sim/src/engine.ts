@@ -20,6 +20,7 @@ import {
   RIVAL,
   SCENARIOS,
   SCENARIO_VERSION,
+  STAGES,
   STARTING_KIT,
   TIMING,
   UPGRADES,
@@ -31,6 +32,9 @@ import { buy, createQuote, expireQuotes, merchantsMorning, repriceMerchant, sett
 import { ensureWorld, initWorld, worldModifiers, worldTick } from "./world-events/engine.ts";
 import type { WorldEventState, WorldMode } from "./world-events/types.ts";
 import { storyTick } from "./story.ts";
+import { closeGoalsDay, goalsTick } from "./goals.ts";
+import { companyTick, districtFeeder, stageOf } from "./company.ts";
+import { rivalActive } from "./agents.ts";
 import { activeContractsOn, dispatchTick, heatTick, repairTick, validateAssignment } from "./electricity.ts";
 import {
   acceptRequest,
@@ -42,12 +46,14 @@ import {
   eligibleForOutage,
   resetBusinessDay,
   setTutorial,
+  CODE_RED_REPUTATION_PENALTY_BPS,
 } from "./customers.ts";
 import { customersChooseProvider, regulatorMorning, repriceRival, resetRivalDay, rivalBid, rivalShop } from "./agents.ts";
 import { attachHighlights, campaignSummary, refundEscrow, settleDay } from "./economy.ts";
 import { SimError, cr, emit, kW, newCtx, newId, type ContractState, type Ctx, type DayStats, type SimState, type WaveState } from "./state.ts";
 import { computeMerchantPrice, MERCHANT_POLICIES } from "./policies/merchantPricing.ts";
 import { cancelPlayerListing, createPlayerListing, expirePlayerListing, reserveMarketPurchase, settlePlayerListing } from "./marketplace.ts";
+import { applyExchangeEffect, exchangeBuyReserve, exchangeDeposit } from "./exchangeCity.ts";
 
 export interface CreateRunOptions {
   runId: string;
@@ -173,6 +179,7 @@ export function createInitialState(opts: CreateRunOptions): StepResult {
       co2TotalMg: 0,
       fuelCostBasisCcPerL: 1_000,
       chainBackedFuelMl: 0,
+      exchangeEligibleFuelMl: 0,
     },
     generators: {
       gen_1: {
@@ -209,6 +216,7 @@ export function createInitialState(opts: CreateRunOptions): StepResult {
           payBehaviour: d.payBehaviour,
           outageTicksToday: 0,
           servedOutageTicksToday: 0,
+          substationLevel: d.unlockedAtStart ? 1 : 0,
         },
       ]),
     ),
@@ -365,6 +373,7 @@ function beginOperating(s: SimState, ctx: Ctx, initial = false): void {
 
 /** Non-blocking daily rollover: settle yesterday in the background, start today. */
 function rolloverDay(s: SimState, ctx: Ctx): void {
+  closeGoalsDay(s, ctx);
   const report = settleDay(s, ctx, { continuous: true });
   attachHighlights(s, report, s.dayStats.notable);
   if (s.dayReports.length > 14) s.dayReports.splice(0, s.dayReports.length - 14);
@@ -406,8 +415,9 @@ function finishCampaign(s: SimState, ctx: Ctx): void {
 export function pressureLevel(s: SimState): 0 | 1 | 2 | 3 {
   if (s.wavesTotal <= TIMING.TUTORIAL_WAVES) return 0;
   const capacity = s.player.generatorIds.reduce((a, id) => a + s.generators[id].ratedW, 0);
-  if (capacity >= 10_000 || s.day >= 3) return 3;
-  if (s.day >= 2) return 2;
+  const stage = stageOf(s);
+  if (capacity >= 10_000 || stage >= 3) return 3;
+  if (stage >= 2) return 2;
   return 1;
 }
 
@@ -432,7 +442,9 @@ function startWave(s: SimState, ctx: Ctx): void {
   };
   s.waves.push(wave);
   if (s.wavesTotal === TIMING.TUTORIAL_WAVES + 1 && s.tutorialStep !== "done") setTutorial(s, ctx, "done");
-  const want = tutorial ? 1 : pressure >= 3 ? 3 : 2;
+  // a bigger grid means more of the city calls on you each wave
+  const connected = Object.values(s.districts).filter((d) => d.unlocked).length;
+  const want = tutorial ? 1 : (pressure >= 3 ? 3 : 2) + Math.floor((connected - 1) / 2);
   const eligible = Object.values(s.businesses)
     .filter((b) => eligibleForOutage(s, b))
     .sort((a, b) => a.businessId.localeCompare(b.businessId));
@@ -463,7 +475,7 @@ function startWave(s: SimState, ctx: Ctx): void {
     b.powerSource = "none";
     emit(s, ctx, "OUTAGE_STARTED", [`business:${b.businessId}`], `${b.name} went dark (grid outage for ${p.hours} game hour${p.hours > 1 ? "s" : ""}).`, { businessId: b.businessId, hours: p.hours, waveId: wave.waveId });
     const req = createRequest(s, ctx, wave, b, p.hours, p.fixture);
-    if (req && b.provider === "rival" && s.day >= RIVAL.activeFromDay) {
+    if (req && b.provider === "rival" && rivalActive(s)) {
       req.status = "lost_to_rival";
       rivalBid(s, ctx, req, "routed to its chosen provider");
       if (req.status === "lost_to_rival" && b.activeContractId) {
@@ -578,6 +590,7 @@ function onWorldChange(s: SimState, ctx: Ctx, kind: "started" | "ended", e: Worl
 export function tickMut(s: SimState, ctx: Ctx): void {
   if (s.phase === "finished") return;
   ensureWorld(s);
+  ensureCity(s, ctx);
   s.story ??= { completed: [] };
   worldTick(s, ctx, (kind, e) => onWorldChange(s, ctx, kind, e));
   // ---- operating
@@ -591,6 +604,10 @@ export function tickMut(s: SimState, ctx: Ctx): void {
       const b = s.businesses[r.businessId];
       b.loyaltyBps = Math.max(0, b.loyaltyBps - 200);
       emit(s, ctx, "REQUEST_EXPIRED", [`business:${r.businessId}`], `${b.name}'s request timed out.`, { requestId: r.requestId });
+      if (r.urgency === "code_red") {
+        s.player.reputationBps = Math.max(0, s.player.reputationBps - CODE_RED_REPUTATION_PENALTY_BPS);
+        emit(s, ctx, "CODE_RED_MISSED", [`business:${r.businessId}`, "player"], `You missed ${b.name}'s Code Red. Word spreads: reputation -${CODE_RED_REPUTATION_PENALTY_BPS / 100}%.`, { requestId: r.requestId, reputationPenaltyBps: CODE_RED_REPUTATION_PENALTY_BPS });
+      }
       rivalBid(s, ctx, r, "your timer ran out");
     }
   }
@@ -649,6 +666,8 @@ export function tickMut(s: SimState, ctx: Ctx): void {
   if ((p + 1) % 10 === 0) hourlyEvents(s, ctx);
   updateWaves(s, ctx);
   storyTick(s, ctx);
+  goalsTick(s, ctx);
+  companyTick(s, ctx);
   expireQuotes(s, ctx);
   if (s.phaseTick === RIVAL.buyAtMorningTick) rivalShop(s, ctx); // the rival restocks every morning at 09:00
   s.phaseTick += 1;
@@ -710,9 +729,43 @@ function assignContract(s: SimState, ctx: Ctx, contractId: string, generatorId: 
   return c;
 }
 
+/**
+ * Saves made before the city grew are upgraded in place: any district or business added to the config since
+ * is added locked (with its starting cash from genesis), so every existing city can expand into the new districts.
+ */
+export function ensureCity(s: SimState, ctx: Ctx): void {
+  for (const d of DISTRICTS) {
+    if (s.districts[d.districtId]) continue;
+    s.districts[d.districtId] = {
+      districtId: d.districtId, name: d.name, unlocked: d.unlockedAtStart, unlockRequirementW: d.unlockRequirementW, unlockCostCc: d.unlockCostCc,
+      activityIndexBps: 10_000, outsideDemandCcPerHour: d.outsideDemandCcPerHour, payBehaviour: d.payBehaviour, outageTicksToday: 0, servedOutageTicksToday: 0,
+      substationLevel: d.unlockedAtStart ? 1 : 0,
+    };
+    s.player.districtTrustBps[d.districtId] ??= 5_000;
+    s.player.tariffs[d.districtId] ??= STARTING_KIT.defaultTariffCcPerKwh;
+  }
+  for (const b of BUSINESSES) {
+    if (s.businesses[b.businessId]) continue;
+    s.businesses[b.businessId] = {
+      businessId: b.businessId, districtId: b.districtId, name: b.name, kind: b.kind, demandW: b.demandW,
+      revenueCcPerPoweredHour: b.revenueCcPerPoweredHour, variableCostCcPerPoweredHour: b.variableCostCcPerPoweredHour, fixedCostCcPerDay: b.fixedCostCcPerDay,
+      loyaltyBps: b.loyaltyBps, concessionBps: b.concessionBps, fixedTariffCcPerKwh: b.fixedTariffCcPerKwh ?? null, gougeTolerance: b.gougeTolerance, gougeCount: 0,
+      status: "operating", provider: "player", powerSource: "grid", lowCashSettlements: 0, closedSinceDay: null, activeContractId: null, outageUntilTick: null,
+      today: { openingCashCc: b.startCashCc, revenueCc: 0, operatingCostCc: 0, powerCostCc: 0, poweredTicks: 0, darkTicks: 0, gridWh: 0, gridBilledCc: 0, revenueRemainderMilliCc: 0, costRemainderMilliCc: 0, unpaidCostCc: 0, servedByPlayerTicks: 0, darkOutageTicks: 0, paidRateSum: 0, paidRateCount: 0 },
+      history: [],
+    };
+    transfer(s, ctx, "credits_cc", ACC.genesis, ACC.business(b.businessId), b.startCashCc, "starting_cash", b.businessId);
+  }
+}
+
 export function applyActionMut(s: SimState, ctx: Ctx, action: AnyAction, meta: ActionMeta): Record<string, unknown> {
   ensureWorld(s);
-  if (s.phase === "finished" && action.type !== "SETTLE_TRADE" && action.type !== "MARKET_LISTING_RESULT") throw new SimError("RUN_FINISHED", "This campaign has finished.");
+  // Older snapshots predate custodial fuel attribution and player listings.
+  s.player.chainBackedFuelMl ??= 0;
+  s.player.exchangeEligibleFuelMl ??= 0;
+  ensureCity(s, ctx);
+  s.marketListings ??= [];
+  if (s.phase === "finished" && action.type !== "SETTLE_TRADE" && action.type !== "MARKET_LISTING_RESULT" && action.type !== "EXCHANGE_EFFECT" && action.type !== "EXCHANGE_PRICE_SIGNAL") throw new SimError("RUN_FINISHED", "This campaign has finished.");
   let result: Record<string, unknown> = {};
   switch (action.type) {
     case "ACCEPT_REQUEST": {
@@ -804,6 +857,7 @@ export function applyActionMut(s: SimState, ctx: Ctx, action: AnyAction, meta: A
       const base = UPGRADES.find((x) => x.upgradeId === action.upgradeId)!;
       const u = { ...base, costCc: upgradeCostCc(s, base.upgradeId, base.costCc) };
       if (s.player.upgradesOwned.includes(u.upgradeId)) throw new SimError("ALREADY_PROCESSED", `${u.name} already installed.`);
+      if (stageOf(s) < u.requiredStage) throw new SimError("REQUIREMENT_NOT_MET", `${u.name} needs a ${STAGES[u.requiredStage - 1].name} (stage ${u.requiredStage}).`, { requiredStage: u.requiredStage, stage: stageOf(s) });
       transfer(s, ctx, "credits_cc", ACC.player, ACC.equipment, u.costCc, "upgrade_purchase", u.upgradeId);
       s.dayStats.spendCc += u.costCc;
       s.player.upgradesOwned.push(u.upgradeId);
@@ -813,6 +867,28 @@ export function applyActionMut(s: SimState, ctx: Ctx, action: AnyAction, meta: A
       } else if (u.upgradeId === "diesel_5kw") {
         s.generators.gen_2 = { generatorId: "gen_2", name: "Second Diesel 5kW", type: "diesel", ownerId: "player", ratedW: 5_000, heatPermille: 0, wearBps: 0, status: "online", offlineUntilTick: null, cumulativeWh: 0, cumulativeFuelMl: 0, outputW: 0, heatWarned: false, nftTokenId: null, whSinceService: 0, maintenanceTicks: 0 };
         s.player.generatorIds.push("gen_2");
+      } else if (u.upgradeId === "diesel_20kw") {
+        s.generators.gen_3 = { generatorId: "gen_3", name: "Diesel Plant 20kW", type: "diesel", ownerId: "player", ratedW: 20_000, heatPermille: 0, wearBps: 0, status: "online", offlineUntilTick: null, cumulativeWh: 0, cumulativeFuelMl: 0, outputW: 0, heatWarned: false, nftTokenId: null, whSinceService: 0, maintenanceTicks: 0 };
+        s.player.generatorIds.push("gen_3");
+      } else if (u.upgradeId === "solar_10kw") {
+        s.generators.solar_2 = { generatorId: "solar_2", name: "Solar Farm 10kW", type: "solar", ownerId: "player", ratedW: 10_000, heatPermille: 0, wearBps: 0, status: "online", offlineUntilTick: null, cumulativeWh: 0, cumulativeFuelMl: 0, outputW: 0, heatWarned: false, nftTokenId: null, whSinceService: 0, maintenanceTicks: 0 };
+        s.player.generatorIds.push("solar_2");
+      } else if (u.upgradeId === "tank_200l") {
+        s.player.tankCapacityMl += 200_000;
+      } else if (u.upgradeId === "battery_50kwh") {
+        if (s.battery) {
+          s.battery.capacityWh += 50_000;
+          s.battery.maxChargeW += 10_000;
+          s.battery.maxDischargeW += 10_000;
+        } else {
+          s.battery = { batteryId: "battery_1", capacityWh: 50_000, storedWh: 0, maxChargeW: 10_000, maxDischargeW: 10_000, roundTripEfficiencyBps: 9_000, chargeW: 0, dischargeW: 0, chargeRemainderDeciWh: 0 };
+          s.player.batteryId = "battery_1";
+        }
+      } else if (s.battery) {
+        // the 10 kWh pack adds to a grid battery bought first
+        s.battery.capacityWh += 10_000;
+        s.battery.maxChargeW += 2_500;
+        s.battery.maxDischargeW += 2_500;
       } else {
         s.battery = { batteryId: "battery_1", capacityWh: 10_000, storedWh: 0, maxChargeW: 2_500, maxDischargeW: 2_500, roundTripEfficiencyBps: 9_000, chargeW: 0, dischargeW: 0, chargeRemainderDeciWh: 0 };
         s.player.batteryId = "battery_1";
@@ -825,14 +901,28 @@ export function applyActionMut(s: SimState, ctx: Ctx, action: AnyAction, meta: A
       const d = s.districts[action.districtId];
       if (!d) throw new SimError("NOT_FOUND", `Unknown district ${action.districtId}`);
       if (d.unlocked) throw new SimError("ALREADY_PROCESSED", `${d.name} already unlocked.`);
-      const cap = s.player.generatorIds.reduce((a, id) => a + s.generators[id].ratedW, 0);
-      if (cap < d.unlockRequirementW) throw new SimError("REQUIREMENT_NOT_MET", `${d.name} needs ${kW(d.unlockRequirementW)} kW of capacity; you have ${kW(cap)} kW.`, { requiredW: d.unlockRequirementW, haveW: cap });
+      const f = districtFeeder(d);
+      if (stageOf(s) < f.requiredStage) throw new SimError("REQUIREMENT_NOT_MET", `${d.name} opens to a ${STAGES[f.requiredStage - 1].name} (stage ${f.requiredStage}). Deliver more power and connect more of the city first.`, { requiredStage: f.requiredStage, stage: stageOf(s) });
       transfer(s, ctx, "credits_cc", ACC.player, ACC.equipment, d.unlockCostCc, "district_unlock", d.districtId);
       s.dayStats.spendCc += d.unlockCostCc;
       d.unlocked = true;
+      d.substationLevel = 1;
       s.player.unlockedDistrictIds.push(d.districtId);
-      emit(s, ctx, "DISTRICT_UNLOCKED", ["player"], `${d.name} unlocked for ${cr(d.unlockCostCc)} credits. Its businesses can now request your power.`, { districtId: d.districtId });
+      emit(s, ctx, "DISTRICT_UNLOCKED", ["player"], `${d.name} connected: substation built and feeder energised for ${cr(d.unlockCostCc)} credits. It carries up to ${kW(districtFeeder(d).capacityW)} kW. Its businesses can now call on your power.`, { districtId: d.districtId, feederCapacityW: districtFeeder(d).capacityW });
       result = { districtId: d.districtId };
+      break;
+    }
+    case "UPGRADE_SUBSTATION": {
+      const d = s.districts[action.districtId];
+      if (!d) throw new SimError("NOT_FOUND", `Unknown district ${action.districtId}`);
+      if (!d.unlocked) throw new SimError("REQUIREMENT_NOT_MET", `Connect ${d.name} before upgrading its substation.`);
+      const f = districtFeeder(d);
+      if (f.nextUpgradeCostCc === null || f.nextCapacityW === null) throw new SimError("ALREADY_PROCESSED", `${d.name}'s substation is already at the top level.`);
+      transfer(s, ctx, "credits_cc", ACC.player, ACC.equipment, f.nextUpgradeCostCc, "substation_upgrade", `${d.districtId}:${f.level + 1}`);
+      s.dayStats.spendCc += f.nextUpgradeCostCc;
+      d.substationLevel = f.level + 1;
+      emit(s, ctx, "SUBSTATION_UPGRADED", ["player"], `${d.name} substation upgraded to level ${f.level + 1} for ${cr(f.nextUpgradeCostCc)} credits: the feeder now carries ${kW(f.nextCapacityW)} kW (was ${kW(f.capacityW)} kW).`, { districtId: d.districtId, level: f.level + 1, feederCapacityW: f.nextCapacityW });
+      result = { districtId: d.districtId, level: f.level + 1 };
       break;
     }
     case "READY":
@@ -851,6 +941,28 @@ export function applyActionMut(s: SimState, ctx: Ctx, action: AnyAction, meta: A
     case "MARKET_LISTING_RESULT":
       result = settlePlayerListing(s, ctx, action);
       break;
+    case "EXCHANGE_DEPOSIT":
+      result = exchangeDeposit(s, ctx, action.depositId, action.quantityMl);
+      break;
+    case "EXCHANGE_BUY_RESERVE":
+      result = exchangeBuyReserve(s, ctx, action.buyId, action.totalCc, action.quantityMl);
+      break;
+    case "EXCHANGE_EFFECT":
+      result = applyExchangeEffect(s, ctx, action.effect);
+      break;
+    case "EXCHANGE_PRICE_SIGNAL": {
+      const before = s.world.exchangePremiumBps ?? 0;
+      s.world.exchangePremiumBps = action.premiumBps;
+      if (before !== action.premiumBps) {
+        const pct = (action.premiumBps / 100).toFixed(0);
+        emit(s, ctx, "EXCHANGE_PRICE_SIGNAL", ["world", ACC.exchange], action.premiumBps > 0
+          ? `Exchange traders are charging ${pct}% over normal import cost${action.bestAskCcPerL ? ` (best ask ${cr(action.bestAskCcPerL)}/L)` : " and have little fuel to sell"}. Town merchants pay more to restock.`
+          : `Exchange traders are selling ${Math.abs(Number(pct))}% under normal import cost. Town merchants restock cheaper.`, { premiumBps: action.premiumBps, previousBps: before, bestAskCcPerL: action.bestAskCcPerL });
+        for (const m of Object.values(s.merchants)) repriceMerchant(s, ctx, m, `exchange premium ${pct}%`);
+      }
+      result = { premiumBps: action.premiumBps };
+      break;
+    }
     case "PAUSE":
     case "RESUME":
       throw new SimError("INVALID_STATE", "Pause/resume is handled by the server driver, not the simulation.");
