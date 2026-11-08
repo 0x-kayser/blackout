@@ -41,6 +41,13 @@ export const BuySchema = z.object({
   quoteId: id(),
   quantity: z.number().int().min(1).max(60_000),
 });
+export const CreatePlayerListingSchema = z.object({
+  type: z.literal("CREATE_PLAYER_LISTING"),
+  listingId: id(),
+  quantityMl: z.number().int().min(100).max(60_000).multipleOf(100),
+  unitPriceCcPerL: z.number().int().min(1).max(100_000),
+});
+export const CancelPlayerListingSchema = z.object({ type: z.literal("CANCEL_PLAYER_LISTING"), listingId: id() });
 export const SetTariffSchema = z.object({
   type: z.literal("SET_TARIFF"),
   districtId: id(),
@@ -63,6 +70,8 @@ export const PlayerActionSchema = z.discriminatedUnion("type", [
   CancelContractSchema,
   RequestQuoteSchema,
   BuySchema,
+  CreatePlayerListingSchema,
+  CancelPlayerListingSchema,
   SetTariffSchema,
   ServiceGeneratorSchema,
   BuyUpgradeSchema,
@@ -80,7 +89,27 @@ export const SettleTradeSchema = z.object({
   txHash: z.string().nullable(),
   error: z.string().nullable(),
 });
-export const SystemActionSchema = z.discriminatedUnion("type", [SettleTradeSchema]);
+export const ReserveMarketPurchaseSchema = z.object({
+  type: z.literal("RESERVE_MARKET_PURCHASE"),
+  listingId: id(),
+  merchantId: id(),
+});
+export const ExpireMarketListingSchema = z.object({ type: z.literal("EXPIRE_MARKET_LISTING"), listingId: id() });
+export const MarketListingResultSchema = z.object({
+  type: z.literal("MARKET_LISTING_RESULT"),
+  listingId: id(),
+  operation: z.enum(["list", "cancel", "fill"]),
+  outcome: z.enum(["confirmed", "failed"]),
+  merchantId: id().nullable(),
+  txHash: z.string().nullable(),
+  error: z.string().nullable(),
+});
+export const SystemActionSchema = z.discriminatedUnion("type", [
+  SettleTradeSchema,
+  ReserveMarketPurchaseSchema,
+  ExpireMarketListingSchema,
+  MarketListingResultSchema,
+]);
 
 export const ActionEnvelopeSchema = z.object({
   action: PlayerActionSchema,

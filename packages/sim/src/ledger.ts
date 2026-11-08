@@ -12,6 +12,8 @@ export const ACC = {
   regulator: "regulator",
   escrowContracts: "escrow:contracts",
   escrowTrades: "escrow:trades",
+  escrowListings: "escrow:listings",
+  escrowMarket: "escrow:market",
   business: (id: string) => `business:${id}`,
   merchant: (id: string) => `merchant:${id}`,
   districtPool: (id: string) => `district_pool:${id}`,

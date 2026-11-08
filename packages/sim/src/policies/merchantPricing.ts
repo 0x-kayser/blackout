@@ -15,10 +15,13 @@
  *    lastDaySalesMl       litres sold yesterday
  *    baselineSalesMl      "normal" daily sales for this merchant
  *    trend                oil today vs yesterday: up / down / flat
+ *    logisticsCostBps     World Events: shipping/refinery premium on import cost (0 when oil prices are historical)
+ *    cautionBps           World Events: extra safety stock the merchant wants to hold (raises its effective target)
  *
  *  Formula:
- *    baseReplacement = baseReferenceCcPerL * oilIndex / referenceIndex       (= importer cost per L)
- *    scarcity        = clamp((target - available) / target, -1, +1)
+ *    baseReplacement = baseReferenceCcPerL * oilIndex / referenceIndex * (1 + logistics)   (= importer cost per L)
+ *    target'         = target * (1 + caution)
+ *    scarcity        = clamp((target' - available) / target', -1, +1)
  *    demandDelta     = clamp((lastDaySales - baselineSales) / max(1, baselineSales), -1, +1)
  *    multiplier      = 1 + scarcityWeight*scarcity + demandWeight*demandDelta + markup (+ hoardPremium if trend up)
  *    raw             = baseReplacement * multiplier
@@ -57,7 +60,7 @@ export const MERCHANT_POLICIES: Record<MerchantPolicyParams["policyId"], Merchan
     scarcityWeightBps: 4_500,
     demandWeightBps: 2_000,
     markupBps: 200,
-    minMarginBps: 200,
+    minMarginBps: 0, // will sell surplus at import cost
     maxMultipleBps: 30_000,
     hoardPremiumBps: 0,
     rationShareBps: null,
@@ -69,7 +72,7 @@ export const MERCHANT_POLICIES: Record<MerchantPolicyParams["policyId"], Merchan
     scarcityWeightBps: 6_000, // very sensitive to its own stock
     demandWeightBps: 2_000,
     markupBps: 400,
-    minMarginBps: 300,
+    minMarginBps: 100,
     maxMultipleBps: 30_000,
     hoardPremiumBps: 0,
     rationShareBps: null,
@@ -101,6 +104,9 @@ export interface PriceInputs {
   lastDaySalesMl: number;
   baselineSalesMl: number;
   trend: Trend;
+  /** World Events inputs (bounded upstream; default 0). */
+  logisticsCostBps?: number;
+  cautionBps?: number;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -110,9 +116,12 @@ export const trendOf = (today: number, yesterday: number): Trend => (today > yes
 /** Pure: same inputs always give the same price and the same reasons. */
 export function computeMerchantPrice(i: PriceInputs): PriceReasons {
   const p = i.policy;
-  const baseReplacement = Math.round((i.baseReferenceCcPerL * i.oilIndexCenti) / i.referenceIndexCenti);
+  const logistics = i.logisticsCostBps ?? 0;
+  const caution = i.cautionBps ?? 0;
+  const baseReplacement = Math.round((((i.baseReferenceCcPerL * i.oilIndexCenti) / i.referenceIndexCenti) * (10_000 + logistics)) / 10_000);
   const availableMl = Math.max(0, i.stockMl - i.reserveFloorMl);
-  const sellableTarget = Math.max(1, i.targetStockMl - i.reserveFloorMl);
+  const cautiousTarget = Math.round((i.targetStockMl * (10_000 + caution)) / 10_000);
+  const sellableTarget = Math.max(1, cautiousTarget - i.reserveFloorMl);
   const scarcityBps = clamp(Math.trunc(((sellableTarget - availableMl) * 10_000) / sellableTarget), -10_000, 10_000);
   const demandDeltaBps = clamp(
     Math.trunc(((i.lastDaySalesMl - i.baselineSalesMl) * 10_000) / Math.max(1, i.baselineSalesMl)),
@@ -136,8 +145,8 @@ export function computeMerchantPrice(i: PriceInputs): PriceReasons {
 
   const pct = (bps: number) => `${bps >= 0 ? "+" : ""}${(bps / 100).toFixed(1)}%`;
   const explanation =
-    `Import cost ${(baseReplacement / 100).toFixed(2)}/L (oil ${(i.oilIndexCenti / 100).toFixed(2)} vs ref ${(i.referenceIndexCenti / 100).toFixed(2)}). ` +
-    `Stock ${(availableMl / 1000).toFixed(1)} L sellable vs target ${(sellableTarget / 1000).toFixed(1)} L → scarcity ${pct(scarcityBps)} × ${(p.scarcityWeightBps / 10_000).toFixed(2)}. ` +
+    `Import cost ${(baseReplacement / 100).toFixed(2)}/L (oil ${(i.oilIndexCenti / 100).toFixed(2)} vs ref ${(i.referenceIndexCenti / 100).toFixed(2)}${logistics ? `, shipping/refinery premium ${pct(logistics)} from world events` : ""}). ` +
+    `Stock ${(availableMl / 1000).toFixed(1)} L sellable vs target ${(sellableTarget / 1000).toFixed(1)} L${caution ? ` (incl. ${pct(caution)} extra safety stock: world events)` : ""} → scarcity ${pct(scarcityBps)} × ${(p.scarcityWeightBps / 10_000).toFixed(2)}. ` +
     `Yesterday sold ${(i.lastDaySalesMl / 1000).toFixed(1)} L vs normal ${(i.baselineSalesMl / 1000).toFixed(1)} L → demand ${pct(demandDeltaBps)} × ${(p.demandWeightBps / 10_000).toFixed(2)}. ` +
     `Markup ${pct(markupBps)}${hoarding ? " (incl. hoarding premium: oil rising)" : ""}. ` +
     `Raw ${(rawPrice / 100).toFixed(2)} clamped to [${(floor / 100).toFixed(2)}, ${(max / 100).toFixed(2)}] → ${(finalPrice / 100).toFixed(2)} credits/L.` +
@@ -166,5 +175,5 @@ export function computeMerchantPrice(i: PriceInputs): PriceReasons {
 }
 
 /** Importer cost per litre (what a merchant pays to restock). Same as baseReplacement. */
-export const importCostCcPerL = (baseReferenceCcPerL: number, oilIndexCenti: number, referenceIndexCenti: number): number =>
-  Math.round((baseReferenceCcPerL * oilIndexCenti) / referenceIndexCenti);
+export const importCostCcPerL = (baseReferenceCcPerL: number, oilIndexCenti: number, referenceIndexCenti: number, logisticsCostBps = 0): number =>
+  Math.round((((baseReferenceCcPerL * oilIndexCenti) / referenceIndexCenti) * (10_000 + logisticsCostBps)) / 10_000);

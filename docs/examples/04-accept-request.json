@@ -1,0 +1,69 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/runs/run_1762afe1-fde/actions",
+    "body": {
+      "action": {
+        "type": "ACCEPT_REQUEST",
+        "requestId": "req_1"
+      },
+      "idempotencyKey": "7d1c0c1e-accept-0001"
+    }
+  },
+  "response": {
+    "ok": true,
+    "stateVersion": 2,
+    "events": [
+      {
+        "seq": 12,
+        "eventId": "run_1762afe1-fde:12",
+        "runId": "run_1762afe1-fde",
+        "day": 1,
+        "tick": 1,
+        "clock": "06:06",
+        "type": "CONTRACT_ACCEPTED",
+        "source": "simulated_game",
+        "actors": [
+          "business:cold_room",
+          "player"
+        ],
+        "explanation": "Deal: 1.5 kW for 2h at 8/kWh. Cold Room escrowed 24 credits. Assign a generator to restore power.",
+        "data": {
+          "requestId": "req_1",
+          "contractId": "contract_2",
+          "businessId": "cold_room",
+          "rateCcPerKwh": 800,
+          "escrowCc": 2400,
+          "customerProfitPerHourCc": 800
+        },
+        "txHash": null,
+        "serverTime": "2026-11-08T00:00:59.950Z"
+      },
+      {
+        "seq": 13,
+        "eventId": "run_1762afe1-fde:13",
+        "runId": "run_1762afe1-fde",
+        "day": 1,
+        "tick": 1,
+        "clock": "06:06",
+        "type": "TUTORIAL_STEP",
+        "source": "simulated_game",
+        "actors": [
+          "player"
+        ],
+        "explanation": "Connect the Cold Room to your 5 kW diesel generator to restore power.",
+        "data": {
+          "step": "assign_first"
+        },
+        "txHash": null,
+        "serverTime": "2026-11-08T00:00:59.950Z"
+      }
+    ],
+    "result": {
+      "contractId": "contract_2",
+      "status": "pending_assignment"
+    },
+    "replayed": false,
+    "state": "<GameStatePublic>"
+  }
+}

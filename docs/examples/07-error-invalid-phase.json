@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/runs/run_1762afe1-fde/actions",
+    "body": {
+      "action": {
+        "type": "BUY",
+        "quoteId": "quote_1",
+        "quantity": 1000
+      },
+      "idempotencyKey": "7d1c0c1e-buy-0001"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "ok": false,
+      "error": {
+        "code": "NOT_FOUND",
+        "message": "Unknown quote quote_1"
+      },
+      "stateVersion": 3
+    }
+  }
+}

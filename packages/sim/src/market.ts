@@ -7,6 +7,7 @@ import { BASE_REFERENCE_CC_PER_L, TIMING } from "./config.ts";
 import { ACC, bal, transfer, transferUpTo } from "./ledger.ts";
 import { MERCHANT_POLICIES, computeMerchantPrice, importCostCcPerL, trendOf } from "./policies/merchantPricing.ts";
 import { L, SimError, cr, emit, newId, type Ctx, type MerchantState, type QuoteState, type SimState, type TradeState } from "./state.ts";
+import { worldModifiers } from "./world-events/engine.ts";
 
 export const merchantStock = (s: SimState, m: MerchantState) => bal(s, "fuel_ml", ACC.merchant(m.merchantId));
 export const merchantCash = (s: SimState, m: MerchantState) => bal(s, "credits_cc", ACC.merchant(m.merchantId));
@@ -15,7 +16,10 @@ export const oilTrend = (s: SimState) => trendOf(s.world.oilIndexCenti, s.world.
 
 /** Recomputes a merchant's quote from the one pricing policy; emits MERCHANT_REPRICED if it changed. */
 export function repriceMerchant(s: SimState, ctx: Ctx, m: MerchantState, cause: string): void {
+  const mods = worldModifiers(s);
   const reasons = computeMerchantPrice({
+    logisticsCostBps: mods.logisticsCostBps,
+    cautionBps: mods.cautionBps,
     policy: MERCHANT_POLICIES[m.policyId],
     oilIndexCenti: s.world.oilIndexCenti,
     referenceIndexCenti: s.world.referenceIndexCenti,
@@ -53,7 +57,7 @@ function sellerMerchant(s: SimState, sellerId: string): MerchantState {
 }
 
 export function requireMarketOpen(s: SimState): void {
-  if (s.phase !== "morning") throw new SimError("INVALID_PHASE", "The market is only open during the morning phase.", { phase: s.phase });
+  if (s.phase === "finished") throw new SimError("RUN_FINISHED", "This simulation has ended.");
 }
 
 /** Server-generated, time-limited quote bound to seller, item, quantity limit, price and market version. */
@@ -175,7 +179,7 @@ export function buy(s: SimState, ctx: Ctx, buyerAcct: string, quoteId: string, q
     m.salesTodayMl += quantity;
     q.status = "used";
     s.trades[tradeId] = trade;
-    emit(s, ctx, "TRADE_RESERVED", [buyerAcct, ACC.merchant(m.merchantId)], `${L(quantity)} L reserved from ${m.name} at ${cr(q.unitPriceCc)}/L (total ${cr(total)} credits). ${opts.chainLeg ? "Awaiting NEAR testnet transfer." : "Game-ledger trade (no chain leg)."}`, {
+    emit(s, ctx, "TRADE_RESERVED", [buyerAcct, ACC.merchant(m.merchantId)], `${L(quantity)} L reserved from ${m.name} at ${cr(q.unitPriceCc)}/L (total ${cr(total)} credits). ${opts.chainLeg ? "Delivery is being confirmed; the city keeps running." : "Fuel is ready to use."}`, {
       tradeId,
       merchantId: m.merchantId,
       quantityMl: quantity,
@@ -224,6 +228,7 @@ export function settleTrade(s: SimState, ctx: Ctx, tradeId: string, outcome: "co
         s.rival.fuelCostBasisCcPerL = Math.round((s.rival.fuelCostBasisCcPerL * have + t.unitPriceCc * t.quantity) / Math.max(1, have + t.quantity));
       }
       transfer(s, ctx, "fuel_ml", ACC.escrowTrades, t.buyerId, t.quantity, "trade_settle_fuel", tradeId, viaChain ? txHash : null);
+      if (viaChain && t.buyerId === ACC.player) s.player.chainBackedFuelMl = (s.player.chainBackedFuelMl ?? 0) + t.quantity;
     } else {
       transfer(s, ctx, "permit_mg", ACC.escrowTrades, t.buyerId, t.quantity * PERMIT_MG, "trade_settle_permits", tradeId);
       s.regulator.permitsSoldToday += t.quantity;
@@ -232,6 +237,7 @@ export function settleTrade(s: SimState, ctx: Ctx, tradeId: string, outcome: "co
     }
     t.status = "settled";
     if (viaChain) t.chainStatus = "confirmed";
+    if (t.buyerId === ACC.player && t.item === "diesel") s.totals.dieselPurchases = (s.totals.dieselPurchases ?? 0) + 1;
     t.txHash = txHash;
     if (t.buyerId === ACC.player) s.dayStats.spendCc += t.totalCc;
     emit(s, ctx, "TRADE_CONFIRMED", [t.buyerId, t.sellerId], viaChain ? `Testnet transfer confirmed for trade ${tradeId}: ${t.item === "diesel" ? `${L(t.quantity)} L` : `${t.quantity} permits`} delivered.` : `Trade ${tradeId} settled in the game ledger: ${t.item === "diesel" ? `${L(t.quantity)} L` : `${t.quantity} permits`} delivered.`, {
@@ -284,39 +290,48 @@ export function merchantsMorning(s: SimState, ctx: Ctx): void {
       }
       emit(s, ctx, "MERCHANT_RESTOCK_DELIVERED", [ACC.merchant(m.merchantId), ACC.importer], `${m.name} received ${L(qty)} L from the importer.`, { merchantId: m.merchantId, quantityMl: qty });
     }
-    repriceMerchant(s, ctx, m, `morning: oil index ${(s.world.oilIndexCenti / 100).toFixed(2)}`);
+    repriceMerchant(s, ctx, m, `new day: oil index ${(s.world.oilIndexCenti / 100).toFixed(2)}`);
   }
 }
 
 /** Settlement: overhead, reorder decisions bounded by cash/upstream capacity, insolvency. */
 export function merchantsSettlement(s: SimState, ctx: Ctx): void {
-  const importCost = importCostCcPerL(BASE_REFERENCE_CC_PER_L, s.world.oilIndexCenti, s.world.referenceIndexCenti);
+  const mods = worldModifiers(s);
+  const importCost = importCostCcPerL(BASE_REFERENCE_CC_PER_L, s.world.oilIndexCenti, s.world.referenceIndexCenti, mods.logisticsCostBps);
   for (const m of Object.values(s.merchants)) {
     const policy = MERCHANT_POLICIES[m.policyId];
+    // World Events change the INPUTS of this policy: how much the importer can ship, how long it takes,
+    // and how much safety stock this merchant now wants. Each merchant still decides from its own cash/stock.
+    const capacity = Math.max(0, Math.floor((m.upstreamCapacityMlPerDay * (10_000 + mods.importCapacityBps)) / 10_000 / 1000) * 1000);
+    const target = Math.round((m.targetStockMl * (10_000 + mods.cautionBps)) / 10_000);
+    const leadTime = m.leadTimeDays + mods.leadTimeDays;
     m.lastDaySalesMl = m.salesTodayMl;
     m.salesTodayMl = 0;
     if (m.status === "open") transferUpTo(s, ctx, "credits_cc", ACC.merchant(m.merchantId), ACC.landlords, m.overheadCcPerDay, "merchant_overhead", m.merchantId);
     const stock = merchantStock(s, m);
     const cash = merchantCash(s, m);
-    const reorderPoint = Math.floor((m.targetStockMl * policy.reorderPointBps) / 10_000);
+    const reorderPoint = Math.floor((target * policy.reorderPointBps) / 10_000);
     const falling = oilTrend(s) === "down";
     const defer = falling && policy.deferOnFallingAboveBps !== null && stock > Math.floor((m.targetStockMl * policy.deferOnFallingAboveBps) / 10_000);
     if (stock + m.pendingRestockMl < reorderPoint && !defer) {
-      const want = m.targetStockMl - stock - m.pendingRestockMl;
+      const want = target - stock - m.pendingRestockMl;
       const affordableMl = Math.max(0, Math.floor(((cash - m.operatingReserveCc) * 1000) / importCost / 1000) * 1000);
-      const qty = Math.min(want, m.upstreamCapacityMlPerDay, affordableMl);
+      const qty = Math.min(want, capacity, affordableMl);
       if (qty >= 1000) {
         const cost = Math.ceil((qty * importCost) / 1000);
         transfer(s, ctx, "credits_cc", ACC.merchant(m.merchantId), ACC.importer, cost, "restock_order", m.merchantId);
         m.pendingRestockMl += qty;
-        m.restockArrivesDay = s.day + m.leadTimeDays;
-        emit(s, ctx, "MERCHANT_RESTOCK_ORDERED", [ACC.merchant(m.merchantId), ACC.importer], `${m.name} ordered ${L(qty)} L at import cost ${cr(importCost)}/L (${cr(cost)} credits); arrives day ${m.restockArrivesDay}. Limited by ${qty === want ? "target stock" : qty === m.upstreamCapacityMlPerDay ? "upstream capacity" : "cash after operating reserve"}.`, {
+        m.restockArrivesDay = s.day + leadTime;
+        emit(s, ctx, "MERCHANT_RESTOCK_ORDERED", [ACC.merchant(m.merchantId), ACC.importer], `${m.name} ordered ${L(qty)} L at import cost ${cr(importCost)}/L (${cr(cost)} credits); arrives day ${m.restockArrivesDay}. Limited by ${qty === want ? "target stock" : qty === capacity ? `upstream capacity (${L(capacity)} L/day${mods.importCapacityBps ? `, ${mods.importCapacityBps > 0 ? "+" : ""}${(mods.importCapacityBps / 100).toFixed(0)}% from world events` : ""})` : "cash after operating reserve"}.`, {
+          upstreamCapacityMl: capacity,
           merchantId: m.merchantId,
           quantityMl: qty,
           costCc: cost,
           importCostCcPerL: importCost,
           arrivesDay: m.restockArrivesDay,
         });
+      } else if (capacity === 0 && qty === 0) {
+        emit(s, ctx, "MERCHANT_RESTOCK_ORDERED", [ACC.merchant(m.merchantId), ACC.importer], `${m.name} could not order fuel today: the importer has no capacity for it.`, { merchantId: m.merchantId, quantityMl: 0, upstreamCapacityMl: 0 });
       } else if (stock === 0 && m.pendingRestockMl === 0 && m.status === "open") {
         m.status = "closed";
         emit(s, ctx, "MERCHANT_CLOSED", [ACC.merchant(m.merchantId)], `${m.name} closed: empty tanks and ${cr(cash)} credits cannot fund a minimum 1 L order at ${cr(importCost)}/L above its ${cr(m.operatingReserveCc)} reserve. It reopens if cheaper oil makes an order affordable.`, { merchantId: m.merchantId, cashCc: cash });

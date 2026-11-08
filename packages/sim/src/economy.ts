@@ -1,5 +1,5 @@
 /**
- * Night settlement: closes the day's contracts, runs business/district/merchant/
+ * Daily background settlement (non-blocking in continuous play): runs business/district/merchant/
  * regulator accounting, builds the day report from events, and the campaign summary.
  */
 import { PERMIT_MG, type CampaignSummary, type DayReport } from "@blackout/shared";
@@ -56,8 +56,9 @@ export function endOfDayContracts(s: SimState, ctx: Ctx): void {
   }
 }
 
-export function settleDay(s: SimState, ctx: Ctx): DayReport {
-  endOfDayContracts(s, ctx);
+export function settleDay(s: SimState, ctx: Ctx, opts: { continuous?: boolean } = {}): DayReport {
+  // In continuous play contracts, requests and outages carry over midnight.
+  if (!opts.continuous) endOfDayContracts(s, ctx);
   businessesSettlement(s, ctx);
   districtsSettlement(s);
   merchantsSettlement(s, ctx);
@@ -65,7 +66,8 @@ export function settleDay(s: SimState, ctx: Ctx): DayReport {
 
   const st = s.dayStats;
   const prevGdp = s.dayReports.length ? s.dayReports[s.dayReports.length - 1].gdpCc : st.gdpCc;
-  const reliability = st.requestedOutageTicks ? Math.floor((st.servedOutageTicks * 10_000) / st.requestedOutageTicks) : 10_000;
+  // outage hours can straddle midnight, so served ticks may exceed today's requested ticks: clamp
+  const reliability = st.requestedOutageTicks ? Math.min(10_000, Math.floor((st.servedOutageTicks * 10_000) / st.requestedOutageTicks)) : 0;
   const credits = bal(s, "credits_cc", ACC.player);
   const prices = Object.values(s.merchants).map((m) => m.quoteCcPerL);
   const report: DayReport = {
@@ -132,7 +134,7 @@ export function netWorthCc(s: SimState): number {
 }
 
 export function campaignSummary(s: SimState): CampaignSummary {
-  const reliability = s.totals.requestedOutageTicks ? Math.floor((s.totals.servedOutageTicks * 10_000) / s.totals.requestedOutageTicks) : 0;
+  const reliability = s.totals.requestedOutageTicks ? Math.min(10_000, Math.floor((s.totals.servedOutageTicks * 10_000) / s.totals.requestedOutageTicks)) : 0;
   const nw = netWorthCc(s);
   const gdp = s.totals.gdpCc;
   const score = Math.floor(nw / 100) + Math.floor(reliability / 10) + Math.floor(gdp / 1_000) - s.totals.closures * 100;

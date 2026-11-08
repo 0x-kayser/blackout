@@ -1,0 +1,50 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/runs/run_1762afe1-fde/actions",
+    "body": {
+      "action": {
+        "type": "ASSIGN_CONTRACT",
+        "contractId": "contract_2",
+        "generatorId": "gen_1"
+      },
+      "idempotencyKey": "7d1c0c1e-assign-0001"
+    }
+  },
+  "response": {
+    "ok": true,
+    "stateVersion": 3,
+    "events": [
+      {
+        "seq": 14,
+        "eventId": "run_1762afe1-fde:14",
+        "runId": "run_1762afe1-fde",
+        "day": 1,
+        "tick": 1,
+        "clock": "06:06",
+        "type": "LOAD_ASSIGNED",
+        "source": "simulated_game",
+        "actors": [
+          "generator:gen_1",
+          "business:cold_room"
+        ],
+        "explanation": "1.5 kW of Cold Room routed to Shed Diesel 5kW. Power starts on the next tick.",
+        "data": {
+          "contractId": "contract_2",
+          "generatorId": "gen_1",
+          "allottedW": 1500,
+          "generatorAssignedW": 1500,
+          "ratedW": 5000
+        },
+        "txHash": null,
+        "serverTime": "2026-11-08T00:00:59.953Z"
+      }
+    ],
+    "result": {
+      "contractId": "contract_2",
+      "generatorId": "gen_1"
+    },
+    "replayed": false,
+    "state": "<GameStatePublic>"
+  }
+}

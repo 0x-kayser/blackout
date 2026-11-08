@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/chain/status"
+  },
+  "response": {
+    "ok": true,
+    "mode": "disabled",
+    "network": null,
+    "rpcUrl": null,
+    "rpcReachable": null,
+    "resourceContractId": null,
+    "contractDeployed": null,
+    "vaultAccountId": null,
+    "merchantAccounts": [
+      {
+        "merchantId": "ember",
+        "accountId": null
+      },
+      {
+        "merchantId": "lantern",
+        "accountId": null
+      },
+      {
+        "merchantId": "harbor",
+        "accountId": null
+      }
+    ],
+    "rivalAccountId": null,
+    "explorerBaseUrl": null,
+    "tokenIds": [
+      "DIESEL_100ML",
+      "CARBON_PERMIT_10KG",
+      "REPAIR_PART",
+      "SOLAR_COMPONENT",
+      "BATTERY_COMPONENT"
+    ],
+    "trustBoundary": "Electricity, heat, customers and NPC decisions are simulated by this server and are reproducible from seed + action log. When chain mode is enabled, diesel purchases are real NEP-245 transfers on NEAR testnet from a merchant NPC account into the game's custodial vault; credits are an off-chain, non-redeemable game ledger. No contract verifies that electricity was produced.",
+    "issues": [
+      "Chain mode disabled; missing: NEAR_CHAIN_ENABLED=true, NEAR_RESOURCE_CONTRACT_ID, NEAR_VAULT_ACCOUNT_ID, NEAR_MERCHANT_EMBER_ACCOUNT_ID, NEAR_MERCHANT_EMBER_PRIVATE_KEY, NEAR_MERCHANT_LANTERN_ACCOUNT_ID, NEAR_MERCHANT_LANTERN_PRIVATE_KEY, NEAR_MERCHANT_HARBOR_ACCOUNT_ID, NEAR_MERCHANT_HARBOR_PRIVATE_KEY"
+    ]
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/runs/run_1762afe1-fde/market"
+  },
+  "response": {
+    "ok": true,
+    "phase": "operating",
+    "marketOpen": true,
+    "world": {
+      "scenarioId": "starter",
+      "scenarioName": "Starter District",
+      "oilIndexCenti": 10350,
+      "referenceIndexCenti": 10000,
+      "oilTrend": "up",
+      "oilSourceLabel": "Illustrative sample series — not real Brent data",
+      "observedBrent": null,
+      "oilPassThroughBps": 5000,
+      "gridTariffCcPerKwh": 700
+    },
+    "merchants": [
+      {
+        "merchantId": "ember",
+        "name": "Ember Wholesale",
+        "style": "Efficient wholesaler: big tanks, thin margins, slow to react.",
+        "policyId": "efficient_wholesaler",
+        "accountId": null,
+        "status": "open",
+        "stockMl": 150000,
+        "reservedMl": 0,
+        "targetStockMl": 200000,
+        "cashCc": 117000,
+        "pendingRestockMl": 0,
+        "restockArrivesDay": null,
+        "salesTodayMl": 0,
+        "lastDaySalesMl": 0,
+        "quoteCcPerL": 1040,
+        "reasons": {
+          "oilIndexCenti": 10350,
+          "referenceIndexCenti": 10000,
+          "baseReferenceCcPerL": 1000,
+          "baseReplacementCcPerL": 1035,
+          "scarcityBps": 2500,
+          "demandDeltaBps": -10000,
+          "markupBps": 200,
+          "rawPriceCcPerL": 965,
+          "floorCcPerL": 1035,
+          "maxCcPerL": 3105,
+          "finalPriceCcPerL": 1040,
+          "stockMl": 150000,
+          "targetStockMl": 200000,
+          "lastDaySalesMl": 0,
+          "baselineSalesMl": 25000,
+          "trend": "up",
+          "rationLimitMl": null,
+          "explanation": "Import cost 10.35/L (oil 103.50 vs ref 100.00). Stock 150.0 L sellable vs target 200.0 L → scarcity +25.0% × 0.45. Yesterday sold 0.0 L vs normal 25.0 L → demand -100.0% × 0.20. Markup +2.0%. Raw 9.65 clamped to [10.35, 31.05] → 10.40 credits/L."
+        },
+        "priceHistory": [
+          {
+            "day": 1,
+            "tick": 0,
+            "priceCcPerL": 1130,
+            "cause": "new day: oil index 100.00"
+          },
+          {
+            "day": 2,
+            "tick": 240,
+            "priceCcPerL": 1040,
+            "cause": "new day: oil index 103.50"
+          }
+        ]
+      }
+    ],
+    "regulator": {
+      "permitPriceCc": 1500,
+      "permitsForSaleToday": 8,
+      "dailyCapPermits": 8,
+      "permitsSoldTotal": 0,
+      "emissionsTodayMg": 884400,
+      "priceReason": "Base 25; yesterday's emissions 2.4 kg vs cap 80 kg (-48.5%) → 15 per permit.",
+      "notices": []
+    },
+    "quotes": [
+      {
+        "quoteId": "quote_19",
+        "sellerId": "merchant:lantern",
+        "item": "diesel",
+        "unitPriceCc": 1050,
+        "maxQuantity": 20000,
+        "createdTick": 255,
+        "expiresTick": 270,
+        "marketVersion": 6,
+        "status": "used",
+        "reasons": {
+          "oilIndexCenti": 10350,
+          "referenceIndexCenti": 10000,
+          "baseReferenceCcPerL": 1000,
+          "baseReplacementCcPerL": 1035,
+          "scarcityBps": 0,
+          "demandDeltaBps": -10000,
+          "markupBps": 400,
+          "rawPriceCcPerL": 869,
+          "floorCcPerL": 1046,
+          "maxCcPerL": 3105,
+          "finalPriceCcPerL": 1050,
+          "stockMl": 30000,
+          "targetStockMl": 30000,
+          "lastDaySalesMl": 0,
+          "baselineSalesMl": 10000,
+          "trend": "up",
+          "rationLimitMl": null,
+          "explanation": "Import cost 10.35/L (oil 103.50 vs ref 100.00). Stock 30.0 L sellable vs target 30.0 L → scarcity +0.0% × 0.60. Yesterday sold 0.0 L vs normal 10.0 L → demand -100.0% × 0.20. Markup +4.0%. Raw 8.69 clamped to [10.46, 31.05] → 10.50 credits/L."
+        }
+      }
+    ],
+    "trades": [
+      {
+        "tradeId": "trade_20",
+        "quoteId": "quote_19",
+        "idempotencyKey": "7d1c0c1e-buy-0002",
+        "buyerId": "player",
+        "sellerId": "merchant:lantern",
+        "item": "diesel",
+        "quantity": 20000,
+        "unitPriceCc": 1050,
+        "totalCc": 21000,
+        "status": "settled",
+        "chainStatus": "simulation_only",
+        "tokenId": null,
+        "tokenAmount": null,
+        "txHash": null,
+        "explorerUrl": null,
+        "error": null,
+        "createdTick": 255,
+        "settledTick": 255
+      }
+    ]
+  }
+}

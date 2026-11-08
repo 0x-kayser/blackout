@@ -9,13 +9,20 @@ import { ACC, bal, transfer } from "./ledger.ts";
 import { buy, createQuote, merchantAvailable, oilTrend } from "./market.ts";
 import { acceptCeiling, breakEvenRate, businessCash, formContract, profitPerHourAt, rivalCanServe } from "./customers.ts";
 import { L, SimError, cr, emit, kW, type Ctx, type RequestState, type SimState } from "./state.ts";
+import { worldModifiers } from "./world-events/engine.ts";
 
 // ------------------------------------------------------------------ rival
 
 /** Rival tariff policy: unit cost (fuel + carbon + maintenance) plus an adaptive margin. */
 export function computeRivalTariff(s: SimState): SimState["rival"]["tariffReasons"] {
   const r = s.rival;
-  const fuelCost = Math.round((r.fuelCostBasisCcPerL * 3) / 10); // 0.3 L per kWh
+  // daytime solar (if the rival built some) covers roughly a quarter of its energy at zero fuel cost
+  const solarShareBps = r.solarW ? 2_500 : 0;
+  // Replacement-cost pricing: diesel is valued at the higher of what it paid and what it would cost to restock now.
+  const open = Object.values(s.merchants).filter((m) => m.status === "open" && m.quoteCcPerL > 0);
+  const cheapest = open.length ? Math.min(...open.map((m) => m.quoteCcPerL)) : r.fuelCostBasisCcPerL;
+  const fuelRef = Math.max(r.fuelCostBasisCcPerL, cheapest);
+  const fuelCost = Math.round((((fuelRef * 3) / 10) * (10_000 - solarShareBps)) / 10_000); // 0.3 L per kWh
   const carbonCost = Math.round((s.regulator.permitPriceCc * 804) / 10_000); // 0.804 kg per kWh / 10 kg per permit
   const unit = fuelCost + carbonCost + RIVAL.maintenanceCcPerKwh;
   const raw = Math.round((unit * (10_000 + r.marginBps)) / 10_000);
@@ -26,7 +33,7 @@ export function computeRivalTariff(s: SimState): SimState["rival"]["tariffReason
     unitCostCcPerKwh: unit,
     marginBps: r.marginBps,
     finalCcPerKwh: final,
-    explanation: `Fuel ${cr(r.fuelCostBasisCcPerL)}/L × 0.3 L/kWh = ${cr(fuelCost)}; carbon ${cr(s.regulator.permitPriceCc)}/permit × 0.0804 = ${cr(carbonCost)}; maintenance ${cr(RIVAL.maintenanceCcPerKwh)} → unit cost ${cr(unit)}/kWh, + ${(r.marginBps / 100).toFixed(0)}% margin = ${cr(final)}/kWh.`,
+    explanation: `Fuel at replacement cost ${cr(fuelRef)}/L (paid ${cr(r.fuelCostBasisCcPerL)}, cheapest seller ${cr(cheapest)}) × 0.3 L/kWh${solarShareBps ? " × 75% (own solar covers ~25%)" : ""} = ${cr(fuelCost)}; carbon ${cr(s.regulator.permitPriceCc)}/permit × 0.0804 = ${cr(carbonCost)}; maintenance ${cr(RIVAL.maintenanceCcPerKwh)} → unit cost ${cr(unit)}/kWh, + ${(r.marginBps / 100).toFixed(0)}% margin = ${cr(final)}/kWh.`,
   };
 }
 
@@ -56,7 +63,23 @@ export function rivalShop(s: SimState, ctx: Ctx): void {
   r.boughtToday = true;
   const actions: string[] = [];
   const fuel = bal(s, "fuel_ml", ACC.rival);
-  const wantFuel = Math.min(r.tankCapacityMl, RIVAL.estFuelMlPerDay * RIVAL.targetFuelDays) - fuel;
+  // The rival reads what it can observe (merchant shelves, posted prices), not the news itself.
+  const merchants = Object.values(s.merchants);
+  const shelves = merchants.reduce((a, m) => a + merchantAvailable(s, m), 0) / Math.max(1, merchants.reduce((a, m) => a + Math.max(1, m.targetStockMl - m.reserveFloorMl), 0));
+  const avgPrice = merchants.reduce((a, m) => a + m.quoteCcPerL, 0) / Math.max(1, merchants.length);
+  const prevStockpile = r.stockpileDays ?? 0;
+  r.stockpileDays = shelves < 0.5 ? 1 : 0;
+  if (r.stockpileDays !== prevStockpile) {
+    emit(s, ctx, "RIVAL_STRATEGY_CHANGED", ["rival"], r.stockpileDays ? `${r.name} is stockpiling: merchants' shelves are only ${(shelves * 100).toFixed(0)}% of normal, so it now keeps ${RIVAL.targetFuelDays + 1} days of diesel.` : `${r.name} stops stockpiling: merchant shelves recovered to ${(shelves * 100).toFixed(0)}% of normal.`, { strategy: r.stockpileDays ? "stockpile" : "normal", shelvesBps: Math.round(shelves * 10_000) });
+  }
+  if (!r.solarW && avgPrice >= 1_250 && bal(s, "credits_cc", ACC.rival) >= 160_000) {
+    const cost = Math.round((90_000 * (10_000 + worldModifiers(s).solarCostBps)) / 10_000);
+    transfer(s, ctx, "credits_cc", ACC.rival, ACC.equipment, cost, "rival_solar_install", "rival");
+    r.solarW = 2_000;
+    emit(s, ctx, "RIVAL_STRATEGY_CHANGED", ["rival"], `${r.name} installed 2 kW of rooftop solar for ${cr(cost)} credits: with diesel averaging ${cr(Math.round(avgPrice))}/L, daytime solar is cheaper for it.`, { strategy: "solar", costCc: cost });
+    actions.push("installed 2 kW solar");
+  }
+  const wantFuel = Math.min(r.tankCapacityMl, RIVAL.estFuelMlPerDay * (RIVAL.targetFuelDays + r.stockpileDays)) - fuel;
   if (wantFuel >= 1000) {
     const candidates = Object.values(s.merchants)
       .filter((m) => m.status === "open" && merchantAvailable(s, m) >= 1000)
@@ -176,7 +199,9 @@ export function resetRivalDay(s: SimState): void {
 /** Dawn: issue today's permit supply (cap) and set the auction price from yesterday's emissions. */
 export function regulatorMorning(s: SimState, ctx: Ctx): void {
   const reg = s.regulator;
-  const cap = REGULATOR.dailyCapPermits[Math.min(s.day - 1, REGULATOR.dailyCapPermits.length - 1)];
+  const baseCap = REGULATOR.dailyCapPermits[Math.min(s.day - 1, REGULATOR.dailyCapPermits.length - 1)];
+  const policyBps = worldModifiers(s).permitSupplyBps;
+  const cap = Math.max(1, Math.round((baseCap * (10_000 + policyBps)) / 10_000));
   const prevCap = reg.dailyCapPermits;
   reg.dailyCapPermits = cap;
   reg.permitsSoldToday = 0;
@@ -189,7 +214,7 @@ export function regulatorMorning(s: SimState, ctx: Ctx): void {
   reg.permitPriceCc = Math.round((REGULATOR.basePermitPriceCc * mult) / 10_000 / 10) * 10;
   reg.priceReason = `Base ${cr(REGULATOR.basePermitPriceCc)}; yesterday's emissions ${(reg.emissionsYesterdayMg / 1e6).toFixed(1)} kg vs cap ${(target / 1e6).toFixed(0)} kg (${pressureBps >= 0 ? "+" : ""}${(pressureBps / 100).toFixed(1)}%)${cap < prevCap ? ", cap cut +15%" : ""} → ${cr(reg.permitPriceCc)} per permit.`;
   if (s.day > 1 && cap < prevCap) {
-    const note = `Day ${s.day}: the regulator cut the daily permit cap from ${prevCap} to ${cap} permits (${cap * 10} kg CO2).`;
+    const note = `Day ${s.day}: Vesper City's regulator cut the daily permit cap from ${prevCap} to ${cap} permits (${cap * 10} kg CO2)${policyBps ? " — fictional local policy event" : ""}.`;
     reg.notices.push(note);
     emit(s, ctx, "REGULATOR_NOTICE", ["regulator"], note, { capPermits: cap, prevCapPermits: prevCap });
   }

@@ -8,10 +8,11 @@
  * a business pays costs only up to its cash and records the rest as unpaid.
  */
 import { ccForEnergy, whPerTick } from "@blackout/shared";
-import { BUSINESSES, CUSTOMER_RULES, GRID, RIVAL, TIMING } from "./config.ts";
+import { CUSTOMER_RULES, GRID, RIVAL, TIMING } from "./config.ts";
 import { ACC, bal, transfer, transferUpTo } from "./ledger.ts";
-import { generatorAvailableW, validateAssignment } from "./electricity.ts";
-import { L, SimError, cr, emit, kW, newId, type BusinessState, type ContractState, type Ctx, type RequestState, type SimState, type WaveState } from "./state.ts";
+import { validateAssignment } from "./electricity.ts";
+import { worldModifiers } from "./world-events/engine.ts";
+import { SimError, cr, emit, kW, newId, type BusinessState, type ContractState, type Ctx, type RequestState, type SimState, type WaveState } from "./state.ts";
 
 export const businessCash = (s: SimState, b: BusinessState) => bal(s, "credits_cc", ACC.business(b.businessId));
 
@@ -76,7 +77,7 @@ const MESSAGES: Record<string, (kwText: string, h: number, rate: string) => stri
   cold_storage: (k, h, r) => `My freezer's losing power. Need ${k} for ${h} hour${h > 1 ? "s" : ""}. I can pay ${r} credits/kWh.`,
   bakery: (k, h, r) => `Ovens are cold and the dough is rising! ${k} for ${h}h at ${r}/kWh?`,
   pharmacy: (k, h, r) => `Our vaccine fridge needs ${k} for ${h}h. Offering ${r} credits/kWh.`,
-  cyber_cafe: (k, h, r) => `Gamers are leaving. ${k} for ${h}h — ${r}/kWh, take it or leave it.`,
+  cyber_cafe: (k, h, r) => `Gamers are leaving. I need ${k} for ${h}h at ${r}/kWh.`,
   corner_shop: (k, h, r) => `Lights are out at the shop. Just ${k} for ${h}h, I can do ${r}/kWh.`,
 };
 
@@ -180,6 +181,7 @@ export function formContract(s: SimState, ctx: Ctx, req: RequestState, rate: num
     hourWh: 0,
     hourFuelMl: 0,
     hourBilledCc: 0,
+    lastDeliveredTick: null,
   };
   if (provider === "player") viabilityCheck(s, c);
   transfer(s, ctx, "credits_cc", ACC.business(b.businessId), ACC.escrowContracts, escrow, "contract_escrow", c.contractId);
@@ -187,9 +189,11 @@ export function formContract(s: SimState, ctx: Ctx, req: RequestState, rate: num
   b.activeContractId = c.contractId;
   req.status = provider === "player" ? "accepted" : "lost_to_rival";
   req.offerRateCcPerKwh = rate;
-  if (rate > breakEvenRate(b)) b.gougeCount += 1;
-  b.today.paidRateSum += rate;
-  b.today.paidRateCount += 1;
+  if (provider === "player") {
+    if (rate > breakEvenRate(b)) b.gougeCount += 1;
+    b.today.paidRateSum += rate;
+    b.today.paidRateCount += 1;
+  }
   return c;
 }
 
@@ -290,11 +294,11 @@ export function tutorialHint(step: SimState["tutorialStep"]): string {
 
 /** Per-tick business finance. `deliveredBy` maps businessId -> provider that delivered this tick. */
 export function businessesTick(s: SimState, ctx: Ctx, deliveredBy: Map<string, "player" | "rival">): void {
+  const demandBps = 10_000 + worldModifiers(s).demandBps;
   const byDistrict = new Map<string, { b: BusinessState; milli: number }[]>();
   for (const b of Object.values(s.businesses)) {
-    if (!s.districts[b.districtId].unlocked && b.provider === "player" && b.status !== "closed") {
-      // locked districts are outside the player's market; they run on (unreliable) grid only
-    }
+    // locked districts are outside the player's market and are not simulated until unlocked
+    if (!s.districts[b.districtId].unlocked) continue;
     const inOutage = b.outageUntilTick !== null && s.tick < b.outageUntilTick;
     const provider = deliveredBy.get(b.businessId);
     const prevSource = b.powerSource;
@@ -317,14 +321,14 @@ export function businessesTick(s: SimState, ctx: Ctx, deliveredBy: Map<string, "
     b.today.poweredTicks += 1;
     if (provider === "player") b.today.servedByPlayerTicks += 1;
     // revenue in milli-cc for this tick: rev/hour / 10 ticks * activity index
-    const milli = Math.floor((b.revenueCcPerPoweredHour * 100 * district.activityIndexBps) / 10_000);
+    const milli = Math.floor((((b.revenueCcPerPoweredHour * 100 * district.activityIndexBps) / 10_000) * demandBps) / 10_000);
     const list = byDistrict.get(b.districtId) ?? [];
     list.push({ b, milli });
     byDistrict.set(b.districtId, list);
   }
   for (const [districtId, list] of byDistrict) {
     const d = s.districts[districtId];
-    const capMilli = Math.floor((d.outsideDemandCcPerHour * 100 * d.activityIndexBps) / 10_000);
+    const capMilli = Math.floor((((d.outsideDemandCcPerHour * 100 * d.activityIndexBps) / 10_000) * demandBps) / 10_000);
     const want = list.reduce((a, x) => a + x.milli, 0);
     for (const { b, milli } of list) {
       const scaled = want > capMilli ? Math.floor((milli * capMilli) / want) : milli;
@@ -370,9 +374,7 @@ export function moodOf(s: SimState, b: BusinessState): "happy" | "neutral" | "wo
 /** Day-end business accounting: rent, history, loyalty, struggling/closure/reopening. */
 export function businessesSettlement(s: SimState, ctx: Ctx): void {
   for (const b of Object.values(s.businesses)) {
-    if (!s.districts[b.districtId].unlocked && b.today.poweredTicks === 0 && b.status !== "closed") {
-      // locked districts are not simulated in detail
-    }
+    if (!s.districts[b.districtId].unlocked) continue;
     const acct = ACC.business(b.businessId);
     if (b.status !== "closed") {
       const rent = transferUpTo(s, ctx, "credits_cc", acct, ACC.landlords, b.fixedCostCcPerDay, "rent_and_fixed_costs", b.businessId);
@@ -480,6 +482,3 @@ export function districtsSettlement(s: SimState): void {
     d.activityIndexBps = Math.max(CUSTOMER_RULES.activityMinBps, Math.min(CUSTOMER_RULES.activityMaxBps, d.activityIndexBps + delta));
   }
 }
-
-export const BUSINESS_CONFIG = BUSINESSES;
-export const _unused = { generatorAvailableW, L };

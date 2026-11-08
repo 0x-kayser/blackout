@@ -46,6 +46,8 @@ export const ERROR_CODES = [
   "CHAIN_UNAVAILABLE",
   "ALREADY_PROCESSED",
   "RUN_FINISHED",
+  "ACCOUNT_EXISTS",
+  "AUTH_PROVIDER_UNAVAILABLE",
   "INTERNAL",
 ] as const;
 export const ErrorCodeSchema = z.enum(ERROR_CODES);
@@ -72,9 +74,9 @@ export const StartSessionResponseSchema = z.object({
 
 // ---- runs
 export const CreateRunRequestSchema = z.object({
-  scenarioId: z.enum(["starter", "fuel_squeeze"]).default("starter"),
+  scenarioId: z.enum(["starter", "fuel_squeeze", "oil_shock_2026"]).default("starter"),
   seed: z.number().int().min(0).max(2 ** 31 - 1).optional(),
-  mode: RunModeSchema.exclude(["replay"]).default("guest_demo"),
+  mode: RunModeSchema.exclude(["replay", "challenge"]).default("guest_demo"),
 });
 export const RunStateResponseSchema = z.object({ ok: z.literal(true), state: GameStatePublicSchema });
 
@@ -121,11 +123,14 @@ export const LedgerResponseSchema = z.object({
 
 // ---- replays / observatory
 export const ReplayPolicyIdSchema = z.enum(["diesel", "diversified", "gouger"]);
+/** Economy Lab world conditions (fixed, reproducible event schedules) + "historical" (EIA-sourced notes). */
+export const LabConditionSchema = z.enum(["calm", "disruption", "recovery", "demand_surge", "carbon_tightening", "solar_boom", "historical"]);
 export const ReplayRequestSchema = z.object({
   seed: z.number().int().min(0).max(2 ** 31 - 1).default(424242),
-  scenarioId: z.enum(["starter", "fuel_squeeze"]).default("starter"),
+  scenarioId: z.enum(["starter", "fuel_squeeze", "oil_shock_2026"]).default("starter"),
   policyId: ReplayPolicyIdSchema.default("diesel"),
   days: z.number().int().min(1).max(7).default(7),
+  condition: LabConditionSchema.default("calm"),
 });
 export const ReplayDaySchema = z.object({
   day: z.number().int(),
@@ -144,6 +149,11 @@ export const ReplayDaySchema = z.object({
   closures: z.array(z.string()),
   generationMixWh: z.object({ diesel: z.number().int(), solar: z.number().int(), battery: z.number().int() }),
   businessCashCc: z.record(z.string(), z.number().int()),
+  merchantCashCc: z.record(z.string(), z.number().int()),
+  playerCo2Mg: z.number().int(),
+  importCapacityBps: z.number().int(),
+  activeWorldEvents: z.array(z.object({ headline: z.string(), verification: z.enum(["fictional", "sourced"]) })),
+  rivalSolarW: z.number().int(),
 });
 export const ReplaySummarySchema = z.object({
   replayId: z.string(),
@@ -152,6 +162,7 @@ export const ReplaySummarySchema = z.object({
   scenarioVersion: z.string(),
   policyId: ReplayPolicyIdSchema,
   days: z.number().int(),
+  condition: LabConditionSchema,
   source: z.literal("replay_simulation"),
   label: z.literal("SIMULATED FUTURE SCENARIO — no blockchain settlement"),
   eventCount: z.number().int(),
@@ -170,9 +181,10 @@ export const ReplaySummarySchema = z.object({
 export const ReplayResponseSchema = z.object({ ok: z.literal(true), replay: ReplaySummarySchema });
 export const CompareRequestSchema = z.object({
   seed: z.number().int().min(0).max(2 ** 31 - 1).default(424242),
-  scenarioId: z.enum(["starter", "fuel_squeeze"]).default("starter"),
+  scenarioId: z.enum(["starter", "fuel_squeeze", "oil_shock_2026"]).default("starter"),
   policies: z.tuple([ReplayPolicyIdSchema, ReplayPolicyIdSchema]).default(["diesel", "diversified"]),
   days: z.number().int().min(1).max(7).default(7),
+  condition: LabConditionSchema.default("calm"),
 });
 export const CompareResponseSchema = z.object({
   ok: z.literal(true),
@@ -208,6 +220,19 @@ export const TransferStatusResponseSchema = z.object({
   signerId: z.string().nullable(),
   detail: z.string(),
 });
+export const MarketListingEvidenceResponseSchema = z.object({
+  ok: z.literal(true),
+  listings: z.array(z.object({
+    listingId: z.string(),
+    operation: z.enum(["list", "cancel", "fill"]),
+    merchantId: z.string().nullable(),
+    status: z.enum(["pending", "submitted", "confirmed", "failed", "timeout"]),
+    txHash: z.string().nullable(),
+    signerId: z.string().nullable(),
+    explorerUrl: z.string().nullable(),
+    lastError: z.string().nullable(),
+  })),
+});
 
 export const HealthResponseSchema = z.object({
   ok: z.boolean(),
@@ -235,8 +260,72 @@ export const PublicConfigSchema = z.object({
   pausePolicy: z.string(),
   chainMode: ChainModeSchema,
   authModes: z.array(z.string()),
+  /** Present only when the server has a Supabase project configured. The anon key is public by design. */
+  auth: z.object({
+    guest: z.literal(true),
+    supabaseUrl: z.string().nullable(),
+    supabaseAnonKey: z.string().nullable(),
+    google: z.boolean(),
+    email: z.boolean(),
+    x: z.literal(false),
+    xDeferredReason: z.string(),
+  }),
+  offlinePolicy: z.string(),
   disclaimer: z.string(),
 });
+
+export const PlayerProfileSchema = z.object({
+  playerId: z.string(),
+  displayName: z.string(),
+  kind: z.enum(["guest", "registered"]),
+  loginMethod: z.string(),
+  identities: z.array(z.object({ provider: z.string(), loginMethod: z.string().nullable(), lastLoginAt: z.string() })),
+  activeRunId: z.string().nullable(),
+  near: z.object({
+    mode: z.enum(["custodial_vault", "none"]),
+    accountId: z.string().nullable(),
+    provisioning: z.string(),
+    explanation: z.string(),
+  }),
+  createdAt: z.string(),
+});
+export const MeResponseSchema = z.object({ ok: z.literal(true), player: PlayerProfileSchema });
+export const GameStartRequestSchema = z.object({
+  scenarioId: z.enum(["starter", "fuel_squeeze", "oil_shock_2026"]).default("oil_shock_2026"),
+  /** living (default) = real Brent + fictional local events; historical = real Brent + EIA-sourced notes only. */
+  worldMode: z.enum(["living", "historical", "calm"]).default("living"),
+  /** true abandons the current save and starts a new city (old save is kept read-only). */
+  fresh: z.boolean().default(false),
+});
+export const GameStateResponseSchema = z.object({
+  ok: z.literal(true),
+  state: GameStatePublicSchema,
+  resumed: z.boolean(),
+  /** Wall-clock ms the world was paused while the player was away (0 for new games). */
+  awayMs: z.number().int().nonnegative(),
+});
+export const LeaderboardResponseSchema = z.object({
+  ok: z.literal(true),
+  week: z.string(),
+  condition: z.string(),
+  seed: z.number().int(),
+  entries: z.array(z.object({ rank: z.number().int(), displayName: z.string(), score: z.number().int(), netWorthCc: z.number().int(), reliabilityBps: z.number().int(), you: z.boolean() })),
+});
+export const OilResponseSchema = z.object({
+  ok: z.literal(true),
+  source: z.enum(["eia_live", "cached_dataset"]),
+  asOf: z.string(),
+  latest: z.object({ date: z.string(), usdPerBarrel: z.number() }),
+  freshness: z.string(),
+  attribution: z.string(),
+  sourceUrl: z.string(),
+  weekly2026: z.array(z.object({ weekStart: z.string(), usdPerBarrel: z.number() })),
+});
+export type PlayerProfile = z.infer<typeof PlayerProfileSchema>;
+export type LeaderboardResponse = z.infer<typeof LeaderboardResponseSchema>;
+export type OilResponse = z.infer<typeof OilResponseSchema>;
+export type LabCondition = z.infer<typeof LabConditionSchema>;
+export type GameStateResponse = z.infer<typeof GameStateResponseSchema>;
 
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 export type StartSessionResponse = z.infer<typeof StartSessionResponseSchema>;
@@ -315,6 +404,15 @@ export function createApiClient(baseUrl: string, opts: { token?: string; fetchIm
     chainStatus: () => call("GET", "/api/chain/status", ChainStatusResponseSchema),
     transfer: (hash: string) => call("GET", `/api/chain/transfers/${hash}`, TransferStatusResponseSchema),
     health: () => call("GET", "/api/health", HealthResponseSchema),
+    me: () => call("GET", "/api/me", MeResponseSchema),
+    startGame: (req: z.input<typeof GameStartRequestSchema> = {}) => call("POST", "/api/game/start", GameStateResponseSchema, req),
+    gameState: () => call("GET", "/api/game/state", GameStateResponseSchema),
+    gameAct: (req: ActionRequest) => call("POST", "/api/game/actions", ActionResultSchema, req),
+    gameEventsUrl: () => `${baseUrl}/api/game/events${token ? `?token=${encodeURIComponent(token)}` : ""}`,
+    linkGuest: (guestToken: string) => call("POST", "/api/auth/link-guest", MeResponseSchema, { guestToken }),
+    logout: () => call("POST", "/api/auth/logout", z.object({ ok: z.literal(true) }), {}),
+    leaderboard: () => call("GET", "/api/challenge/leaderboard", LeaderboardResponseSchema),
+    oil: () => call("GET", "/api/world/oil", OilResponseSchema),
     config: () => call("GET", "/api/config/public", PublicConfigSchema),
   };
 }

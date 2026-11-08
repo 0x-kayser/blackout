@@ -1,0 +1,78 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/runs/run_1762afe1-fde/quote",
+    "body": {
+      "sellerId": "merchant:lantern",
+      "item": "diesel",
+      "quantity": 20000,
+      "idempotencyKey": "7d1c0c1e-quote-0001"
+    }
+  },
+  "response": {
+    "ok": true,
+    "stateVersion": 5,
+    "events": [
+      {
+        "seq": 111,
+        "eventId": "run_1762afe1-fde:111",
+        "runId": "run_1762afe1-fde",
+        "day": 2,
+        "tick": 255,
+        "clock": "07:30",
+        "type": "QUOTE_CREATED",
+        "source": "simulated_game",
+        "actors": [
+          "player",
+          "merchant:lantern"
+        ],
+        "explanation": "Quote quote_19: up to 20.0 L at 10.50 credits/L, valid 15 s.",
+        "data": {
+          "quoteId": "quote_19",
+          "item": "diesel",
+          "unitPriceCc": 1050,
+          "maxQuantity": 20000,
+          "expiresTick": 270
+        },
+        "txHash": null,
+        "serverTime": "2026-11-08T00:00:59.989Z"
+      }
+    ],
+    "result": {
+      "quoteId": "quote_19",
+      "quote": {
+        "quoteId": "quote_19",
+        "sellerId": "merchant:lantern",
+        "item": "diesel",
+        "unitPriceCc": 1050,
+        "maxQuantity": 20000,
+        "createdTick": 255,
+        "expiresTick": 270,
+        "marketVersion": 6,
+        "status": "open",
+        "reasons": {
+          "oilIndexCenti": 10350,
+          "referenceIndexCenti": 10000,
+          "baseReferenceCcPerL": 1000,
+          "baseReplacementCcPerL": 1035,
+          "scarcityBps": 0,
+          "demandDeltaBps": -10000,
+          "markupBps": 400,
+          "rawPriceCcPerL": 869,
+          "floorCcPerL": 1046,
+          "maxCcPerL": 3105,
+          "finalPriceCcPerL": 1050,
+          "stockMl": 30000,
+          "targetStockMl": 30000,
+          "lastDaySalesMl": 0,
+          "baselineSalesMl": 10000,
+          "trend": "up",
+          "rationLimitMl": null,
+          "explanation": "Import cost 10.35/L (oil 103.50 vs ref 100.00). Stock 30.0 L sellable vs target 30.0 L → scarcity +0.0% × 0.60. Yesterday sold 0.0 L vs normal 10.0 L → demand -100.0% × 0.20. Markup +4.0%. Raw 8.69 clamped to [10.46, 31.05] → 10.50 credits/L."
+        }
+      }
+    },
+    "replayed": false,
+    "state": "<GameStatePublic>"
+  }
+}

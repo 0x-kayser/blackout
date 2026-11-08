@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/session/start",
+    "body": {}
+  },
+  "response": {
+    "ok": true,
+    "sessionId": "sess_eaadc173-1ec1-4902-85b3-edce792e8d54",
+    "token": "<opaque bearer token>",
+    "user": {
+      "userId": "guest_434566aa-f325-451b-91cd-d93ab47ef438",
+      "kind": "guest"
+    },
+    "authMode": "guest_local",
+    "note": "Guest session: no email, wallet or seed phrase. Sign in with Google or email later to keep this city on another device."
+  }
+}

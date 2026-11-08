@@ -1,0 +1,183 @@
+{
+  "request": {
+    "sse": "GET /api/runs/run_1762afe1-fde/events"
+  },
+  "response": [
+    {
+      "seq": 15,
+      "eventId": "run_1762afe1-fde:15",
+      "runId": "run_1762afe1-fde",
+      "day": 1,
+      "tick": 1,
+      "clock": "06:06",
+      "type": "SERVICE_STARTED",
+      "source": "simulated_game",
+      "actors": [
+        "business:cold_room",
+        "generator:gen_1"
+      ],
+      "explanation": "Power restored at Cold Room: 1.5 kW flowing from Shed Diesel 5kW. 3.0 kWh scheduled.",
+      "data": {
+        "contractId": "contract_2",
+        "businessId": "cold_room",
+        "generatorId": "gen_1",
+        "provider": "player"
+      },
+      "txHash": null,
+      "serverTime": "2026-11-08T00:00:59.954Z"
+    },
+    {
+      "seq": 17,
+      "eventId": "run_1762afe1-fde:17",
+      "runId": "run_1762afe1-fde",
+      "day": 1,
+      "tick": 9,
+      "clock": "06:54",
+      "type": "ENERGY_DELIVERED",
+      "source": "simulated_game",
+      "actors": [
+        "business:cold_room",
+        "generator:gen_1"
+      ],
+      "explanation": "1.35 kWh to Cold Room this hour, billed 10.80 credits.",
+      "data": {
+        "contractId": "contract_2",
+        "wh": 1350,
+        "billedCc": 1080,
+        "fuelMl": 405,
+        "totalDeliveredWh": 1350
+      },
+      "txHash": null,
+      "serverTime": "2026-11-08T00:00:59.955Z"
+    },
+    {
+      "seq": 18,
+      "eventId": "run_1762afe1-fde:18",
+      "runId": "run_1762afe1-fde",
+      "day": 1,
+      "tick": 9,
+      "clock": "06:54",
+      "type": "FUEL_CONSUMED",
+      "source": "simulated_game",
+      "actors": [
+        "player"
+      ],
+      "explanation": "Burned 0.41 L of diesel this hour (0.3 L per kWh). Tank: 19.59 L.",
+      "data": {
+        "fuelMl": 405,
+        "tankMl": 19595
+      },
+      "txHash": null,
+      "serverTime": "2026-11-08T00:00:59.955Z"
+    },
+    {
+      "seq": 19,
+      "eventId": "run_1762afe1-fde:19",
+      "runId": "run_1762afe1-fde",
+      "day": 1,
+      "tick": 9,
+      "clock": "06:54",
+      "type": "CO2_EMITTED",
+      "source": "simulated_game",
+      "actors": [
+        "player"
+      ],
+      "explanation": "Emitted 1.085 kg CO2 (2.68 kg per L), retiring that much permit allowance. 58.91 kg left.",
+      "data": {
+        "co2Mg": 1085400,
+        "allowanceLeftMg": 58914600
+      },
+      "txHash": null,
+      "serverTime": "2026-11-08T00:00:59.955Z"
+    },
+    {
+      "seq": 20,
+      "eventId": "run_1762afe1-fde:20",
+      "runId": "run_1762afe1-fde",
+      "day": 1,
+      "tick": 19,
+      "clock": "07:54",
+      "type": "ENERGY_DELIVERED",
+      "source": "simulated_game",
+      "actors": [
+        "business:cold_room",
+        "generator:gen_1"
+      ],
+      "explanation": "1.50 kWh to Cold Room this hour, billed 12 credits.",
+      "data": {
+        "contractId": "contract_2",
+        "wh": 1500,
+        "billedCc": 1200,
+        "fuelMl": 450,
+        "totalDeliveredWh": 2850
+      },
+      "txHash": null,
+      "serverTime": "2026-11-08T00:00:59.957Z"
+    },
+    {
+      "seq": 21,
+      "eventId": "run_1762afe1-fde:21",
+      "runId": "run_1762afe1-fde",
+      "day": 1,
+      "tick": 19,
+      "clock": "07:54",
+      "type": "FUEL_CONSUMED",
+      "source": "simulated_game",
+      "actors": [
+        "player"
+      ],
+      "explanation": "Burned 0.45 L of diesel this hour (0.3 L per kWh). Tank: 19.14 L.",
+      "data": {
+        "fuelMl": 450,
+        "tankMl": 19145
+      },
+      "txHash": null,
+      "serverTime": "2026-11-08T00:00:59.957Z"
+    },
+    {
+      "seq": 22,
+      "eventId": "run_1762afe1-fde:22",
+      "runId": "run_1762afe1-fde",
+      "day": 1,
+      "tick": 19,
+      "clock": "07:54",
+      "type": "CO2_EMITTED",
+      "source": "simulated_game",
+      "actors": [
+        "player"
+      ],
+      "explanation": "Emitted 1.206 kg CO2 (2.68 kg per L), retiring that much permit allowance. 57.71 kg left.",
+      "data": {
+        "co2Mg": 1206000,
+        "allowanceLeftMg": 57708600
+      },
+      "txHash": null,
+      "serverTime": "2026-11-08T00:00:59.957Z"
+    },
+    {
+      "seq": 24,
+      "eventId": "run_1762afe1-fde:24",
+      "runId": "run_1762afe1-fde",
+      "day": 1,
+      "tick": 20,
+      "clock": "08:00",
+      "type": "CONTRACT_COMPLETED",
+      "source": "simulated_game",
+      "actors": [
+        "business:cold_room",
+        "player"
+      ],
+      "explanation": "Cold Room contract complete: 3.00 kWh delivered, 24 credits billed, 0.90 L burned, 2.41 kg CO2.",
+      "data": {
+        "contractId": "contract_2",
+        "deliveredWh": 3000,
+        "billedCc": 2400,
+        "fuelMl": 900,
+        "co2Mg": 2412000,
+        "customerProfitPerHourCc": 800
+      },
+      "txHash": null,
+      "serverTime": "2026-11-08T00:00:59.957Z"
+    }
+  ]
+}

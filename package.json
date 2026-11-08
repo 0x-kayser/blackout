@@ -10,7 +10,7 @@
     "node": ">=22.5"
   },
   "scripts": {
-    "dev": "pnpm --filter @blackout/api dev",
+    "dev": "pnpm --parallel --filter @blackout/api --filter @blackout/web dev",
     "dev:api": "pnpm --filter @blackout/api dev",
     "dev:web": "pnpm --filter @blackout/web dev",
     "start": "pnpm --filter @blackout/api start",
@@ -22,10 +22,19 @@
     "test:contract": "cd contracts/near && cargo test",
     "build:contract": "bash scripts/build-contract.sh",
     "sim:replay": "tsx packages/sim/src/cli.ts",
-    "chain:bootstrap": "bash scripts/near-bootstrap.sh"
+    "chain:bootstrap": "tsx scripts/near-bootstrap.ts",
+    "docs:examples": "tsx scripts/capture-examples.ts",
+    "test:e2e": "playwright test",
+    "db:migrate": "tsx scripts/migrate.ts"
   },
   "devDependencies": {
+    "@blackout/api": "workspace:*",
+    "@blackout/shared": "workspace:*",
+    "@blackout/sim": "workspace:*",
+    "@playwright/test": "^1.65.0",
     "@types/node": "^22.10.0",
+    "jose": "^6.2.15",
+    "near-api-js": "^7.4.0",
     "tsx": "^4.20.0",
     "typescript": "~5.9.3",
     "vitest": "^3.2.7"

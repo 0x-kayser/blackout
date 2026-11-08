@@ -1,0 +1,2056 @@
+{
+ "series": "DCOILBRENTEU",
+ "description": "Crude Oil Prices: Brent - Europe, US dollars per barrel, daily, not seasonally adjusted",
+ "source": "U.S. Energy Information Administration via FRED (Federal Reserve Bank of St. Louis)",
+ "sourceUrl": "https://fred.stlouisfed.org/series/DCOILBRENTEU",
+ "retrieved": "2026-11-08",
+ "aggregation": "weekly mean of daily observations (ISO weeks), 2026",
+ "daily": [
+  {
+   "date": "2025-01-02",
+   "usdPerBarrel": 76.14
+  },
+  {
+   "date": "2025-01-03",
+   "usdPerBarrel": 76.72
+  },
+  {
+   "date": "2025-01-06",
+   "usdPerBarrel": 77.27
+  },
+  {
+   "date": "2025-01-07",
+   "usdPerBarrel": 77.84
+  },
+  {
+   "date": "2025-01-08",
+   "usdPerBarrel": 77.37
+  },
+  {
+   "date": "2025-01-09",
+   "usdPerBarrel": 78.44
+  },
+  {
+   "date": "2025-01-10",
+   "usdPerBarrel": 79.76
+  },
+  {
+   "date": "2025-01-13",
+   "usdPerBarrel": 82.69
+  },
+  {
+   "date": "2025-01-14",
+   "usdPerBarrel": 82.39
+  },
+  {
+   "date": "2025-01-15",
+   "usdPerBarrel": 83.48
+  },
+  {
+   "date": "2025-01-16",
+   "usdPerBarrel": 82.39
+  },
+  {
+   "date": "2025-01-17",
+   "usdPerBarrel": 83.02
+  },
+  {
+   "date": "2025-01-20",
+   "usdPerBarrel": 81.68
+  },
+  {
+   "date": "2025-01-21",
+   "usdPerBarrel": 80.57
+  },
+  {
+   "date": "2025-01-22",
+   "usdPerBarrel": 80.0
+  },
+  {
+   "date": "2025-01-23",
+   "usdPerBarrel": 78.62
+  },
+  {
+   "date": "2025-01-24",
+   "usdPerBarrel": 78.71
+  },
+  {
+   "date": "2025-01-27",
+   "usdPerBarrel": 77.3
+  },
+  {
+   "date": "2025-01-28",
+   "usdPerBarrel": 78.01
+  },
+  {
+   "date": "2025-01-29",
+   "usdPerBarrel": 77.02
+  },
+  {
+   "date": "2025-01-30",
+   "usdPerBarrel": 77.42
+  },
+  {
+   "date": "2025-01-31",
+   "usdPerBarrel": 77.11
+  },
+  {
+   "date": "2025-02-03",
+   "usdPerBarrel": 76.49
+  },
+  {
+   "date": "2025-02-04",
+   "usdPerBarrel": 76.58
+  },
+  {
+   "date": "2025-02-05",
+   "usdPerBarrel": 74.71
+  },
+  {
+   "date": "2025-02-06",
+   "usdPerBarrel": 74.54
+  },
+  {
+   "date": "2025-02-07",
+   "usdPerBarrel": 74.68
+  },
+  {
+   "date": "2025-02-10",
+   "usdPerBarrel": 76.23
+  },
+  {
+   "date": "2025-02-11",
+   "usdPerBarrel": 77.65
+  },
+  {
+   "date": "2025-02-12",
+   "usdPerBarrel": 75.38
+  },
+  {
+   "date": "2025-02-13",
+   "usdPerBarrel": 75.61
+  },
+  {
+   "date": "2025-02-14",
+   "usdPerBarrel": 75.19
+  },
+  {
+   "date": "2025-02-17",
+   "usdPerBarrel": 75.81
+  },
+  {
+   "date": "2025-02-18",
+   "usdPerBarrel": 76.46
+  },
+  {
+   "date": "2025-02-19",
+   "usdPerBarrel": 76.34
+  },
+  {
+   "date": "2025-02-20",
+   "usdPerBarrel": 76.95
+  },
+  {
+   "date": "2025-02-21",
+   "usdPerBarrel": 74.88
+  },
+  {
+   "date": "2025-02-24",
+   "usdPerBarrel": 74.89
+  },
+  {
+   "date": "2025-02-25",
+   "usdPerBarrel": 73.11
+  },
+  {
+   "date": "2025-02-26",
+   "usdPerBarrel": 73.49
+  },
+  {
+   "date": "2025-02-27",
+   "usdPerBarrel": 75.01
+  },
+  {
+   "date": "2025-02-28",
+   "usdPerBarrel": 74.76
+  },
+  {
+   "date": "2025-03-03",
+   "usdPerBarrel": 72.85
+  },
+  {
+   "date": "2025-03-04",
+   "usdPerBarrel": 72.31
+  },
+  {
+   "date": "2025-03-05",
+   "usdPerBarrel": 70.92
+  },
+  {
+   "date": "2025-03-06",
+   "usdPerBarrel": 71.08
+  },
+  {
+   "date": "2025-03-07",
+   "usdPerBarrel": 72.49
+  },
+  {
+   "date": "2025-03-10",
+   "usdPerBarrel": 71.08
+  },
+  {
+   "date": "2025-03-11",
+   "usdPerBarrel": 71.51
+  },
+  {
+   "date": "2025-03-12",
+   "usdPerBarrel": 72.36
+  },
+  {
+   "date": "2025-03-13",
+   "usdPerBarrel": 70.82
+  },
+  {
+   "date": "2025-03-14",
+   "usdPerBarrel": 71.94
+  },
+  {
+   "date": "2025-03-17",
+   "usdPerBarrel": 71.93
+  },
+  {
+   "date": "2025-03-18",
+   "usdPerBarrel": 71.93
+  },
+  {
+   "date": "2025-03-19",
+   "usdPerBarrel": 71.94
+  },
+  {
+   "date": "2025-03-20",
+   "usdPerBarrel": 72.61
+  },
+  {
+   "date": "2025-03-21",
+   "usdPerBarrel": 72.64
+  },
+  {
+   "date": "2025-03-24",
+   "usdPerBarrel": 73.96
+  },
+  {
+   "date": "2025-03-25",
+   "usdPerBarrel": 73.78
+  },
+  {
+   "date": "2025-03-26",
+   "usdPerBarrel": 74.6
+  },
+  {
+   "date": "2025-03-27",
+   "usdPerBarrel": 74.72
+  },
+  {
+   "date": "2025-03-28",
+   "usdPerBarrel": 74.69
+  },
+  {
+   "date": "2025-03-31",
+   "usdPerBarrel": 77.23
+  },
+  {
+   "date": "2025-04-01",
+   "usdPerBarrel": 77.78
+  },
+  {
+   "date": "2025-04-02",
+   "usdPerBarrel": 77.27
+  },
+  {
+   "date": "2025-04-03",
+   "usdPerBarrel": 72.54
+  },
+  {
+   "date": "2025-04-04",
+   "usdPerBarrel": 68.36
+  },
+  {
+   "date": "2025-04-07",
+   "usdPerBarrel": 66.13
+  },
+  {
+   "date": "2025-04-08",
+   "usdPerBarrel": 64.86
+  },
+  {
+   "date": "2025-04-09",
+   "usdPerBarrel": 67.3
+  },
+  {
+   "date": "2025-04-10",
+   "usdPerBarrel": 65.37
+  },
+  {
+   "date": "2025-04-11",
+   "usdPerBarrel": 66.83
+  },
+  {
+   "date": "2025-04-14",
+   "usdPerBarrel": 67.18
+  },
+  {
+   "date": "2025-04-15",
+   "usdPerBarrel": 66.58
+  },
+  {
+   "date": "2025-04-16",
+   "usdPerBarrel": 67.94
+  },
+  {
+   "date": "2025-04-17",
+   "usdPerBarrel": 69.33
+  },
+  {
+   "date": "2025-04-22",
+   "usdPerBarrel": 68.93
+  },
+  {
+   "date": "2025-04-23",
+   "usdPerBarrel": 68.26
+  },
+  {
+   "date": "2025-04-24",
+   "usdPerBarrel": 67.5
+  },
+  {
+   "date": "2025-04-25",
+   "usdPerBarrel": 66.99
+  },
+  {
+   "date": "2025-04-28",
+   "usdPerBarrel": 66.13
+  },
+  {
+   "date": "2025-04-29",
+   "usdPerBarrel": 64.04
+  },
+  {
+   "date": "2025-04-30",
+   "usdPerBarrel": 63.37
+  },
+  {
+   "date": "2025-05-01",
+   "usdPerBarrel": 62.37
+  },
+  {
+   "date": "2025-05-02",
+   "usdPerBarrel": 61.57
+  },
+  {
+   "date": "2025-05-06",
+   "usdPerBarrel": 62.37
+  },
+  {
+   "date": "2025-05-07",
+   "usdPerBarrel": 60.31
+  },
+  {
+   "date": "2025-05-08",
+   "usdPerBarrel": 62.22
+  },
+  {
+   "date": "2025-05-09",
+   "usdPerBarrel": 64.26
+  },
+  {
+   "date": "2025-05-12",
+   "usdPerBarrel": 65.28
+  },
+  {
+   "date": "2025-05-13",
+   "usdPerBarrel": 66.93
+  },
+  {
+   "date": "2025-05-14",
+   "usdPerBarrel": 65.91
+  },
+  {
+   "date": "2025-05-15",
+   "usdPerBarrel": 64.36
+  },
+  {
+   "date": "2025-05-16",
+   "usdPerBarrel": 65.2
+  },
+  {
+   "date": "2025-05-19",
+   "usdPerBarrel": 66.25
+  },
+  {
+   "date": "2025-05-20",
+   "usdPerBarrel": 66.93
+  },
+  {
+   "date": "2025-05-21",
+   "usdPerBarrel": 65.86
+  },
+  {
+   "date": "2025-05-22",
+   "usdPerBarrel": 64.87
+  },
+  {
+   "date": "2025-05-23",
+   "usdPerBarrel": 65.41
+  },
+  {
+   "date": "2025-05-27",
+   "usdPerBarrel": 64.32
+  },
+  {
+   "date": "2025-05-28",
+   "usdPerBarrel": 65.72
+  },
+  {
+   "date": "2025-05-29",
+   "usdPerBarrel": 64.6
+  },
+  {
+   "date": "2025-05-30",
+   "usdPerBarrel": 64.32
+  },
+  {
+   "date": "2025-06-02",
+   "usdPerBarrel": 66.55
+  },
+  {
+   "date": "2025-06-03",
+   "usdPerBarrel": 67.48
+  },
+  {
+   "date": "2025-06-04",
+   "usdPerBarrel": 66.69
+  },
+  {
+   "date": "2025-06-05",
+   "usdPerBarrel": 67.14
+  },
+  {
+   "date": "2025-06-06",
+   "usdPerBarrel": 68.02
+  },
+  {
+   "date": "2025-06-09",
+   "usdPerBarrel": 68.73
+  },
+  {
+   "date": "2025-06-10",
+   "usdPerBarrel": 68.41
+  },
+  {
+   "date": "2025-06-11",
+   "usdPerBarrel": 71.29
+  },
+  {
+   "date": "2025-06-12",
+   "usdPerBarrel": 70.84
+  },
+  {
+   "date": "2025-06-13",
+   "usdPerBarrel": 76.0
+  },
+  {
+   "date": "2025-06-16",
+   "usdPerBarrel": 75.05
+  },
+  {
+   "date": "2025-06-17",
+   "usdPerBarrel": 78.7
+  },
+  {
+   "date": "2025-06-18",
+   "usdPerBarrel": 78.38
+  },
+  {
+   "date": "2025-06-19",
+   "usdPerBarrel": 80.37
+  },
+  {
+   "date": "2025-06-20",
+   "usdPerBarrel": 78.73
+  },
+  {
+   "date": "2025-06-23",
+   "usdPerBarrel": 74.34
+  },
+  {
+   "date": "2025-06-24",
+   "usdPerBarrel": 69.13
+  },
+  {
+   "date": "2025-06-25",
+   "usdPerBarrel": 68.4
+  },
+  {
+   "date": "2025-06-26",
+   "usdPerBarrel": 68.57
+  },
+  {
+   "date": "2025-06-27",
+   "usdPerBarrel": 69.37
+  },
+  {
+   "date": "2025-06-30",
+   "usdPerBarrel": 68.15
+  },
+  {
+   "date": "2025-07-01",
+   "usdPerBarrel": 67.63
+  },
+  {
+   "date": "2025-07-02",
+   "usdPerBarrel": 70.8
+  },
+  {
+   "date": "2025-07-03",
+   "usdPerBarrel": 70.42
+  },
+  {
+   "date": "2025-07-04",
+   "usdPerBarrel": 71.03
+  },
+  {
+   "date": "2025-07-07",
+   "usdPerBarrel": 71.95
+  },
+  {
+   "date": "2025-07-08",
+   "usdPerBarrel": 72.5
+  },
+  {
+   "date": "2025-07-09",
+   "usdPerBarrel": 71.98
+  },
+  {
+   "date": "2025-07-10",
+   "usdPerBarrel": 70.38
+  },
+  {
+   "date": "2025-07-11",
+   "usdPerBarrel": 72.06
+  },
+  {
+   "date": "2025-07-14",
+   "usdPerBarrel": 70.96
+  },
+  {
+   "date": "2025-07-15",
+   "usdPerBarrel": 70.27
+  },
+  {
+   "date": "2025-07-16",
+   "usdPerBarrel": 69.67
+  },
+  {
+   "date": "2025-07-17",
+   "usdPerBarrel": 71.32
+  },
+  {
+   "date": "2025-07-18",
+   "usdPerBarrel": 71.06
+  },
+  {
+   "date": "2025-07-21",
+   "usdPerBarrel": 71.92
+  },
+  {
+   "date": "2025-07-22",
+   "usdPerBarrel": 69.69
+  },
+  {
+   "date": "2025-07-23",
+   "usdPerBarrel": 69.17
+  },
+  {
+   "date": "2025-07-24",
+   "usdPerBarrel": 70.42
+  },
+  {
+   "date": "2025-07-25",
+   "usdPerBarrel": 69.23
+  },
+  {
+   "date": "2025-07-28",
+   "usdPerBarrel": 70.87
+  },
+  {
+   "date": "2025-07-29",
+   "usdPerBarrel": 73.21
+  },
+  {
+   "date": "2025-07-30",
+   "usdPerBarrel": 73.98
+  },
+  {
+   "date": "2025-07-31",
+   "usdPerBarrel": 73.43
+  },
+  {
+   "date": "2025-08-01",
+   "usdPerBarrel": 70.55
+  },
+  {
+   "date": "2025-08-04",
+   "usdPerBarrel": 69.56
+  },
+  {
+   "date": "2025-08-05",
+   "usdPerBarrel": 69.14
+  },
+  {
+   "date": "2025-08-06",
+   "usdPerBarrel": 67.97
+  },
+  {
+   "date": "2025-08-07",
+   "usdPerBarrel": 66.99
+  },
+  {
+   "date": "2025-08-08",
+   "usdPerBarrel": 67.17
+  },
+  {
+   "date": "2025-08-11",
+   "usdPerBarrel": 67.36
+  },
+  {
+   "date": "2025-08-12",
+   "usdPerBarrel": 66.8
+  },
+  {
+   "date": "2025-08-13",
+   "usdPerBarrel": 66.25
+  },
+  {
+   "date": "2025-08-14",
+   "usdPerBarrel": 68.12
+  },
+  {
+   "date": "2025-08-15",
+   "usdPerBarrel": 67.3
+  },
+  {
+   "date": "2025-08-18",
+   "usdPerBarrel": 68.18
+  },
+  {
+   "date": "2025-08-19",
+   "usdPerBarrel": 66.62
+  },
+  {
+   "date": "2025-08-20",
+   "usdPerBarrel": 67.61
+  },
+  {
+   "date": "2025-08-21",
+   "usdPerBarrel": 68.41
+  },
+  {
+   "date": "2025-08-22",
+   "usdPerBarrel": 68.29
+  },
+  {
+   "date": "2025-08-26",
+   "usdPerBarrel": 66.89
+  },
+  {
+   "date": "2025-08-27",
+   "usdPerBarrel": 67.75
+  },
+  {
+   "date": "2025-08-28",
+   "usdPerBarrel": 68.61
+  },
+  {
+   "date": "2025-08-29",
+   "usdPerBarrel": 67.83
+  },
+  {
+   "date": "2025-09-01",
+   "usdPerBarrel": 67.09
+  },
+  {
+   "date": "2025-09-02",
+   "usdPerBarrel": 68.09
+  },
+  {
+   "date": "2025-09-03",
+   "usdPerBarrel": 67.76
+  },
+  {
+   "date": "2025-09-04",
+   "usdPerBarrel": 66.41
+  },
+  {
+   "date": "2025-09-05",
+   "usdPerBarrel": 64.92
+  },
+  {
+   "date": "2025-09-08",
+   "usdPerBarrel": 65.44
+  },
+  {
+   "date": "2025-09-09",
+   "usdPerBarrel": 67.97
+  },
+  {
+   "date": "2025-09-10",
+   "usdPerBarrel": 67.62
+  },
+  {
+   "date": "2025-09-11",
+   "usdPerBarrel": 67.25
+  },
+  {
+   "date": "2025-09-12",
+   "usdPerBarrel": 67.87
+  },
+  {
+   "date": "2025-09-15",
+   "usdPerBarrel": 67.88
+  },
+  {
+   "date": "2025-09-16",
+   "usdPerBarrel": 69.69
+  },
+  {
+   "date": "2025-09-17",
+   "usdPerBarrel": 69.19
+  },
+  {
+   "date": "2025-09-18",
+   "usdPerBarrel": 67.83
+  },
+  {
+   "date": "2025-09-19",
+   "usdPerBarrel": 67.05
+  },
+  {
+   "date": "2025-09-22",
+   "usdPerBarrel": 66.87
+  },
+  {
+   "date": "2025-09-23",
+   "usdPerBarrel": 67.96
+  },
+  {
+   "date": "2025-09-24",
+   "usdPerBarrel": 69.64
+  },
+  {
+   "date": "2025-09-25",
+   "usdPerBarrel": 70.48
+  },
+  {
+   "date": "2025-09-26",
+   "usdPerBarrel": 71.15
+  },
+  {
+   "date": "2025-09-29",
+   "usdPerBarrel": 69.0
+  },
+  {
+   "date": "2025-09-30",
+   "usdPerBarrel": 68.52
+  },
+  {
+   "date": "2025-10-01",
+   "usdPerBarrel": 66.67
+  },
+  {
+   "date": "2025-10-02",
+   "usdPerBarrel": 65.44
+  },
+  {
+   "date": "2025-10-03",
+   "usdPerBarrel": 66.13
+  },
+  {
+   "date": "2025-10-06",
+   "usdPerBarrel": 67.09
+  },
+  {
+   "date": "2025-10-07",
+   "usdPerBarrel": 67.1
+  },
+  {
+   "date": "2025-10-08",
+   "usdPerBarrel": 67.42
+  },
+  {
+   "date": "2025-10-09",
+   "usdPerBarrel": 67.23
+  },
+  {
+   "date": "2025-10-10",
+   "usdPerBarrel": 64.41
+  },
+  {
+   "date": "2025-10-13",
+   "usdPerBarrel": 64.15
+  },
+  {
+   "date": "2025-10-14",
+   "usdPerBarrel": 63.0
+  },
+  {
+   "date": "2025-10-15",
+   "usdPerBarrel": 62.33
+  },
+  {
+   "date": "2025-10-16",
+   "usdPerBarrel": 61.08
+  },
+  {
+   "date": "2025-10-17",
+   "usdPerBarrel": 61.23
+  },
+  {
+   "date": "2025-10-20",
+   "usdPerBarrel": 60.71
+  },
+  {
+   "date": "2025-10-21",
+   "usdPerBarrel": 61.0
+  },
+  {
+   "date": "2025-10-22",
+   "usdPerBarrel": 62.28
+  },
+  {
+   "date": "2025-10-23",
+   "usdPerBarrel": 66.32
+  },
+  {
+   "date": "2025-10-24",
+   "usdPerBarrel": 65.8
+  },
+  {
+   "date": "2025-10-27",
+   "usdPerBarrel": 65.52
+  },
+  {
+   "date": "2025-10-28",
+   "usdPerBarrel": 64.03
+  },
+  {
+   "date": "2025-10-29",
+   "usdPerBarrel": 65.01
+  },
+  {
+   "date": "2025-10-30",
+   "usdPerBarrel": 65.11
+  },
+  {
+   "date": "2025-10-31",
+   "usdPerBarrel": 65.44
+  },
+  {
+   "date": "2025-11-03",
+   "usdPerBarrel": 65.79
+  },
+  {
+   "date": "2025-11-04",
+   "usdPerBarrel": 65.04
+  },
+  {
+   "date": "2025-11-05",
+   "usdPerBarrel": 63.54
+  },
+  {
+   "date": "2025-11-06",
+   "usdPerBarrel": 63.41
+  },
+  {
+   "date": "2025-11-07",
+   "usdPerBarrel": 63.72
+  },
+  {
+   "date": "2025-11-10",
+   "usdPerBarrel": 63.01
+  },
+  {
+   "date": "2025-11-11",
+   "usdPerBarrel": 63.86
+  },
+  {
+   "date": "2025-11-12",
+   "usdPerBarrel": 61.88
+  },
+  {
+   "date": "2025-11-13",
+   "usdPerBarrel": 62.14
+  },
+  {
+   "date": "2025-11-14",
+   "usdPerBarrel": 63.45
+  },
+  {
+   "date": "2025-11-17",
+   "usdPerBarrel": 63.16
+  },
+  {
+   "date": "2025-11-18",
+   "usdPerBarrel": 64.86
+  },
+  {
+   "date": "2025-11-19",
+   "usdPerBarrel": 63.78
+  },
+  {
+   "date": "2025-11-20",
+   "usdPerBarrel": 63.64
+  },
+  {
+   "date": "2025-11-21",
+   "usdPerBarrel": 62.78
+  },
+  {
+   "date": "2025-11-24",
+   "usdPerBarrel": 64.83
+  },
+  {
+   "date": "2025-11-25",
+   "usdPerBarrel": 63.99
+  },
+  {
+   "date": "2025-11-26",
+   "usdPerBarrel": 64.81
+  },
+  {
+   "date": "2025-11-27",
+   "usdPerBarrel": 64.18
+  },
+  {
+   "date": "2025-11-28",
+   "usdPerBarrel": 64.07
+  },
+  {
+   "date": "2025-12-01",
+   "usdPerBarrel": 64.22
+  },
+  {
+   "date": "2025-12-02",
+   "usdPerBarrel": 63.37
+  },
+  {
+   "date": "2025-12-03",
+   "usdPerBarrel": 63.75
+  },
+  {
+   "date": "2025-12-04",
+   "usdPerBarrel": 64.15
+  },
+  {
+   "date": "2025-12-05",
+   "usdPerBarrel": 64.42
+  },
+  {
+   "date": "2025-12-08",
+   "usdPerBarrel": 63.3
+  },
+  {
+   "date": "2025-12-09",
+   "usdPerBarrel": 62.62
+  },
+  {
+   "date": "2025-12-10",
+   "usdPerBarrel": 63.12
+  },
+  {
+   "date": "2025-12-11",
+   "usdPerBarrel": 61.87
+  },
+  {
+   "date": "2025-12-12",
+   "usdPerBarrel": 62.11
+  },
+  {
+   "date": "2025-12-15",
+   "usdPerBarrel": 61.55
+  },
+  {
+   "date": "2025-12-16",
+   "usdPerBarrel": 59.93
+  },
+  {
+   "date": "2025-12-17",
+   "usdPerBarrel": 60.61
+  },
+  {
+   "date": "2025-12-18",
+   "usdPerBarrel": 60.69
+  },
+  {
+   "date": "2025-12-19",
+   "usdPerBarrel": 61.35
+  },
+  {
+   "date": "2025-12-22",
+   "usdPerBarrel": 62.22
+  },
+  {
+   "date": "2025-12-23",
+   "usdPerBarrel": 63.7
+  },
+  {
+   "date": "2025-12-24",
+   "usdPerBarrel": 63.7
+  },
+  {
+   "date": "2025-12-29",
+   "usdPerBarrel": 63.1
+  },
+  {
+   "date": "2025-12-30",
+   "usdPerBarrel": 62.3
+  },
+  {
+   "date": "2025-12-31",
+   "usdPerBarrel": 61.35
+  },
+  {
+   "date": "2026-01-02",
+   "usdPerBarrel": 61.98
+  },
+  {
+   "date": "2026-01-05",
+   "usdPerBarrel": 63.0
+  },
+  {
+   "date": "2026-01-06",
+   "usdPerBarrel": 62.1
+  },
+  {
+   "date": "2026-01-07",
+   "usdPerBarrel": 61.08
+  },
+  {
+   "date": "2026-01-08",
+   "usdPerBarrel": 63.34
+  },
+  {
+   "date": "2026-01-09",
+   "usdPerBarrel": 65.11
+  },
+  {
+   "date": "2026-01-12",
+   "usdPerBarrel": 65.4
+  },
+  {
+   "date": "2026-01-13",
+   "usdPerBarrel": 67.58
+  },
+  {
+   "date": "2026-01-14",
+   "usdPerBarrel": 68.87
+  },
+  {
+   "date": "2026-01-15",
+   "usdPerBarrel": 66.16
+  },
+  {
+   "date": "2026-01-16",
+   "usdPerBarrel": 66.97
+  },
+  {
+   "date": "2026-01-19",
+   "usdPerBarrel": 66.91
+  },
+  {
+   "date": "2026-01-20",
+   "usdPerBarrel": 67.68
+  },
+  {
+   "date": "2026-01-21",
+   "usdPerBarrel": 66.72
+  },
+  {
+   "date": "2026-01-22",
+   "usdPerBarrel": 65.46
+  },
+  {
+   "date": "2026-01-23",
+   "usdPerBarrel": 68.16
+  },
+  {
+   "date": "2026-01-26",
+   "usdPerBarrel": 67.7
+  },
+  {
+   "date": "2026-01-27",
+   "usdPerBarrel": 70.28
+  },
+  {
+   "date": "2026-01-28",
+   "usdPerBarrel": 70.9
+  },
+  {
+   "date": "2026-01-29",
+   "usdPerBarrel": 71.0
+  },
+  {
+   "date": "2026-01-30",
+   "usdPerBarrel": 72.25
+  },
+  {
+   "date": "2026-02-02",
+   "usdPerBarrel": 67.72
+  },
+  {
+   "date": "2026-02-03",
+   "usdPerBarrel": 70.01
+  },
+  {
+   "date": "2026-02-04",
+   "usdPerBarrel": 71.15
+  },
+  {
+   "date": "2026-02-05",
+   "usdPerBarrel": 69.87
+  },
+  {
+   "date": "2026-02-06",
+   "usdPerBarrel": 70.45
+  },
+  {
+   "date": "2026-02-09",
+   "usdPerBarrel": 71.19
+  },
+  {
+   "date": "2026-02-10",
+   "usdPerBarrel": 71.01
+  },
+  {
+   "date": "2026-02-11",
+   "usdPerBarrel": 71.52
+  },
+  {
+   "date": "2026-02-12",
+   "usdPerBarrel": 69.8
+  },
+  {
+   "date": "2026-02-13",
+   "usdPerBarrel": 69.96
+  },
+  {
+   "date": "2026-02-16",
+   "usdPerBarrel": 70.81
+  },
+  {
+   "date": "2026-02-17",
+   "usdPerBarrel": 69.77
+  },
+  {
+   "date": "2026-02-18",
+   "usdPerBarrel": 71.78
+  },
+  {
+   "date": "2026-02-19",
+   "usdPerBarrel": 73.17
+  },
+  {
+   "date": "2026-02-20",
+   "usdPerBarrel": 72.75
+  },
+  {
+   "date": "2026-02-23",
+   "usdPerBarrel": 71.9
+  },
+  {
+   "date": "2026-02-24",
+   "usdPerBarrel": 71.21
+  },
+  {
+   "date": "2026-02-25",
+   "usdPerBarrel": 70.69
+  },
+  {
+   "date": "2026-02-26",
+   "usdPerBarrel": 71.66
+  },
+  {
+   "date": "2026-02-27",
+   "usdPerBarrel": 71.32
+  },
+  {
+   "date": "2026-03-02",
+   "usdPerBarrel": 77.24
+  },
+  {
+   "date": "2026-03-03",
+   "usdPerBarrel": 83.28
+  },
+  {
+   "date": "2026-03-04",
+   "usdPerBarrel": 81.56
+  },
+  {
+   "date": "2026-03-05",
+   "usdPerBarrel": 88.59
+  },
+  {
+   "date": "2026-03-06",
+   "usdPerBarrel": 95.74
+  },
+  {
+   "date": "2026-03-09",
+   "usdPerBarrel": 94.35
+  },
+  {
+   "date": "2026-03-10",
+   "usdPerBarrel": 89.84
+  },
+  {
+   "date": "2026-03-11",
+   "usdPerBarrel": 90.98
+  },
+  {
+   "date": "2026-03-12",
+   "usdPerBarrel": 102.38
+  },
+  {
+   "date": "2026-03-13",
+   "usdPerBarrel": 103.23
+  },
+  {
+   "date": "2026-03-16",
+   "usdPerBarrel": 101.04
+  },
+  {
+   "date": "2026-03-17",
+   "usdPerBarrel": 108.39
+  },
+  {
+   "date": "2026-03-18",
+   "usdPerBarrel": 118.09
+  },
+  {
+   "date": "2026-03-19",
+   "usdPerBarrel": 111.05
+  },
+  {
+   "date": "2026-03-20",
+   "usdPerBarrel": 118.42
+  },
+  {
+   "date": "2026-03-23",
+   "usdPerBarrel": 103.79
+  },
+  {
+   "date": "2026-03-24",
+   "usdPerBarrel": 108.42
+  },
+  {
+   "date": "2026-03-25",
+   "usdPerBarrel": 109.14
+  },
+  {
+   "date": "2026-03-26",
+   "usdPerBarrel": 113.39
+  },
+  {
+   "date": "2026-03-27",
+   "usdPerBarrel": 121.47
+  },
+  {
+   "date": "2026-03-30",
+   "usdPerBarrel": 121.88
+  },
+  {
+   "date": "2026-03-31",
+   "usdPerBarrel": 126.69
+  },
+  {
+   "date": "2026-04-01",
+   "usdPerBarrel": 119.56
+  },
+  {
+   "date": "2026-04-02",
+   "usdPerBarrel": 127.61
+  },
+  {
+   "date": "2026-04-07",
+   "usdPerBarrel": 138.21
+  },
+  {
+   "date": "2026-04-08",
+   "usdPerBarrel": 122.11
+  },
+  {
+   "date": "2026-04-09",
+   "usdPerBarrel": 119.03
+  },
+  {
+   "date": "2026-04-10",
+   "usdPerBarrel": 119.07
+  },
+  {
+   "date": "2026-04-13",
+   "usdPerBarrel": 123.28
+  },
+  {
+   "date": "2026-04-14",
+   "usdPerBarrel": 118.69
+  },
+  {
+   "date": "2026-04-15",
+   "usdPerBarrel": 114.93
+  },
+  {
+   "date": "2026-04-16",
+   "usdPerBarrel": 116.63
+  },
+  {
+   "date": "2026-04-17",
+   "usdPerBarrel": 98.63
+  },
+  {
+   "date": "2026-04-20",
+   "usdPerBarrel": 103.4
+  },
+  {
+   "date": "2026-04-21",
+   "usdPerBarrel": 106.14
+  },
+  {
+   "date": "2026-04-22",
+   "usdPerBarrel": 113.44
+  },
+  {
+   "date": "2026-04-23",
+   "usdPerBarrel": 113.25
+  },
+  {
+   "date": "2026-04-24",
+   "usdPerBarrel": 111.86
+  },
+  {
+   "date": "2026-04-27",
+   "usdPerBarrel": 113.89
+  },
+  {
+   "date": "2026-04-28",
+   "usdPerBarrel": 117.62
+  },
+  {
+   "date": "2026-04-29",
+   "usdPerBarrel": 124.16
+  },
+  {
+   "date": "2026-04-30",
+   "usdPerBarrel": 124.24
+  },
+  {
+   "date": "2026-05-01",
+   "usdPerBarrel": 118.26
+  },
+  {
+   "date": "2026-05-05",
+   "usdPerBarrel": 114.51
+  },
+  {
+   "date": "2026-05-06",
+   "usdPerBarrel": 103.7
+  },
+  {
+   "date": "2026-05-07",
+   "usdPerBarrel": 101.82
+  },
+  {
+   "date": "2026-05-08",
+   "usdPerBarrel": 103.48
+  },
+  {
+   "date": "2026-05-11",
+   "usdPerBarrel": 106.11
+  },
+  {
+   "date": "2026-05-12",
+   "usdPerBarrel": 111.37
+  },
+  {
+   "date": "2026-05-13",
+   "usdPerBarrel": 110.28
+  },
+  {
+   "date": "2026-05-14",
+   "usdPerBarrel": 110.91
+  },
+  {
+   "date": "2026-05-15",
+   "usdPerBarrel": 113.96
+  },
+  {
+   "date": "2026-05-18",
+   "usdPerBarrel": 116.73
+  },
+  {
+   "date": "2026-05-19",
+   "usdPerBarrel": 114.64
+  },
+  {
+   "date": "2026-05-20",
+   "usdPerBarrel": 108.93
+  },
+  {
+   "date": "2026-05-21",
+   "usdPerBarrel": 105.84
+  },
+  {
+   "date": "2026-05-22",
+   "usdPerBarrel": 106.9
+  },
+  {
+   "date": "2026-05-26",
+   "usdPerBarrel": 102.75
+  },
+  {
+   "date": "2026-05-27",
+   "usdPerBarrel": 97.11
+  },
+  {
+   "date": "2026-05-28",
+   "usdPerBarrel": 95.47
+  },
+  {
+   "date": "2026-05-29",
+   "usdPerBarrel": 92.88
+  },
+  {
+   "date": "2026-06-01",
+   "usdPerBarrel": 98.29
+  },
+  {
+   "date": "2026-06-02",
+   "usdPerBarrel": 98.49
+  },
+  {
+   "date": "2026-06-03",
+   "usdPerBarrel": 101.69
+  },
+  {
+   "date": "2026-06-04",
+   "usdPerBarrel": 98.98
+  },
+  {
+   "date": "2026-06-05",
+   "usdPerBarrel": 97.29
+  },
+  {
+   "date": "2026-06-08",
+   "usdPerBarrel": 97.46
+  },
+  {
+   "date": "2026-06-09",
+   "usdPerBarrel": 94.15
+  },
+  {
+   "date": "2026-06-10",
+   "usdPerBarrel": 95.73
+  },
+  {
+   "date": "2026-06-11",
+   "usdPerBarrel": 92.84
+  },
+  {
+   "date": "2026-06-12",
+   "usdPerBarrel": 88.64
+  },
+  {
+   "date": "2026-06-15",
+   "usdPerBarrel": 84.36
+  },
+  {
+   "date": "2026-06-16",
+   "usdPerBarrel": 80.5
+  },
+  {
+   "date": "2026-06-17",
+   "usdPerBarrel": 80.33
+  },
+  {
+   "date": "2026-06-18",
+   "usdPerBarrel": 79.35
+  },
+  {
+   "date": "2026-06-19",
+   "usdPerBarrel": 80.46
+  },
+  {
+   "date": "2026-06-22",
+   "usdPerBarrel": 76.49
+  },
+  {
+   "date": "2026-06-23",
+   "usdPerBarrel": 75.69
+  },
+  {
+   "date": "2026-06-24",
+   "usdPerBarrel": 72.09
+  },
+  {
+   "date": "2026-06-25",
+   "usdPerBarrel": 73.74
+  },
+  {
+   "date": "2026-06-26",
+   "usdPerBarrel": 70.16
+  },
+  {
+   "date": "2026-06-29",
+   "usdPerBarrel": 71.59
+  },
+  {
+   "date": "2026-06-30",
+   "usdPerBarrel": 70.46
+  },
+  {
+   "date": "2026-07-01",
+   "usdPerBarrel": 69.24
+  },
+  {
+   "date": "2026-07-02",
+   "usdPerBarrel": 68.53
+  },
+  {
+   "date": "2026-07-03",
+   "usdPerBarrel": 68.68
+  },
+  {
+   "date": "2026-07-06",
+   "usdPerBarrel": 69.56
+  },
+  {
+   "date": "2026-07-07",
+   "usdPerBarrel": 71.78
+  },
+  {
+   "date": "2026-07-08",
+   "usdPerBarrel": 76.5
+  },
+  {
+   "date": "2026-07-09",
+   "usdPerBarrel": 74.46
+  },
+  {
+   "date": "2026-07-10",
+   "usdPerBarrel": 74.34
+  },
+  {
+   "date": "2026-07-13",
+   "usdPerBarrel": 81.62
+  },
+  {
+   "date": "2026-07-14",
+   "usdPerBarrel": 83.69
+  },
+  {
+   "date": "2026-07-15",
+   "usdPerBarrel": 83.08
+  },
+  {
+   "date": "2026-07-16",
+   "usdPerBarrel": 81.23
+  },
+  {
+   "date": "2026-07-17",
+   "usdPerBarrel": 85.01
+  },
+  {
+   "date": "2026-07-20",
+   "usdPerBarrel": 86.99
+  },
+  {
+   "date": "2026-07-21",
+   "usdPerBarrel": 93.85
+  },
+  {
+   "date": "2026-07-22",
+   "usdPerBarrel": 94.12
+  },
+  {
+   "date": "2026-07-23",
+   "usdPerBarrel": 105.32
+  },
+  {
+   "date": "2026-07-24",
+   "usdPerBarrel": 100.31
+  },
+  {
+   "date": "2026-07-27",
+   "usdPerBarrel": 91.82
+  },
+  {
+   "date": "2026-07-28",
+   "usdPerBarrel": 85.51
+  },
+  {
+   "date": "2026-07-29",
+   "usdPerBarrel": 91.95
+  },
+  {
+   "date": "2026-07-30",
+   "usdPerBarrel": 91.91
+  },
+  {
+   "date": "2026-07-31",
+   "usdPerBarrel": 96.95
+  },
+  {
+   "date": "2026-08-03",
+   "usdPerBarrel": 88.9
+  },
+  {
+   "date": "2026-08-04",
+   "usdPerBarrel": 86.47
+  },
+  {
+   "date": "2026-08-05",
+   "usdPerBarrel": 86.65
+  },
+  {
+   "date": "2026-08-06",
+   "usdPerBarrel": 89.65
+  },
+  {
+   "date": "2026-08-07",
+   "usdPerBarrel": 87.62
+  },
+  {
+   "date": "2026-08-10",
+   "usdPerBarrel": 92.74
+  },
+  {
+   "date": "2026-08-11",
+   "usdPerBarrel": 93.26
+  },
+  {
+   "date": "2026-08-12",
+   "usdPerBarrel": 92.52
+  },
+  {
+   "date": "2026-08-13",
+   "usdPerBarrel": 92.03
+  },
+  {
+   "date": "2026-08-14",
+   "usdPerBarrel": 92.02
+  },
+  {
+   "date": "2026-08-17",
+   "usdPerBarrel": 92.43
+  },
+  {
+   "date": "2026-08-18",
+   "usdPerBarrel": 95.29
+  },
+  {
+   "date": "2026-08-19",
+   "usdPerBarrel": 92.37
+  },
+  {
+   "date": "2026-08-20",
+   "usdPerBarrel": 94.0
+  },
+  {
+   "date": "2026-08-21",
+   "usdPerBarrel": 96.92
+  },
+  {
+   "date": "2026-08-24",
+   "usdPerBarrel": 92.71
+  },
+  {
+   "date": "2026-08-25",
+   "usdPerBarrel": 88.24
+  },
+  {
+   "date": "2026-08-26",
+   "usdPerBarrel": 87.77
+  },
+  {
+   "date": "2026-08-27",
+   "usdPerBarrel": 90.18
+  },
+  {
+   "date": "2026-08-28",
+   "usdPerBarrel": 89.75
+  },
+  {
+   "date": "2026-09-01",
+   "usdPerBarrel": 96.02
+  },
+  {
+   "date": "2026-09-02",
+   "usdPerBarrel": 97.59
+  },
+  {
+   "date": "2026-09-03",
+   "usdPerBarrel": 100.52
+  },
+  {
+   "date": "2026-09-04",
+   "usdPerBarrel": 102.24
+  },
+  {
+   "date": "2026-09-07",
+   "usdPerBarrel": 104.47
+  },
+  {
+   "date": "2026-09-08",
+   "usdPerBarrel": 106.12
+  },
+  {
+   "date": "2026-09-09",
+   "usdPerBarrel": 109.51
+  },
+  {
+   "date": "2026-09-10",
+   "usdPerBarrel": 120.98
+  },
+  {
+   "date": "2026-09-11",
+   "usdPerBarrel": 118.06
+  },
+  {
+   "date": "2026-09-14",
+   "usdPerBarrel": 121.25
+  },
+  {
+   "date": "2026-09-15",
+   "usdPerBarrel": 130.8
+  },
+  {
+   "date": "2026-09-16",
+   "usdPerBarrel": 127.84
+  },
+  {
+   "date": "2026-09-17",
+   "usdPerBarrel": 121.18
+  },
+  {
+   "date": "2026-09-18",
+   "usdPerBarrel": 119.66
+  },
+  {
+   "date": "2026-09-21",
+   "usdPerBarrel": 116.15
+  },
+  {
+   "date": "2026-09-22",
+   "usdPerBarrel": 114.89
+  },
+  {
+   "date": "2026-09-23",
+   "usdPerBarrel": 117.45
+  },
+  {
+   "date": "2026-09-24",
+   "usdPerBarrel": 120.92
+  },
+  {
+   "date": "2026-09-25",
+   "usdPerBarrel": 116.01
+  },
+  {
+   "date": "2026-09-28",
+   "usdPerBarrel": 119.97
+  },
+  {
+   "date": "2026-09-29",
+   "usdPerBarrel": 113.96
+  },
+  {
+   "date": "2026-09-30",
+   "usdPerBarrel": 115.91
+  },
+  {
+   "date": "2026-10-01",
+   "usdPerBarrel": 114.82
+  },
+  {
+   "date": "2026-10-02",
+   "usdPerBarrel": 135.51
+  },
+  {
+   "date": "2026-10-05",
+   "usdPerBarrel": 125.51
+  },
+  {
+   "date": "2026-10-06",
+   "usdPerBarrel": 125.44
+  },
+  {
+   "date": "2026-10-07",
+   "usdPerBarrel": 126.0
+  },
+  {
+   "date": "2026-10-08",
+   "usdPerBarrel": 130.18
+  },
+  {
+   "date": "2026-10-09",
+   "usdPerBarrel": 130.03
+  },
+  {
+   "date": "2026-10-12",
+   "usdPerBarrel": 129.95
+  },
+  {
+   "date": "2026-10-13",
+   "usdPerBarrel": 125.78
+  },
+  {
+   "date": "2026-10-14",
+   "usdPerBarrel": 126.55
+  },
+  {
+   "date": "2026-10-15",
+   "usdPerBarrel": 126.35
+  },
+  {
+   "date": "2026-10-16",
+   "usdPerBarrel": 119.33
+  },
+  {
+   "date": "2026-10-19",
+   "usdPerBarrel": 118.82
+  },
+  {
+   "date": "2026-10-20",
+   "usdPerBarrel": 115.22
+  },
+  {
+   "date": "2026-10-21",
+   "usdPerBarrel": 117.37
+  },
+  {
+   "date": "2026-10-22",
+   "usdPerBarrel": 125.39
+  },
+  {
+   "date": "2026-10-23",
+   "usdPerBarrel": 128.3
+  },
+  {
+   "date": "2026-10-26",
+   "usdPerBarrel": 128.12
+  },
+  {
+   "date": "2026-10-27",
+   "usdPerBarrel": 123.1
+  },
+  {
+   "date": "2026-10-28",
+   "usdPerBarrel": 119.2
+  },
+  {
+   "date": "2026-10-29",
+   "usdPerBarrel": 115.28
+  },
+  {
+   "date": "2026-10-30",
+   "usdPerBarrel": 120.15
+  },
+  {
+   "date": "2026-11-02",
+   "usdPerBarrel": 107.39
+  },
+  {
+   "date": "2026-11-03",
+   "usdPerBarrel": 107.03
+  }
+ ],
+ "weekly2026": [
+  {
+   "weekStart": "2026-01-02",
+   "usdPerBarrel": 61.98
+  },
+  {
+   "weekStart": "2026-01-05",
+   "usdPerBarrel": 62.93
+  },
+  {
+   "weekStart": "2026-01-12",
+   "usdPerBarrel": 67.0
+  },
+  {
+   "weekStart": "2026-01-19",
+   "usdPerBarrel": 66.99
+  },
+  {
+   "weekStart": "2026-01-26",
+   "usdPerBarrel": 70.43
+  },
+  {
+   "weekStart": "2026-02-02",
+   "usdPerBarrel": 69.84
+  },
+  {
+   "weekStart": "2026-02-09",
+   "usdPerBarrel": 70.7
+  },
+  {
+   "weekStart": "2026-02-16",
+   "usdPerBarrel": 71.66
+  },
+  {
+   "weekStart": "2026-02-23",
+   "usdPerBarrel": 71.36
+  },
+  {
+   "weekStart": "2026-03-02",
+   "usdPerBarrel": 85.28
+  },
+  {
+   "weekStart": "2026-03-09",
+   "usdPerBarrel": 96.16
+  },
+  {
+   "weekStart": "2026-03-16",
+   "usdPerBarrel": 111.4
+  },
+  {
+   "weekStart": "2026-03-23",
+   "usdPerBarrel": 111.24
+  },
+  {
+   "weekStart": "2026-03-30",
+   "usdPerBarrel": 123.94
+  },
+  {
+   "weekStart": "2026-04-07",
+   "usdPerBarrel": 124.61
+  },
+  {
+   "weekStart": "2026-04-13",
+   "usdPerBarrel": 114.43
+  },
+  {
+   "weekStart": "2026-04-20",
+   "usdPerBarrel": 109.62
+  },
+  {
+   "weekStart": "2026-04-27",
+   "usdPerBarrel": 119.63
+  },
+  {
+   "weekStart": "2026-05-05",
+   "usdPerBarrel": 105.88
+  },
+  {
+   "weekStart": "2026-05-11",
+   "usdPerBarrel": 110.53
+  },
+  {
+   "weekStart": "2026-05-18",
+   "usdPerBarrel": 110.61
+  },
+  {
+   "weekStart": "2026-05-26",
+   "usdPerBarrel": 97.05
+  },
+  {
+   "weekStart": "2026-06-01",
+   "usdPerBarrel": 98.95
+  },
+  {
+   "weekStart": "2026-06-08",
+   "usdPerBarrel": 93.76
+  },
+  {
+   "weekStart": "2026-06-15",
+   "usdPerBarrel": 81.0
+  },
+  {
+   "weekStart": "2026-06-22",
+   "usdPerBarrel": 73.63
+  },
+  {
+   "weekStart": "2026-06-29",
+   "usdPerBarrel": 69.7
+  },
+  {
+   "weekStart": "2026-07-06",
+   "usdPerBarrel": 73.33
+  },
+  {
+   "weekStart": "2026-07-13",
+   "usdPerBarrel": 82.93
+  },
+  {
+   "weekStart": "2026-07-20",
+   "usdPerBarrel": 96.12
+  },
+  {
+   "weekStart": "2026-07-27",
+   "usdPerBarrel": 91.63
+  },
+  {
+   "weekStart": "2026-08-03",
+   "usdPerBarrel": 87.86
+  },
+  {
+   "weekStart": "2026-08-10",
+   "usdPerBarrel": 92.51
+  },
+  {
+   "weekStart": "2026-08-17",
+   "usdPerBarrel": 94.2
+  },
+  {
+   "weekStart": "2026-08-24",
+   "usdPerBarrel": 89.73
+  },
+  {
+   "weekStart": "2026-09-01",
+   "usdPerBarrel": 99.09
+  },
+  {
+   "weekStart": "2026-09-07",
+   "usdPerBarrel": 111.83
+  },
+  {
+   "weekStart": "2026-09-14",
+   "usdPerBarrel": 124.15
+  },
+  {
+   "weekStart": "2026-09-21",
+   "usdPerBarrel": 117.08
+  },
+  {
+   "weekStart": "2026-09-28",
+   "usdPerBarrel": 120.03
+  },
+  {
+   "weekStart": "2026-10-05",
+   "usdPerBarrel": 127.43
+  },
+  {
+   "weekStart": "2026-10-12",
+   "usdPerBarrel": 125.59
+  },
+  {
+   "weekStart": "2026-10-19",
+   "usdPerBarrel": 121.02
+  },
+  {
+   "weekStart": "2026-10-26",
+   "usdPerBarrel": 121.17
+  },
+  {
+   "weekStart": "2026-11-02",
+   "usdPerBarrel": 107.21
+  }
+ ]
+}

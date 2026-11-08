@@ -113,11 +113,14 @@ function deliverDieselTick(s: SimState, ctx: Ctx, c: ContractState): TickDeliver
   c.hourFuelMl += fuel;
   s.regulator.emissionsTodayMg += co2;
   if (c.provider === "player") {
+    s.player.chainBackedFuelMl = Math.max(0, (s.player.chainBackedFuelMl ?? 0) - fuel);
     s.player.co2TodayMg += co2;
     s.player.co2TotalMg += co2;
     s.dayStats.fuelBurnedMl += fuel;
     s.dayStats.fuelCostCc += Math.round((fuel * s.player.fuelCostBasisCcPerL) / 1000);
     s.dayStats.co2Mg += co2;
+    s.dayStats.hourFuelMl += fuel;
+    s.dayStats.hourCo2Mg += co2;
     s.dayStats.generationWh.diesel += wh;
     if (c.generatorId) {
       const g = s.generators[c.generatorId];
@@ -131,6 +134,7 @@ function deliverDieselTick(s: SimState, ctx: Ctx, c: ContractState): TickDeliver
 function billTick(s: SimState, ctx: Ctx, c: ContractState, wh: number): void {
   c.deliveredWh += wh;
   c.deliveredTicks += 1;
+  c.lastDeliveredTick = s.tick;
   c.hourWh += wh;
   const owed = ccForEnergy(c.deliveredWh, c.rateCcPerKwh) - c.billedCc;
   if (owed > 0) {
@@ -214,10 +218,19 @@ export function dispatchTick(s: SimState, ctx: Ctx): { contract: ContractState; 
     }
     g.outputW = output;
     g.cumulativeWh += whPerTick(output);
+    g.whSinceService += whPerTick(output);
   }
-  // rival plant: same fuel/permit physics, no heat (its policy keeps load <= 90%)
+  // rival plant: same fuel/permit physics, no heat (its policy keeps load <= 90%).
+  // If the rival built rooftop solar, daylight covers whole contracts first (no fuel, no CO2).
+  const h = clockHour(s);
+  let rivalSolarW = s.rival.solarW && h !== null ? Math.floor((s.rival.solarW * SOLAR_PROFILE_BPS[h]) / 10_000 / 100) * 100 : 0;
   for (const c of Object.values(s.contracts)) {
     if (c.provider !== "rival" || c.status !== "active") continue;
+    if (rivalSolarW >= c.allottedW) {
+      rivalSolarW -= c.allottedW;
+      billTick(s, ctx, c, whPerTick(c.allottedW));
+      continue;
+    }
     const r = deliverDieselTick(s, ctx, c);
     if (!r.delivered) {
       failures.push({ contract: c, reason: r.failReason! });
@@ -238,7 +251,7 @@ export function heatTick(s: SimState, ctx: Ctx): GeneratorState[] {
     if (g.status !== "online") continue;
     const load = assignedW(s, gid);
     const loadBps = g.ratedW > 0 ? Math.floor((load * 10_000) / g.ratedW) : 0;
-    g.wearBps = Math.min(10_000, Math.floor((g.cumulativeWh * 10_000) / PHYSICS.WEAR_FULL_WH));
+    g.wearBps = Math.min(10_000, Math.floor((g.whSinceService * 10_000) / PHYSICS.WEAR_FULL_WH));
     if (!heatOn) {
       g.heatPermille = 0;
       continue;

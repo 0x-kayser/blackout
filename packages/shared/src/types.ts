@@ -37,6 +37,7 @@ export type PriceReasons = z.infer<typeof S.PriceReasonsSchema>;
 export type MerchantPublic = z.infer<typeof S.MerchantSchema>;
 export type MarketQuote = z.infer<typeof S.QuoteSchema>;
 export type TradePublic = z.infer<typeof S.TradeSchema>;
+export type MarketListingPublic = z.infer<typeof S.MarketListingSchema>;
 export type RivalPublic = z.infer<typeof S.RivalSchema>;
 export type RegulatorPublic = z.infer<typeof S.RegulatorSchema>;
 export type WorldPublic = z.infer<typeof S.WorldSchema>;
@@ -56,3 +57,6 @@ export type EconomyEvent = z.infer<typeof E.EconomyEventSchema>;
 /** Spec name for the same thing: everything the server pushes over SSE. */
 export type ServerEvent = EconomyEvent;
 export type LedgerEntry = z.infer<typeof E.LedgerEntrySchema>;
+export type WorldEventPublic = z.infer<typeof S.WorldEventPublicSchema>;
+export type WorldModifiersPublic = z.infer<typeof S.WorldModifiersSchema>;
+export type StoryPublic = z.infer<typeof S.StorySchema>;

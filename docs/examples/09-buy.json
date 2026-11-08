@@ -1,0 +1,198 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/runs/run_1762afe1-fde/actions",
+    "body": {
+      "action": {
+        "type": "BUY",
+        "quoteId": "quote_19",
+        "quantity": 20000
+      },
+      "idempotencyKey": "7d1c0c1e-buy-0002"
+    }
+  },
+  "response": {
+    "ok": true,
+    "stateVersion": 6,
+    "events": [
+      {
+        "seq": 112,
+        "eventId": "run_1762afe1-fde:112",
+        "runId": "run_1762afe1-fde",
+        "day": 2,
+        "tick": 255,
+        "clock": "07:30",
+        "type": "TRADE_RESERVED",
+        "source": "simulated_game",
+        "actors": [
+          "player",
+          "merchant:lantern"
+        ],
+        "explanation": "20.0 L reserved from Lantern Corner Fuel at 10.50/L (total 210 credits). Game-ledger trade (no chain leg).",
+        "data": {
+          "tradeId": "trade_20",
+          "merchantId": "lantern",
+          "quantityMl": 20000,
+          "totalCc": 21000,
+          "chainStatus": "simulation_only"
+        },
+        "txHash": null,
+        "serverTime": "2026-11-08T00:00:59.992Z"
+      },
+      {
+        "seq": 113,
+        "eventId": "run_1762afe1-fde:113",
+        "runId": "run_1762afe1-fde",
+        "day": 2,
+        "tick": 255,
+        "clock": "07:30",
+        "type": "MERCHANT_REPRICED",
+        "source": "simulated_game",
+        "actors": [
+          "merchant:lantern"
+        ],
+        "explanation": "Lantern Corner Fuel raised diesel from 10.50 to 12.80 credits/L (sold 20.0 L). Import cost 10.35/L (oil 103.50 vs ref 100.00). Stock 10.0 L sellable vs target 30.0 L → scarcity +66.7% × 0.60. Yesterday sold 0.0 L vs normal 10.0 L → demand -100.0% × 0.20. Markup +4.0%. Raw 12.83 clamped to [10.46, 31.05] → 12.80 credits/L.",
+        "data": {
+          "merchantId": "lantern",
+          "oldPriceCcPerL": 1050,
+          "newPriceCcPerL": 1280,
+          "cause": "sold 20.0 L",
+          "reasons": {
+            "oilIndexCenti": 10350,
+            "referenceIndexCenti": 10000,
+            "baseReferenceCcPerL": 1000,
+            "baseReplacementCcPerL": 1035,
+            "scarcityBps": 6666,
+            "demandDeltaBps": -10000,
+            "markupBps": 400,
+            "rawPriceCcPerL": 1283,
+            "floorCcPerL": 1046,
+            "maxCcPerL": 3105,
+            "finalPriceCcPerL": 1280,
+            "stockMl": 10000,
+            "targetStockMl": 30000,
+            "lastDaySalesMl": 0,
+            "baselineSalesMl": 10000,
+            "trend": "up",
+            "rationLimitMl": null,
+            "explanation": "Import cost 10.35/L (oil 103.50 vs ref 100.00). Stock 10.0 L sellable vs target 30.0 L → scarcity +66.7% × 0.60. Yesterday sold 0.0 L vs normal 10.0 L → demand -100.0% × 0.20. Markup +4.0%. Raw 12.83 clamped to [10.46, 31.05] → 12.80 credits/L."
+          }
+        },
+        "txHash": null,
+        "serverTime": "2026-11-08T00:00:59.992Z"
+      },
+      {
+        "seq": 114,
+        "eventId": "run_1762afe1-fde:114",
+        "runId": "run_1762afe1-fde",
+        "day": 2,
+        "tick": 255,
+        "clock": "07:30",
+        "type": "TRADE_CONFIRMED",
+        "source": "simulated_game",
+        "actors": [
+          "player",
+          "merchant:lantern"
+        ],
+        "explanation": "Trade trade_20 settled in the game ledger: 20.0 L delivered.",
+        "data": {
+          "tradeId": "trade_20",
+          "item": "diesel",
+          "quantity": 20000,
+          "totalCc": 21000,
+          "chainStatus": "simulation_only"
+        },
+        "txHash": null,
+        "serverTime": "2026-11-08T00:00:59.992Z"
+      }
+    ],
+    "result": {
+      "tradeId": "trade_20",
+      "chainStatus": "simulation_only"
+    },
+    "replayed": false,
+    "state": {
+      "trades": [
+        {
+          "tradeId": "trade_20",
+          "quoteId": "quote_19",
+          "idempotencyKey": "7d1c0c1e-buy-0002",
+          "buyerId": "player",
+          "sellerId": "merchant:lantern",
+          "item": "diesel",
+          "quantity": 20000,
+          "unitPriceCc": 1050,
+          "totalCc": 21000,
+          "status": "settled",
+          "chainStatus": "simulation_only",
+          "tokenId": null,
+          "tokenAmount": null,
+          "txHash": null,
+          "explorerUrl": null,
+          "error": null,
+          "createdTick": 255,
+          "settledTick": 255
+        }
+      ],
+      "merchants": [
+        {
+          "merchantId": "lantern",
+          "name": "Lantern Corner Fuel",
+          "style": "Low-stock boutique: cheap when stocked, jumpy when it runs low.",
+          "policyId": "low_stock_boutique",
+          "accountId": null,
+          "status": "open",
+          "stockMl": 10000,
+          "reservedMl": 0,
+          "targetStockMl": 30000,
+          "cashCc": 49500,
+          "pendingRestockMl": 0,
+          "restockArrivesDay": null,
+          "salesTodayMl": 20000,
+          "lastDaySalesMl": 0,
+          "quoteCcPerL": 1280,
+          "reasons": {
+            "oilIndexCenti": 10350,
+            "referenceIndexCenti": 10000,
+            "baseReferenceCcPerL": 1000,
+            "baseReplacementCcPerL": 1035,
+            "scarcityBps": 6666,
+            "demandDeltaBps": -10000,
+            "markupBps": 400,
+            "rawPriceCcPerL": 1283,
+            "floorCcPerL": 1046,
+            "maxCcPerL": 3105,
+            "finalPriceCcPerL": 1280,
+            "stockMl": 10000,
+            "targetStockMl": 30000,
+            "lastDaySalesMl": 0,
+            "baselineSalesMl": 10000,
+            "trend": "up",
+            "rationLimitMl": null,
+            "explanation": "Import cost 10.35/L (oil 103.50 vs ref 100.00). Stock 10.0 L sellable vs target 30.0 L → scarcity +66.7% × 0.60. Yesterday sold 0.0 L vs normal 10.0 L → demand -100.0% × 0.20. Markup +4.0%. Raw 12.83 clamped to [10.46, 31.05] → 12.80 credits/L."
+          },
+          "priceHistory": [
+            {
+              "day": 1,
+              "tick": 0,
+              "priceCcPerL": 1040,
+              "cause": "new day: oil index 100.00"
+            },
+            {
+              "day": 2,
+              "tick": 240,
+              "priceCcPerL": 1050,
+              "cause": "new day: oil index 103.50"
+            },
+            {
+              "day": 2,
+              "tick": 255,
+              "priceCcPerL": 1280,
+              "cause": "sold 20.0 L"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

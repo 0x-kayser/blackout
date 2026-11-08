@@ -1,0 +1,304 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/runs",
+    "body": {
+      "scenarioId": "starter",
+      "seed": 424242,
+      "mode": "guest_demo"
+    }
+  },
+  "response": {
+    "ok": true,
+    "state": {
+      "schemaVersion": "blackout.state.v1",
+      "run": {
+        "runId": "run_1762afe1-fde",
+        "ownerId": "guest_434566aa-f325-451b-91cd-d93ab47ef438",
+        "seed": 424242,
+        "scenarioId": "starter",
+        "scenarioVersion": "2026.11.07-v1",
+        "mode": "guest_demo",
+        "stateVersion": 1,
+        "chainMode": "disabled"
+      },
+      "clock": {
+        "day": 1,
+        "campaignDays": 0,
+        "wavesTotal": 0,
+        "pressureLevel": 0,
+        "daylightBps": 500,
+        "phase": "operating",
+        "tick": 0,
+        "phaseTick": 0,
+        "phaseDurationTicks": 240,
+        "gameMinuteOfDay": 360,
+        "gameHourIndex": 0,
+        "paused": true,
+        "pauseReason": "no_clients",
+        "tutorial": true,
+        "nextWaveTick": 0
+      },
+      "player": {
+        "creditsCc": 100000,
+        "reputationBps": 5000,
+        "districtTrustBps": {
+          "market_quarter": 5000,
+          "hospital_row": 5000,
+          "tech_hub": 5000
+        },
+        "fuelMl": 20000,
+        "fuelReservedMl": 0,
+        "tankCapacityMl": 60000,
+        "permitAllowanceMg": 60000000,
+        "permitReservedMg": 0,
+        "co2TodayMg": 0,
+        "co2TotalMg": 0,
+        "tariffsCcPerKwh": {
+          "market_quarter": 800,
+          "hospital_row": 800,
+          "tech_hub": 800
+        },
+        "generatorIds": [
+          "gen_1"
+        ],
+        "batteryId": null,
+        "unlockedDistrictIds": [
+          "market_quarter"
+        ],
+        "upgradesOwned": [],
+        "pendingFuelMl": 0
+      },
+      "generators": [
+        {
+          "generatorId": "gen_1",
+          "name": "Shed Diesel 5kW",
+          "type": "diesel",
+          "ownerId": "player",
+          "ratedW": 5000,
+          "availableW": 5000,
+          "assignedW": 0,
+          "outputW": 0,
+          "loadBps": 0,
+          "heatPermille": 0,
+          "wearBps": 0,
+          "status": "online",
+          "offlineUntilTick": null,
+          "cumulativeWh": 0,
+          "cumulativeFuelMl": 0,
+          "nftTokenId": null
+        }
+      ],
+      "battery": null,
+      "districts": [
+        {
+          "districtId": "market_quarter",
+          "name": "Market Quarter",
+          "unlocked": true,
+          "unlockRequirementW": 0,
+          "unlockCostCc": 0,
+          "activityIndexBps": 10000,
+          "outsideDemandCcPerHour": 16000,
+          "poweredBps": 10000,
+          "reliabilityTodayBps": 10000,
+          "businessIds": [
+            "cold_room",
+            "bakery",
+            "pharmacy",
+            "cyber_cafe",
+            "corner_shop"
+          ],
+          "payBehaviour": "haggle"
+        }
+      ],
+      "businesses": [
+        {
+          "businessId": "cold_room",
+          "districtId": "market_quarter",
+          "name": "Cold Room",
+          "kind": "cold_storage",
+          "demandW": 1500,
+          "cashCc": 15000,
+          "revenueCcPerPoweredHour": 4000,
+          "variableCostCcPerPoweredHour": 2000,
+          "fixedCostCcPerDay": 12000,
+          "breakEvenRateCcPerKwh": 1333,
+          "loyaltyBps": 5000,
+          "status": "operating",
+          "powerSource": "grid",
+          "provider": "player",
+          "lowCashSettlements": 0,
+          "mood": "neutral",
+          "activeContractId": null,
+          "outageUntilTick": null,
+          "gougeCount": 0,
+          "history": []
+        }
+      ],
+      "requests": [],
+      "contracts": [],
+      "merchants": [
+        {
+          "merchantId": "ember",
+          "name": "Ember Wholesale",
+          "style": "Efficient wholesaler: big tanks, thin margins, slow to react.",
+          "policyId": "efficient_wholesaler",
+          "accountId": null,
+          "status": "open",
+          "stockMl": 150000,
+          "reservedMl": 0,
+          "targetStockMl": 200000,
+          "cashCc": 120000,
+          "pendingRestockMl": 0,
+          "restockArrivesDay": null,
+          "salesTodayMl": 0,
+          "lastDaySalesMl": 25000,
+          "quoteCcPerL": 1130,
+          "reasons": {
+            "oilIndexCenti": 10000,
+            "referenceIndexCenti": 10000,
+            "baseReferenceCcPerL": 1000,
+            "baseReplacementCcPerL": 1000,
+            "scarcityBps": 2500,
+            "demandDeltaBps": 0,
+            "markupBps": 200,
+            "rawPriceCcPerL": 1132,
+            "floorCcPerL": 1000,
+            "maxCcPerL": 3000,
+            "finalPriceCcPerL": 1130,
+            "stockMl": 150000,
+            "targetStockMl": 200000,
+            "lastDaySalesMl": 25000,
+            "baselineSalesMl": 25000,
+            "trend": "flat",
+            "rationLimitMl": null,
+            "explanation": "Import cost 10.00/L (oil 100.00 vs ref 100.00). Stock 150.0 L sellable vs target 200.0 L → scarcity +25.0% × 0.45. Yesterday sold 25.0 L vs normal 25.0 L → demand +0.0% × 0.20. Markup +2.0%. Raw 11.32 clamped to [10.00, 30.00] → 11.30 credits/L."
+          },
+          "priceHistory": [
+            {
+              "day": 1,
+              "tick": 0,
+              "priceCcPerL": 1130,
+              "cause": "new day: oil index 100.00"
+            }
+          ]
+        }
+      ],
+      "rival": {
+        "rivalId": "voltline",
+        "name": "VoltLine Power Co.",
+        "accountId": null,
+        "ratedW": 8000,
+        "assignedW": 0,
+        "fuelMl": 30000,
+        "permitAllowanceMg": 80000000,
+        "cashCc": 150000,
+        "tariffCcPerKwh": 740,
+        "tariffReasons": {
+          "fuelCostCcPerKwh": 300,
+          "carbonCostCcPerKwh": 201,
+          "unitCostCcPerKwh": 551,
+          "marginBps": 3500,
+          "finalCcPerKwh": 740,
+          "explanation": "Fuel 10/L × 0.3 L/kWh = 3; carbon 25/permit × 0.0804 = 2.01; maintenance 0.50 → unit cost 5.51/kWh, + 35% margin = 7.40/kWh."
+        },
+        "activeContractIds": [],
+        "customersServedToday": 0,
+        "contractsWon": 0,
+        "contractsDeclined": 0,
+        "reputationBps": 5000,
+        "lastAction": "Repriced to 7.40/kWh (opening)"
+      },
+      "regulator": {
+        "permitPriceCc": 2500,
+        "permitsForSaleToday": 8,
+        "dailyCapPermits": 8,
+        "permitsSoldTotal": 0,
+        "emissionsTodayMg": 0,
+        "priceReason": "Base 25; yesterday's emissions 80.0 kg vs cap 80 kg (+0.0%) → 25 per permit.",
+        "notices": []
+      },
+      "world": {
+        "scenarioId": "starter",
+        "scenarioName": "Starter District",
+        "oilIndexCenti": 10000,
+        "referenceIndexCenti": 10000,
+        "oilTrend": "flat",
+        "oilSourceLabel": "Illustrative sample series — not real Brent data",
+        "observedBrent": null,
+        "oilPassThroughBps": 5000,
+        "gridTariffCcPerKwh": 700
+      },
+      "waves": [],
+      "quotes": [],
+      "trades": [],
+      "dayReports": [],
+      "campaign": {
+        "finished": false,
+        "daysPlayed": 0,
+        "netWorthCc": 135000,
+        "reliabilityBps": 0,
+        "cityGdpCc": 0,
+        "score": 1350,
+        "badges": [
+          {
+            "id": "net_worth",
+            "label": "Solvent Operator",
+            "earned": true,
+            "reason": "Net worth 1350 (needs 1,100)"
+          },
+          {
+            "id": "reliability",
+            "label": "Keeper of the Lights",
+            "earned": false,
+            "reason": "Served 0% of requested outage hours (needs 70%)"
+          },
+          {
+            "id": "gdp",
+            "label": "Main Street Ally",
+            "earned": true,
+            "reason": "5/5 businesses still open"
+          }
+        ],
+        "carbonAudit": "Emitted 0.00 kg CO2; every kg was covered by a retired permit (diesel cannot run without allowance), so no fine is due. 60 kg allowance left."
+      },
+      "tutorial": {
+        "active": true,
+        "step": "accept_first",
+        "hint": "The Cold Room is dark. Accept its request: 1.5 kW for 2 hours at 8 credits/kWh."
+      },
+      "chain": {
+        "mode": "disabled",
+        "network": null,
+        "resourceContractId": null,
+        "vaultAccountId": null,
+        "note": "Guest simulation — not connected to NEAR. Trades settle in the game ledger only."
+      },
+      "upgradesCatalog": [
+        {
+          "upgradeId": "solar_2kw",
+          "name": "2 kW Rooftop Solar",
+          "costCc": 90000,
+          "description": "2 kW peak, zero fuel and zero CO2. Produces nothing at night.",
+          "owned": false
+        },
+        {
+          "upgradeId": "battery_10kwh",
+          "name": "10 kWh Battery",
+          "costCc": 70000,
+          "description": "Stores surplus solar (2.5 kW max, 90% round-trip) to cover solar contracts after dark.",
+          "owned": false
+        },
+        {
+          "upgradeId": "diesel_5kw",
+          "name": "Second 5 kW Diesel Set",
+          "costCc": 120000,
+          "description": "Doubles diesel capacity to 10 kW; needed to unlock Hospital Row.",
+          "owned": false
+        }
+      ],
+      "lastEventSeq": 8,
+      "...": "arrays trimmed for docs; see GameStatePublicSchema"
+    }
+  }
+}

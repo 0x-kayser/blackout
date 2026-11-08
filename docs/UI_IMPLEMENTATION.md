@@ -1,3 +1,8 @@
+> **Update 2026-11-08 (integration pass):** the mock transport described below has been removed. `apps/web` now runs
+> only against the real API (`src/api/client.ts`), with a canvas city renderer (`src/city/`), real Google/email/guest
+> auth (`src/api/auth.ts`) and panels in `src/ui/`. See docs/INTEGRATION_REPORT.md for the current state. The original
+> notes are kept below for history.
+
 # BLACKOUT frontend implementation
 
 ## What is included

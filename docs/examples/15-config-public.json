@@ -1,0 +1,52 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/config/public"
+  },
+  "response": {
+    "ok": true,
+    "apiVersion": "2.0.0",
+    "schemaVersion": "blackout.state.v1",
+    "scenarios": [
+      {
+        "scenarioId": "starter",
+        "name": "Starter District",
+        "available": true,
+        "description": "Market Quarter, gentle oil rise then easing. 3-day campaign."
+      },
+      {
+        "scenarioId": "fuel_squeeze",
+        "name": "Fuel Squeeze",
+        "available": true,
+        "description": "Oil index climbs 38% by day 4 then partially recovers. Only the external input changes; sellers react via policy."
+      }
+    ],
+    "timing": {
+      "tickMs": 1000,
+      "ticksPerGameHour": 10,
+      "morningTicks": 0,
+      "operatingTicks": 240,
+      "settlementTicks": 0,
+      "waveIntervalTicks": 30,
+      "wavesPerDay": 8,
+      "campaignDays": 0,
+      "day1SkipsMorning": true
+    },
+    "pausePolicy": "The world advances 1 tick/second while you are connected. With no live connection for 15s the city pauses and resumes exactly where you left it. The server never fast-forwards more than 5 s of missed time.",
+    "offlinePolicy": "Leaving pauses your city: no fuel burns, no customer bills, no rent and no bankruptcy while you are away. Contracts resume mid-delivery when you return. Economy Lab simulations never touch your save.",
+    "chainMode": "disabled",
+    "authModes": [
+      "guest"
+    ],
+    "auth": {
+      "guest": true,
+      "supabaseUrl": null,
+      "supabaseAnonKey": null,
+      "google": false,
+      "email": false,
+      "x": false,
+      "xDeferredReason": "X sign-in is deferred: the X API free tier is closed to new developers (pay-per-use since Feb 2026 per public reports), and this project does not purchase paid API access."
+    },
+    "disclaimer": "Credits are imaginary game currency; they cannot be withdrawn, redeemed or traded for money."
+  }
+}

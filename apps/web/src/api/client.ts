@@ -1,215 +1,195 @@
-import type { EconomyEvent as CanonicalEconomyEvent, EventType, GameStatePublic, PlayerAction } from '@blackout/shared'
+/**
+ * The single client boundary between the UI and the authoritative game server.
+ * - Same-origin `/api` (Vite proxies it in dev; the API serves this app in prod).
+ * - Auth: guest = HTTP-only cookie set by the server; Google/email = Supabase access token
+ *   sent as a bearer header (and as ?token= for the SSE stream, which cannot set headers).
+ * - Every action carries a fresh idempotency key; retries of the same intent reuse it.
+ * - The UI never computes prices, capacity, payments or outcomes: it renders GameStatePublic
+ *   and animates EconomyEvents from the server.
+ */
+import {
+  ActionResultSchema,
+  BlackoutApiError,
+  ChainStatusResponseSchema,
+  MarketListingEvidenceResponseSchema,
+  CompareResponseSchema,
+  GameStateResponseSchema,
+  LeaderboardResponseSchema,
+  MeResponseSchema,
+  RunStateResponseSchema,
+  PublicConfigSchema,
+  ReplayResponseSchema,
+  type ActionResult,
+  type ChainStatusResponse,
+  type CompareResponse,
+  type EconomyEvent,
+  type ErrorCode,
+  type GameStatePublic,
+  type PlayerAction,
+  type PlayerProfile,
+  type PublicConfig,
+  type ReplaySummary,
+} from '@blackout/shared'
+import type { z } from 'zod'
+
+export type { GameStatePublic, EconomyEvent, PlayerAction, PlayerProfile, PublicConfig }
+
+let bearer: string | null = null
+export const setBearer = (t: string | null) => {
+  bearer = t
+}
+
+/** Which run the UI is playing: the player's city (/api/game) or a specific run (weekly challenge). */
+let gameBase = '/api/game'
+export const setGameRun = (runId: string | null) => {
+  gameBase = runId ? `/api/runs/${encodeURIComponent(runId)}` : '/api/game'
+}
+const LooseStateSchema = RunStateResponseSchema.extend({ resumed: GameStateResponseSchema.shape.resumed.optional(), awayMs: GameStateResponseSchema.shape.awayMs.optional() })
+
+async function call<T>(method: string, path: string, schema: z.ZodType<T>, body?: unknown, signal?: AbortSignal): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(path, {
+      method,
+      credentials: 'same-origin',
+      signal,
+      headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e
+    throw new BlackoutApiError('INTERNAL', 'Cannot reach the game server. Check your connection.', 0)
+  }
+  const json: any = await res.json().catch(() => null)
+  if (!json) throw new BlackoutApiError('INTERNAL', `Server error (${res.status}).`, res.status)
+  if (json.ok === false && json.error) throw new BlackoutApiError(json.error.code, json.error.message, res.status, json.error.details)
+  return schema.parse(json)
+}
+
+export const api = {
+  config: () => call('GET', '/api/config/public', PublicConfigSchema),
+  me: () => call('GET', '/api/me', MeResponseSchema),
+  rename: (displayName: string) => call('PATCH', '/api/me', MeResponseSchema, { displayName }),
+  logout: () => fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) }, body: '{}' }),
+  linkGuest: (guestToken: string) => call('POST', '/api/auth/link-guest', MeResponseSchema, { guestToken }),
+  startGame: (fresh = false) => call('POST', '/api/game/start', GameStateResponseSchema, { fresh }),
+  state: () => call('GET', `${gameBase}/state`, LooseStateSchema),
+  act: (action: PlayerAction, idempotencyKey: string) => call('POST', `${gameBase}/actions`, ActionResultSchema, { action, idempotencyKey }),
+  startChallenge: () => call('POST', '/api/challenge/start', GameStateResponseSchema, {}),
+  leaderboard: () => call('GET', '/api/challenge/leaderboard', LeaderboardResponseSchema),
+  chain: () => call('GET', '/api/chain/status', ChainStatusResponseSchema),
+  marketListingEvidence: () => call('GET', '/api/chain/market-listings', MarketListingEvidenceResponseSchema),
+  compare: (seed: number, scenarioId: string, a: string, b: string, condition = 'calm') =>
+    call('POST', '/api/replays/compare', CompareResponseSchema, { seed, scenarioId, policies: [a, b], days: 7, condition }),
+  replay: (seed: number, scenarioId: string, policyId: string) => call('POST', '/api/replays', ReplayResponseSchema, { seed, scenarioId, policyId, days: 7 }),
+  replayTraceUrl: (id: string) => `/api/replays/${encodeURIComponent(id)}/events?format=json`,
+  replayStreamUrl: (id: string, seconds = 60) => `/api/replays/${encodeURIComponent(id)}/events?seconds=${seconds}`,
+}
+
+/** Guest session: the server sets an HTTP-only cookie; we keep the token only to support a later upgrade. */
+export async function startGuestSession(): Promise<void> {
+  const res = await fetch('/api/session/start', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: '{"kind":"guest"}' })
+  const json = await res.json()
+  if (!json.ok) throw new BlackoutApiError(json.error?.code ?? 'INTERNAL', json.error?.message ?? 'Could not start a guest session.', res.status)
+  try {
+    sessionStorage.setItem('bo_guest_upgrade', json.token) // only used to link this guest city to a real account
+  } catch {
+    /* storage unavailable: upgrade path simply won't be offered */
+  }
+}
+
+export const guestUpgradeToken = () => {
+  try {
+    return sessionStorage.getItem('bo_guest_upgrade')
+  } catch {
+    return null
+  }
+}
+export const clearGuestUpgradeToken = () => {
+  try {
+    sessionStorage.removeItem('bo_guest_upgrade')
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Human-readable explanation for every server error code (no guessing in components). */
+export const ERROR_TEXT: Partial<Record<ErrorCode, string>> = {
+  CAPACITY_EXCEEDED: 'No online source has enough unreserved capacity.',
+  GENERATOR_OFFLINE: 'That generator is offline.',
+  INSUFFICIENT_FUEL: 'Not enough unreserved diesel. Buy fuel in the Marketplace.',
+  INSUFFICIENT_PERMITS: 'Not enough unreserved carbon allowance. Buy permits in the Marketplace.',
+  INSUFFICIENT_CREDITS: 'Not enough credits.',
+  CUSTOMER_CANNOT_PAY: 'The customer cannot fund that contract.',
+  REQUEST_EXPIRED: 'Too late: the customer gave up waiting.',
+  MAX_COUNTERS_REACHED: 'This customer has no more counteroffers. Accept or decline.',
+  QUOTE_EXPIRED: 'That quote expired. Ask for a fresh price.',
+  OUT_OF_STOCK: 'The seller does not have that much.',
+  RATION_LIMIT: 'The seller is rationing; buy less.',
+  MERCHANT_CLOSED: 'That seller is closed.',
+  TANK_FULL: 'Your tank cannot hold that much.',
+  REQUIREMENT_NOT_MET: 'Requirements not met yet.',
+  ALREADY_PROCESSED: 'This action is already complete.',
+  RATE_LIMITED: 'Slow down a little.',
+  UNAUTHORIZED: 'Your session expired. Please sign in again.',
+}
+export const explainError = (e: unknown): string => {
+  if (e instanceof BlackoutApiError) return `${ERROR_TEXT[e.code] ?? ''} ${e.message}`.trim()
+  return e instanceof Error ? e.message : 'Something went wrong.'
+}
+
+export type ConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
 
 /**
- * One boundary for game transport. Replace MockGameTransport with the canonical
- * generated API client when packages/shared is available; UI components do not
- * contain economy rules or wallet calls.
+ * Live game stream. EventSource reconnects by itself and resends Last-Event-ID; we also
+ * dedupe by seq and resync the full state on every (re)connect.
  */
-export type RequestState = 'open' | 'awaiting-connection' | 'accepted' | 'negotiating' | 'declined' | 'expired'
-export type BusinessState = 'dark' | 'powered' | 'struggling' | 'closed'
-export type EconomyEventType = EventType
-/** Canonical backend-facing shapes kept at the UI boundary. */
-export type CanonicalSnapshot = GameStatePublic
-export type CanonicalAction = PlayerAction
-export type CanonicalEvent = CanonicalEconomyEvent
+export class GameStream {
+  private es: EventSource | null = null
+  private lastSeq = 0
+  private closed = false
+  constructor(
+    private readonly onState: (s: GameStatePublic) => void,
+    private readonly onEvent: (e: EconomyEvent) => void,
+    private readonly onStatus: (s: ConnectionStatus) => void,
+  ) {}
 
-export interface EconomyEvent {
-  id: string
-  type: EconomyEventType
-  title: string
-  detail: string
-  timestamp: string
-}
-
-export interface Business {
-  id: string
-  name: string
-  icon: string
-  state: BusinessState
-  demandKw: number
-  cashTrend: 'up' | 'steady' | 'down'
-  reliability: number
-  loyalty: number
-  hoursPowered: number
-  mood: string
-  x: number
-  y: number
-}
-
-export interface PowerRequest {
-  id: string
-  businessId: string
-  demandKw: number
-  hours: number
-  pricePerKwh: number
-  state: RequestState
-  urgency: 'urgent' | 'normal'
-  deadline: string
-  counterRounds: number
-}
-
-export interface ActiveContract {
-  id: string
-  businessId: string
-  demandKw: number
-  remainingHours: number
-  paidEnergy: number
-  source: 'Diesel generator'
-}
-
-export interface GameSnapshot {
-  version: number
-  day: number
-  wave: number
-  gameTime: string
-  credits: number
-  fuelLitres: number
-  fuelCapacity: number
-  carbonUsed: number
-  carbonAllowance: number
-  generator: { capacityKw: number; loadKw: number; heat: 'low' | 'warm' | 'high'; wear: number }
-  businesses: Business[]
-  requests: PowerRequest[]
-  contracts: ActiveContract[]
-  events: EconomyEvent[]
-}
-
-export type GameAction =
-  | { type: 'ACCEPT_REQUEST'; requestId: string; expectedVersion: number; idempotencyKey: string }
-  | { type: 'COUNTER_REQUEST'; requestId: string; expectedVersion: number; idempotencyKey: string }
-  | { type: 'DECLINE_REQUEST'; requestId: string; expectedVersion: number; idempotencyKey: string }
-  | { type: 'ASSIGN_LOAD'; requestId: string; sourceId: 'diesel-generator'; expectedVersion: number; idempotencyKey: string }
-  | { type: 'BUY_FUEL'; litres: number; expectedVersion: number; idempotencyKey: string }
-  | { type: 'ADVANCE_WAVE'; expectedVersion: number; idempotencyKey: string }
-
-export interface GameTransport {
-  readonly mode: 'preview' | 'live'
-  getSnapshot(): Promise<GameSnapshot>
-  dispatch(action: GameAction): Promise<GameSnapshot>
-  subscribe(listener: (snapshot: GameSnapshot) => void): () => void
-}
-
-const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
-
-const firstEvent = (type: EconomyEventType, title: string, detail: string): EconomyEvent => ({
-  id: `${type}-start`, type, title, detail, timestamp: now()
-})
-
-const initialSnapshot = (): GameSnapshot => ({
-  version: 1,
-  day: 1,
-  wave: 1,
-  gameTime: '09:00',
-  credits: 1000,
-  fuelLitres: 20,
-  fuelCapacity: 60,
-  carbonUsed: 0,
-  carbonAllowance: 60,
-  generator: { capacityKw: 5, loadKw: 0, heat: 'low', wear: 4 },
-  businesses: [
-    { id: 'cold-room', name: 'Cold Room', icon: '❄', state: 'dark', demandKw: 1.5, cashTrend: 'down', reliability: 0, loyalty: 48, hoursPowered: 0, mood: 'Freezers are warming.', x: 44, y: 45 },
-    { id: 'bakery', name: 'Maya’s Bakery', icon: '◒', state: 'dark', demandKw: 1.1, cashTrend: 'down', reliability: 0, loyalty: 55, hoursPowered: 0, mood: 'Ovens are quiet.', x: 71, y: 27 },
-    { id: 'pharmacy', name: 'Civic Pharmacy', icon: '✚', state: 'dark', demandKw: 1.2, cashTrend: 'steady', reliability: 0, loyalty: 64, hoursPowered: 0, mood: 'Needs refrigeration.', x: 72, y: 67 },
-    { id: 'cyber-cafe', name: 'Byte Café', icon: '⌘', state: 'dark', demandKw: 0.9, cashTrend: 'down', reliability: 0, loyalty: 42, hoursPowered: 0, mood: 'Customers are waiting.', x: 25, y: 26 },
-    { id: 'corner-shop', name: 'Corner Shop', icon: '▦', state: 'dark', demandKw: 0.8, cashTrend: 'steady', reliability: 0, loyalty: 51, hoursPowered: 0, mood: 'Open when the lights return.', x: 24, y: 68 }
-  ],
-  requests: [{ id: 'cold-room-request', businessId: 'cold-room', demandKw: 1.5, hours: 2, pricePerKwh: 8, state: 'open', urgency: 'urgent', deadline: 'Tutorial — no timer', counterRounds: 0 }],
-  contracts: [],
-  events: [
-    firstEvent('OUTAGE_STARTED', 'Rolling blackout', 'Market Quarter is dark. Choose a request to restore a light.'),
-    firstEvent('CUSTOMER_REQUESTED', 'Cold Room needs power', '1.5 kW for 2 game-hours · ₡8 per kWh.')
-  ]
-})
-
-export class MockGameTransport implements GameTransport {
-  readonly mode = 'preview' as const
-  private state = initialSnapshot()
-  private listeners = new Set<(snapshot: GameSnapshot) => void>()
-
-  async getSnapshot(): Promise<GameSnapshot> {
-    return clone(this.state)
-  }
-
-  subscribe(listener: (snapshot: GameSnapshot) => void): () => void {
-    this.listeners.add(listener)
-    return () => this.listeners.delete(listener)
-  }
-
-  async dispatch(action: GameAction): Promise<GameSnapshot> {
-    if (action.expectedVersion !== this.state.version) throw new Error('This view is out of date. Please try again.')
-    const request = 'requestId' in action ? this.state.requests.find((entry) => entry.id === action.requestId) : undefined
-
-    if (action.type === 'ACCEPT_REQUEST' && request?.state === 'open') {
-      request.state = 'awaiting-connection'
-      this.event('CONTRACT_ACCEPTED', 'Cold Room accepted', 'Connection is required before electricity can flow.')
-    } else if (action.type === 'COUNTER_REQUEST' && request?.state === 'open') {
-      request.state = 'negotiating'
-      request.counterRounds += 1
-      request.pricePerKwh = 7.5
-      this.event('MERCHANT_REPRICED', 'Counteroffer returned', 'Cold Room can pay ₡7.5 per kWh for this emergency shift.')
-    } else if (action.type === 'DECLINE_REQUEST' && request && ['open', 'negotiating', 'awaiting-connection'].includes(request.state)) {
-      request.state = 'declined'
-      this.event('REQUEST_DECLINED', 'Request declined', 'Cold Room remains dark; no capacity was reserved.')
-    } else if (action.type === 'ASSIGN_LOAD' && request?.state === 'awaiting-connection') {
-      const available = this.state.generator.capacityKw - this.state.generator.loadKw
-      if (available < request.demandKw) throw new Error(`Only ${available.toFixed(1)} kW is available.`)
-      request.state = 'accepted'
-      this.state.generator.loadKw += request.demandKw
-      this.state.contracts.push({ id: 'contract-cold-room', businessId: request.businessId, demandKw: request.demandKw, remainingHours: request.hours, paidEnergy: 0, source: 'Diesel generator' })
-      const business = this.state.businesses.find((entry) => entry.id === request.businessId)
-      if (business) {
-        business.state = 'powered'
-        business.reliability = 100
-        business.hoursPowered = request.hours
-        business.cashTrend = 'up'
-        business.mood = 'Freezers are safe again.'
+  open(): void {
+    this.closed = false
+    this.onStatus('connecting')
+    const qs = new URLSearchParams()
+    if (bearer) qs.set('token', bearer)
+    if (this.lastSeq) qs.set('lastEventId', String(this.lastSeq))
+    const es = new EventSource(`${gameBase}/events${qs.toString() ? `?${qs}` : ''}`, { withCredentials: true })
+    this.es = es
+    es.addEventListener('open', () => this.onStatus('live'))
+    es.addEventListener('state', (m) => this.onState(JSON.parse((m as MessageEvent).data)))
+    es.addEventListener('economy', (m) => {
+      const ev = JSON.parse((m as MessageEvent).data) as EconomyEvent
+      if (ev.seq <= this.lastSeq) return
+      this.lastSeq = ev.seq
+      this.onEvent(ev)
+    })
+    es.addEventListener('error', () => {
+      if (this.closed) return
+      this.onStatus(navigator.onLine ? 'reconnecting' : 'offline')
+      if (es.readyState === EventSource.CLOSED) {
+        // the browser gave up (e.g. 401 after token expiry): reopen with a fresh token shortly
+        setTimeout(() => !this.closed && this.open(), 2500)
       }
-      this.event('LOAD_ASSIGNED', 'Generator connected', '1.5 kW reserved. A pulse is travelling to Cold Room.')
-      window.setTimeout(() => {
-        const contract = this.state.contracts.find((entry) => entry.id === 'contract-cold-room')
-        if (!contract) return
-        contract.paidEnergy = 24
-        this.state.credits += 24
-        this.state.fuelLitres = Math.max(0, this.state.fuelLitres - 0.8)
-        this.state.carbonUsed += 2.1
-        this.event('SERVICE_STARTED', 'Power restored', '3 kWh scheduled. Credits settle as power is delivered.')
-        this.event('FUEL_CONSUMED', 'Fuel used', '0.8 L consumed by the first delivery interval.')
-        this.emit()
-      }, 800)
-    } else if (action.type === 'BUY_FUEL') {
-      const cost = action.litres * 8
-      if (this.state.fuelLitres + action.litres > this.state.fuelCapacity) throw new Error('Fuel tank capacity would be exceeded.')
-      if (this.state.credits < cost) throw new Error('Not enough credits for this quote.')
-      this.state.fuelLitres += action.litres
-      this.state.credits -= cost
-      this.event('TRADE_CONFIRMED', 'Fuel delivery confirmed', `${action.litres} L purchased from EmberFuel for ₡${cost}.`)
-    } else if (action.type === 'ADVANCE_WAVE') {
-      this.state.wave += 1
-      this.state.gameTime = `${String(9 + Math.floor(this.state.wave / 2)).padStart(2, '0')}:${this.state.wave % 2 ? '30' : '00'}`
-      const bakeryExists = this.state.requests.some((entry) => entry.businessId === 'bakery')
-      if (!bakeryExists) {
-        this.state.requests.push({ id: 'bakery-request', businessId: 'bakery', demandKw: 1.1, hours: 2, pricePerKwh: 6.4, state: 'open', urgency: 'normal', deadline: 'Wave 4', counterRounds: 0 })
-        this.event('CUSTOMER_REQUESTED', 'Maya’s Bakery is calling', 'A new 1.1 kW request arrived. Capacity remains server-authoritative in live mode.')
-      }
-    } else {
-      throw new Error('That action is no longer available.')
-    }
-
-    this.state.version += 1
-    this.emit()
-    return clone(this.state)
+    })
   }
 
-  private event(type: EconomyEventType, title: string, detail: string) {
-    this.state.events.unshift({ id: `${type}-${Date.now()}-${Math.random()}`, type, title, detail, timestamp: now() })
-    this.state.events = this.state.events.slice(0, 12)
+  setLastSeq(seq: number) {
+    this.lastSeq = Math.max(this.lastSeq, seq)
   }
 
-  private emit() {
-    const snapshot = clone(this.state)
-    this.listeners.forEach((listener) => listener(snapshot))
+  close(): void {
+    this.closed = true
+    this.es?.close()
+    this.es = null
   }
 }
 
-export const createGameTransport = (): GameTransport => new MockGameTransport()
+export type { ActionResult, ChainStatusResponse, CompareResponse, ReplaySummary }
+export { BlackoutApiError }

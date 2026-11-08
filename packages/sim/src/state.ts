@@ -27,6 +27,7 @@ import type {
   WaveStatus,
 } from "@blackout/shared";
 import type { RngState } from "./prng.ts";
+import type { WorldState } from "./world-events/types.ts";
 
 export type Asset = "credits_cc" | "fuel_ml" | "permit_mg";
 
@@ -45,6 +46,9 @@ export interface GeneratorState {
   outputW: number;
   heatWarned: boolean;
   nftTokenId: string | null;
+  whSinceService: number;
+  /** Legacy field (always 0): servicing now takes the set offline immediately. */
+  maintenanceTicks: number;
 }
 
 export interface BatteryState {
@@ -161,6 +165,7 @@ export interface ContractState {
   hourWh: number;
   hourFuelMl: number;
   hourBilledCc: number;
+  lastDeliveredTick: number | null;
 }
 
 export interface MerchantState {
@@ -211,6 +216,10 @@ export interface RivalState {
   reputationBps: number;
   lastAction: string;
   boughtToday: boolean;
+  /** Rooftop solar the rival installed for itself (its own strategy), W. */
+  solarW: number;
+  /** Extra days of fuel the rival stockpiles when it sees merchants running low. */
+  stockpileDays: number;
 }
 
 export interface RegulatorState {
@@ -260,6 +269,22 @@ export interface TradeState {
   day: number;
 }
 
+export interface MarketListingState {
+  listingId: string;
+  sellerId: string;
+  quantityMl: number;
+  unitPriceCcPerL: number;
+  totalCc: number;
+  status: "reserved" | "active" | "purchase_pending" | "cancel_pending" | "filled" | "expired" | "cancelled" | "failed";
+  createdTick: number;
+  expiresTick: number;
+  buyerMerchantId: string | null;
+  error: string | null;
+  expireRequested: boolean;
+  fillAttempts: number;
+  cancelAttempts: number;
+}
+
 export interface WaveState {
   waveId: string;
   day: number;
@@ -291,6 +316,10 @@ export interface DayStats {
   reopenings: string[];
   firstEventSeq: number;
   generationWh: { diesel: number; solar: number; battery: number };
+  hourFuelMl: number;
+  hourCo2Mg: number;
+  /** Causal events kept for the night report's highlights (bounded). */
+  notable: { seq: number; type: string; explanation: string; data: Record<string, unknown> }[];
 }
 
 export interface SimState {
@@ -302,6 +331,7 @@ export interface SimState {
   scenarioVersion: string;
   mode: RunMode;
   chainMode: ChainMode;
+  /** 0 = continuous play (never ends). Replays set a fixed number of days. */
   campaignDays: number;
   stateVersion: number;
   rng: RngState;
@@ -311,6 +341,7 @@ export interface SimState {
   phaseStartTick: number;
   phaseTick: number;
   waveIndex: number; // waves started today
+  wavesTotal: number; // waves since the run began (drives tutorial and pressure)
   nextId: number;
   eventSeq: number;
   ledgerSeq: number;
@@ -329,6 +360,8 @@ export interface SimState {
     co2TotalMg: number;
     /** Weighted average acquisition cost of fuel in the tank, cc per L. */
     fuelCostBasisCcPerL: number;
+    /** Confirmed NEP-245-backed fuel still available to list or consume. */
+    chainBackedFuelMl: number;
   };
   generators: Record<string, GeneratorState>;
   battery: BatteryState | null;
@@ -339,10 +372,12 @@ export interface SimState {
   merchants: Record<string, MerchantState>;
   rival: RivalState;
   regulator: RegulatorState;
-  world: { oilIndexCenti: number; prevOilIndexCenti: number; referenceIndexCenti: number };
+  world: { oilIndexCenti: number; prevOilIndexCenti: number; referenceIndexCenti: number; /** Start the oil series N days in (Economy Lab historical window). */ oilDayOffset?: number };
   waves: WaveState[];
   quotes: Record<string, QuoteState>;
   trades: Record<string, TradeState>;
+  /** Player listings reserve matching fuel in escrowListings until chain resolution. */
+  marketListings: MarketListingState[];
   dayStats: DayStats;
   dayReports: DayReport[];
   totals: {
@@ -350,7 +385,18 @@ export interface SimState {
     servedOutageTicks: number;
     gdpCc: number;
     closures: number;
+    servicesStarted?: number;
+    contractsCompleted?: number;
+    contractsDuringEvents?: number;
+    solarContractsCompleted?: number;
+    dieselPurchases?: number;
   };
+  /** World Events (optional for saves created before the feature). */
+  worldEvents?: WorldState;
+  /** Story progress: completed chapter ids, in order. */
+  story?: { completed: string[] };
+  /** Weekly challenge id (e.g. "2026-W45") when this run is a challenge. */
+  challengeWeek?: string | null;
   tutorialStep: "accept_first" | "assign_first" | "watch_service" | "done";
   finished: boolean;
 }
@@ -386,7 +432,7 @@ export function newId(s: SimState, prefix: string): string {
 
 export function clockLabel(s: SimState): string {
   if (s.phase !== "operating") return s.phase;
-  const m = 360 + s.phaseTick * 6;
+  const m = 360 + s.phaseTick * 6; // phaseTick = tick within the current 24h day
   const mm = m % 1440;
   return `${String(Math.floor(mm / 60)).padStart(2, "0")}:${String(mm % 60).padStart(2, "0")}`;
 }
@@ -422,8 +468,22 @@ export function emit(
     txHash: opts.txHash ?? null,
   };
   ctx.events.push(ev);
+  if (NOTABLE.has(type) && s.dayStats && s.dayStats.notable.length < 200) {
+    s.dayStats.notable.push({ seq: ev.seq, type, explanation, data });
+  }
   return ev;
 }
+
+const NOTABLE = new Set<string>([
+  "TRADE_RESERVED",
+  "MERCHANT_REPRICED",
+  "BUSINESS_STATUS_CHANGED",
+  "RIVAL_WON_CONTRACT",
+  "CONTRACT_FAILED",
+  "GENERATOR_BROKEN",
+  "CUSTOMER_SWITCHED_PROVIDER",
+  "MERCHANT_CLOSED",
+]);
 
 export const cr = (cc: number): string => {
   const sign = cc < 0 ? "-" : "";

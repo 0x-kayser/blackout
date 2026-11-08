@@ -1,0 +1,38 @@
+# Render Blueprint (optional). Persistent disks require a paid instance type on Render — check current pricing.
+services:
+  - type: web
+    name: blackout
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: blackout-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: WEB_ORIGINS            # your public URL, e.g. https://blackout.onrender.com
+        sync: false
+      - key: SUPABASE_URL           # optional: enables Google/email sign-in
+        sync: false
+      - key: SUPABASE_ANON_KEY      # publishable key (public by design)
+        sync: false
+      - key: AUTH_GOOGLE_ENABLED    # "true" only after enabling Google in the Supabase dashboard
+        sync: false
+      - key: NEAR_CHAIN_ENABLED     # optional: "true" after pnpm chain:bootstrap
+        sync: false
+      - key: NEAR_RESOURCE_CONTRACT_ID
+        sync: false
+      - key: NEAR_VAULT_ACCOUNT_ID
+        sync: false
+      - key: NEAR_MERCHANT_EMBER_ACCOUNT_ID
+        sync: false
+      - key: NEAR_MERCHANT_EMBER_PRIVATE_KEY
+        sync: false
+      - key: NEAR_MERCHANT_LANTERN_ACCOUNT_ID
+        sync: false
+      - key: NEAR_MERCHANT_LANTERN_PRIVATE_KEY
+        sync: false
+      - key: NEAR_MERCHANT_HARBOR_ACCOUNT_ID
+        sync: false
+      - key: NEAR_MERCHANT_HARBOR_PRIVATE_KEY
+        sync: false

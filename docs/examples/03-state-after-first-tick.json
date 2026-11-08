@@ -1,0 +1,109 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/api/runs/run_1762afe1-fde/state"
+  },
+  "response": {
+    "ok": true,
+    "state": {
+      "clock": {
+        "day": 1,
+        "campaignDays": 0,
+        "wavesTotal": 1,
+        "pressureLevel": 0,
+        "daylightBps": 500,
+        "phase": "operating",
+        "tick": 1,
+        "phaseTick": 1,
+        "phaseDurationTicks": 240,
+        "gameMinuteOfDay": 366,
+        "gameHourIndex": 0,
+        "paused": true,
+        "pauseReason": "no_clients",
+        "tutorial": true,
+        "nextWaveTick": 30
+      },
+      "player": {
+        "creditsCc": 100000,
+        "reputationBps": 5000,
+        "districtTrustBps": {
+          "market_quarter": 5000,
+          "hospital_row": 5000,
+          "tech_hub": 5000
+        },
+        "fuelMl": 20000,
+        "fuelReservedMl": 0,
+        "tankCapacityMl": 60000,
+        "permitAllowanceMg": 60000000,
+        "permitReservedMg": 0,
+        "co2TodayMg": 0,
+        "co2TotalMg": 0,
+        "tariffsCcPerKwh": {
+          "market_quarter": 800,
+          "hospital_row": 800,
+          "tech_hub": 800
+        },
+        "generatorIds": [
+          "gen_1"
+        ],
+        "batteryId": null,
+        "unlockedDistrictIds": [
+          "market_quarter"
+        ],
+        "upgradesOwned": [],
+        "pendingFuelMl": 0
+      },
+      "generators": [
+        {
+          "generatorId": "gen_1",
+          "name": "Shed Diesel 5kW",
+          "type": "diesel",
+          "ownerId": "player",
+          "ratedW": 5000,
+          "availableW": 5000,
+          "assignedW": 0,
+          "outputW": 0,
+          "loadBps": 0,
+          "heatPermille": 0,
+          "wearBps": 0,
+          "status": "online",
+          "offlineUntilTick": null,
+          "cumulativeWh": 0,
+          "cumulativeFuelMl": 0,
+          "nftTokenId": null
+        }
+      ],
+      "requests": [
+        {
+          "requestId": "req_1",
+          "waveId": "wave_1",
+          "businessId": "cold_room",
+          "districtId": "market_quarter",
+          "requestedW": 1500,
+          "durationHours": 2,
+          "offerRateCcPerKwh": 800,
+          "counterCount": 0,
+          "maxCounters": 2,
+          "lastPlayerCounterCcPerKwh": null,
+          "status": "open",
+          "createdTick": 0,
+          "deadlineTick": null,
+          "expectedEnergyWh": 3000,
+          "expectedPaymentCc": 2400,
+          "estimatedFuelMl": 900,
+          "estimatedCo2Mg": 2412000,
+          "estimatedFuelCostCc": 900,
+          "estimatedMarginCc": 897,
+          "customerProfitPerHourCc": 800,
+          "message": "My freezer's losing power. Need 1.5 kW for 2 hours. I can pay 8 credits/kWh.",
+          "resolutionReason": null
+        }
+      ],
+      "tutorial": {
+        "active": true,
+        "step": "accept_first",
+        "hint": "The Cold Room is dark. Accept its request: 1.5 kW for 2 hours at 8 credits/kWh."
+      }
+    }
+  }
+}

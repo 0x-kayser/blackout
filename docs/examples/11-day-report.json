@@ -1,0 +1,28 @@
+{
+  "request": {
+    "from": "GameStatePublic.dayReports[0]"
+  },
+  "response": {
+    "day": 1,
+    "revenueCc": 2400,
+    "refundsCc": 0,
+    "fuelBurnedMl": 900,
+    "fuelCostCc": 900,
+    "co2Mg": 2412000,
+    "permitAllowanceLeftMg": 57588000,
+    "spendCc": 0,
+    "netCashChangeCc": 102400,
+    "reliabilityBps": 714,
+    "requestsOffered": 13,
+    "contractsCompleted": 1,
+    "contractsFailed": 0,
+    "customersLostToRival": 0,
+    "closures": [],
+    "reopenings": [],
+    "gdpCc": 242400,
+    "gdpChangeBps": 0,
+    "oilIndexCenti": 10000,
+    "avgFuelPriceCcPerL": 1083,
+    "highlights": []
+  }
+}

@@ -10,7 +10,7 @@ const nonNeg = () => z.number().int().nonnegative();
 const id = () => z.string().min(1).max(120);
 
 // ---------------------------------------------------------------- enums
-export const RunModeSchema = z.enum(["play", "replay", "guest_demo"]);
+export const RunModeSchema = z.enum(["play", "replay", "guest_demo", "challenge"]);
 export const PhaseSchema = z.enum(["morning", "operating", "settlement", "finished"]);
 export const EventSourceSchema = z.enum(["simulated_game", "testnet_transaction", "replay_simulation"]);
 export const ChainModeSchema = z.enum(["disabled", "testnet"]);
@@ -23,6 +23,7 @@ export const TradeChainStatusSchema = z.enum([
   "timeout", // could not determine outcome yet; reconciling via contract view, never retried blindly
 ]);
 export const TradeStatusSchema = z.enum(["reserved", "settled", "compensated"]);
+export const MarketListingStatusSchema = z.enum(["reserved", "active", "purchase_pending", "cancel_pending", "filled", "expired", "cancelled", "failed"]);
 export const BusinessStatusSchema = z.enum(["operating", "struggling", "closed", "reopening"]);
 export const PowerSourceSchema = z.enum(["grid", "player", "rival", "none"]);
 export const ProviderSchema = z.enum(["player", "rival"]);
@@ -60,8 +61,16 @@ export const UpgradeIdSchema = z.enum(["solar_2kw", "battery_10kwh", "diesel_5kw
 
 // ---------------------------------------------------------------- clock / run
 export const ClockSchema = z.object({
+  /** Environmental game-day counter (24 game hours = 240 ticks). Days never block play. */
   day: int().min(1),
-  campaignDays: int().min(1),
+  /** 0 = continuous play (never ends). Economy Lab replays use a fixed number of days. */
+  campaignDays: int().min(0),
+  /** Outage waves since the run began. Waves 1-3 are the tutorial. */
+  wavesTotal: nonNeg(),
+  /** 0 tutorial, 1 normal, 2 heat + rival, 3 expert (more simultaneous requests). Driven by progress. */
+  pressureLevel: int().min(0).max(3),
+  /** Sunlight 0..10000 for lighting/solar visuals (same profile the sim uses for solar output). */
+  daylightBps: nonNeg(),
   phase: PhaseSchema,
   tick: nonNeg(), // global authoritative tick count since run start
   phaseTick: nonNeg(), // ticks elapsed in current phase
@@ -86,6 +95,8 @@ export const RunSchema = z.object({
   /** Increments on every accepted player/system action and phase change; ticks do not bump it. */
   stateVersion: nonNeg(),
   chainMode: ChainModeSchema,
+  /** ISO week id (e.g. "2026-W45") when this run is the weekly challenge. */
+  challengeWeek: z.string().nullable(),
 });
 
 // ---------------------------------------------------------------- entities
@@ -108,6 +119,7 @@ export const PlayerSchema = z.object({
   unlockedDistrictIds: z.array(id()),
   upgradesOwned: z.array(UpgradeIdSchema),
   pendingFuelMl: nonNeg(), // bought, awaiting chain confirmation
+  listableFuelMl: nonNeg(), // confirmed custodial fuel not consumed, reserved, or already listed
 });
 
 export const GeneratorSchema = z.object({
@@ -324,6 +336,20 @@ export const TradeSchema = z.object({
   settledTick: nonNeg().nullable(),
 });
 
+export const MarketListingSchema = z.object({
+  listingId: id(),
+  tokenId: z.literal("DIESEL_100ML"),
+  quantityMl: nonNeg(),
+  unitPriceCcPerL: nonNeg(),
+  totalCc: nonNeg(),
+  status: MarketListingStatusSchema,
+  createdTick: nonNeg(),
+  expiresTick: nonNeg(),
+  buyerMerchantId: z.string().nullable(),
+  decisionReasons: z.record(z.string(), z.string()),
+  error: z.string().nullable(),
+});
+
 export const RivalSchema = z.object({
   rivalId: id(),
   name: z.string(),
@@ -343,6 +369,10 @@ export const RivalSchema = z.object({
     explanation: z.string(),
   }),
   activeContractIds: z.array(id()),
+  /** Rooftop solar the rival installed for itself (its own strategy). */
+  solarW: nonNeg(),
+  /** 1 when the rival is stockpiling diesel because merchant shelves look thin. */
+  stockpileDays: nonNeg(),
   customersServedToday: nonNeg(),
   contractsWon: nonNeg(),
   contractsDeclined: nonNeg(),
@@ -360,6 +390,39 @@ export const RegulatorSchema = z.object({
   notices: z.array(z.string()),
 });
 
+export const WorldModeSchema = z.enum(["historical", "living", "scenario", "calm"]);
+export const WorldModifiersSchema = z.object({
+  importCapacityBps: int(),
+  leadTimeDays: int(),
+  logisticsCostBps: int(),
+  demandBps: int(),
+  solarCostBps: int(),
+  permitSupplyBps: int(),
+  cautionBps: int(),
+  gridStressHours: int(),
+});
+export const WorldEventPublicSchema = z.object({
+  eventId: z.string(),
+  templateId: z.string(),
+  category: z.enum(["shipping", "production", "refinery", "inventory", "weather", "demand", "policy", "renewables", "recovery"]),
+  headline: z.string(),
+  explanation: z.string(),
+  assumption: z.string(),
+  sourceType: z.enum(["fictional_scenario", "historical_source"]),
+  verification: z.enum(["fictional", "sourced"]),
+  sourceTitle: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  publishedAt: z.string().nullable(),
+  region: z.string(),
+  effects: WorldModifiersSchema.partial(),
+  startTick: nonNeg(),
+  endTick: nonNeg(),
+  startDay: int(),
+  phase: z.enum(["building", "peak", "easing", "resolved"]),
+  /** Human-readable list of what this changes in Vesper City (computed server-side). */
+  effectNotes: z.array(z.string()),
+});
+
 export const WorldSchema = z.object({
   scenarioId: z.string(),
   scenarioName: z.string(),
@@ -368,7 +431,34 @@ export const WorldSchema = z.object({
   oilTrend: TrendSchema,
   /** Honest provenance label, e.g. "Illustrative sample series — not real Brent data". */
   oilSourceLabel: z.string(),
+  /** Observed Brent week behind today's index (historical scenario only); never a live quote. */
+  observedBrent: z.object({ weekStart: z.string(), usdPerBarrel: z.number(), sourceUrl: z.string() }).nullable(),
+  oilPassThroughBps: nonNeg(),
   gridTariffCcPerKwh: nonNeg(),
+  /** historical = real Brent + EIA-sourced notes; living = real Brent + fictional local events; scenario = all fictional; calm = none. */
+  eventMode: WorldModeSchema,
+  eventPreset: z.string().nullable(),
+  /** Combined, clamped effect of all active events right now. */
+  modifiers: WorldModifiersSchema,
+  activeEvents: z.array(WorldEventPublicSchema),
+  eventHistory: z.array(WorldEventPublicSchema),
+  /** Weekly Brent observations used by this run (historical scenario only), for charts. */
+  brentWeekly: z.array(z.object({ weekStart: z.string(), usdPerBarrel: z.number() })),
+});
+
+export const StorySchema = z.object({
+  chapters: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      goal: z.string(),
+      character: z.string(),
+      characterRole: z.string(),
+      beat: z.string(),
+      done: z.boolean(),
+    }),
+  ),
+  currentChapterId: z.string().nullable(),
 });
 
 export const WaveSchema = z.object({
@@ -452,12 +542,14 @@ export const GameStatePublicSchema = z.object({
   waves: z.array(WaveSchema),
   quotes: z.array(QuoteSchema),
   trades: z.array(TradeSchema),
+  marketListings: z.array(MarketListingSchema),
   dayReports: z.array(DayReportSchema),
   campaign: CampaignSummarySchema,
   tutorial: TutorialSchema,
+  story: StorySchema,
   chain: ChainInfoSchema,
   upgradesCatalog: z.array(
-    z.object({ upgradeId: UpgradeIdSchema, name: z.string(), costCc: nonNeg(), description: z.string(), owned: z.boolean() }),
+    z.object({ upgradeId: UpgradeIdSchema, name: z.string(), costCc: nonNeg(), baseCostCc: nonNeg(), description: z.string(), owned: z.boolean() }),
   ),
   lastEventSeq: nonNeg(),
 });
