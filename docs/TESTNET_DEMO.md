@@ -36,6 +36,20 @@ companies deciding for themselves. Prints every transaction with its explorer li
 To play on testnet instead, add the lines of `.env.economy` to the API's environment and start it
 (`pnpm dev`). The API logs `economy: NEAR testnet (<contract>)`.
 
+## Keeping it running (operations)
+
+Lessons from running it live, each now handled in code:
+
+| What happens on testnet | What to do |
+|---|---|
+| The free RPC endpoints rate-limit (429) | nothing: calls are paced and fail over between `NEAR_RPC_URL` and `NEAR_RPC_FALLBACK_URLS`; rate-limited operations retry |
+| A transaction is lost in transit | nothing: after two minutes unconfirmed the server reads the contract; batches and grants are re-sent (single-use ids), NPC orders are not |
+| An escrow lands after the game gave up on its order | nothing: the escrow sweeper queues `power_order_expire` and the buyer is refunded |
+| The contract's storage NEAR runs low | closed orders are deleted and batches leave only a marker; `pnpm chain:upgrade` redeploys and prunes old orders |
+| A server key's gas allowance runs out ("Not enough allowance") | `pnpm chain:keys` rotates the operator and company keys to uncapped function-call keys (same methods), then restart the API |
+| An account that pays fees runs low ("Not enough balance") | top it up from your account: the operator spends roughly 0.06 testnet NEAR an hour |
+| NEAR and the game drift apart after an incident | `POST /api/economy/admin/resync` with `x-admin-token: $ECONOMY_ADMIN_TOKEN`, repeated until it answers `done`: it pauses NPCs, waits for escrow to clear, withdraws batches that never landed, settles each NPC's and wallet's exact difference, and resumes NPCs once those corrections land |
+
 ## What a judge can check
 
 | Check | Where |

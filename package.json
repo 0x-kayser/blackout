@@ -28,7 +28,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "chain:economy": "tsx scripts/near-economy-bootstrap.ts",
     "chain:demo": "tsx scripts/near-economy-demo.ts",
-    "chain:upgrade": "tsx scripts/near-economy-upgrade.ts"
+    "chain:upgrade": "tsx scripts/near-economy-upgrade.ts",
+    "chain:keys": "tsx scripts/near-economy-keys.ts"
   },
   "devDependencies": {
     "@blackout/api": "workspace:*",

@@ -102,6 +102,7 @@ export function startEconomyWorker(economy: EconomyService, ms = 3_000): () => v
     void (async () => {
       try {
         await economy.ensureTownOpen();
+        economy.finishResync();
         economy.queueSettlement();
         economy.syncPlants();
         await economy.processOps();

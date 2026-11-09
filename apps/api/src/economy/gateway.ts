@@ -59,6 +59,21 @@ class Pacer {
   }
 }
 
+/**
+ * Gas to reserve per call. A function-call key's allowance is charged for the gas a transaction RESERVES, and unused
+ * gas is never credited back to it, so reserving far more than needed drains keys for nothing. These are a few times
+ * what each call uses; a batch scales with the accounts it touches.
+ */
+export function gasFor(method: string, args: Record<string, unknown>): number {
+  if (method === "settle_batch") {
+    const legs = ((args.entries as [string, unknown[]][] | undefined) ?? []).reduce((a, [, l]) => a + l.length, 0);
+    return Math.min(300, 20 + legs * 2);
+  }
+  if (method === "plant_mint") return 40;
+  if (method === "prune_closed_orders") return 150;
+  return 20;
+}
+
 export class NearGateway implements ChainGateway {
   private readonly providers: JsonRpcProvider[];
   private readonly pacer = new Pacer();
@@ -130,7 +145,7 @@ export class NearGateway implements ChainGateway {
   }
 
   call(signer: Signer, method: string, args: Record<string, unknown>, opts: { depositYocto?: bigint; onSigned?: (txHash: string) => void } = {}): Promise<GatewayResult> {
-    return this.send(signer, this.cfg.contractId!, [actions.functionCall(method, args, teraToGas(60), opts.depositYocto ?? 0n)], opts.onSigned);
+    return this.send(signer, this.cfg.contractId!, [actions.functionCall(method, args, teraToGas(gasFor(method, args)), opts.depositYocto ?? 0n)], opts.onSigned);
   }
 
   createSubAccount(newAccountId: string, publicKey: string, onSigned?: (txHash: string) => void): Promise<GatewayResult> {

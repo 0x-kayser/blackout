@@ -143,6 +143,40 @@ describe("opening the market on chain", () => {
   });
 });
 
+describe("resync after an incident", () => {
+  it("waits until nothing is in flight, then lines every NPC and wallet on NEAR up with the game, minting nothing", async () => {
+    const p = await player();
+    await economy(p.token);
+    await drain(4);
+    const wallet = built.economy.activeAccount(p.userId)!;
+    // an incident: balances drift apart from the game (a lost batch, say)
+    chain.bal.set(`credit:vesper|ingrid.game.testnet`, chain.balance("ingrid.game.testnet") - 500_000);
+    chain.bal.set(`credit:vesper|world.game.testnet`, chain.balance("world.game.testnet") + 500_000);
+    chain.bal.set(`credit:vesper|${wallet}`, chain.balance(wallet) + 77_000);
+    chain.bal.set(`credit:vesper|grid.game.testnet`, chain.balance("grid.game.testnet") - 77_000);
+    built.economy.enqueue({ opId: "batch:stuck", kind: "batch", subject: "town", signer: "operator", method: "settle_batch", args: { epoch_id: "stuck", hash: "a".repeat(64), entries: [] } });
+    built.db.prepare("UPDATE chain_ops SET status = 'failed' WHERE op_id = 'batch:stuck'").run();
+    // escrow still held on chain: it must wait
+    chain.bal.set(`credit:vesper|econ.game.testnet`, 1_000);
+    chain.bal.set(`credit:vesper|world.game.testnet`, chain.balance("world.game.testnet") - 1_000);
+    const waiting = (await built.app.inject({ method: "POST", url: "/api/economy/admin/resync", headers: { "x-admin-token": "admin-secret" } })).json();
+    expect(waiting.status).toBe("waiting");
+    chain.bal.set(`credit:vesper|econ.game.testnet`, 0);
+    chain.bal.set(`credit:vesper|world.game.testnet`, chain.balance("world.game.testnet") + 1_000);
+    const done = (await built.app.inject({ method: "POST", url: "/api/economy/admin/resync", headers: { "x-admin-token": "admin-secret" } })).json();
+    expect(done.status).toBe("done");
+    expect(built.economy.op("batch:stuck")!.detail).toMatch(/withdrawn by resync/);
+    expect(built.economy.cfg.npcSpending).toBe(false); // still paused until the corrections land
+    await drain(4);
+    built.economy.finishResync();
+    const t = built.tsvc.state;
+    expect(chain.balance("ingrid.game.testnet")).toBe(t.epochStart.balances.cc["merchant:ingrid"]);
+    expect(chain.balance(wallet)).toBe(region.rbal(built.rsvc.liveFor(p.userId).state, "cc", "player"));
+    expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
+    expect(built.economy.cfg.npcSpending).toBe(true);
+  });
+});
+
 describe("plants as NFTs", () => {
   it("every plant a wallet holder owns is minted to their wallet, and leaves it when they sell", async () => {
     const p = await player();

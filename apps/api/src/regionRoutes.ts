@@ -71,6 +71,13 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
     return { ok: true, npcSpending: !body.paused };
   });
 
+  // re-line NEAR up with the game after an incident (see EconomyService.resync); call until it says "done"
+  app.post("/api/economy/admin/resync", async (req) => {
+    const token = req.headers["x-admin-token"];
+    if (!d.economy?.cfg.adminToken || token !== d.economy.cfg.adminToken) throw new ApiError("FORBIDDEN", "Admin token required.");
+    return { ok: true, ...(await d.economy.resync()) };
+  });
+
   app.get("/api/region", async (req) => {
     const u = await d.requireUser(req);
     const h = rsvc.liveFor(u.userId);

@@ -31,7 +31,7 @@ import { newWalletKey, openKey, sealKey, walletAccountId } from "./wallets.ts";
 
 const CREDIT = "credit:vesper";
 const ITEM_TOKENS = ["fuel:natural-gas", "fuel:diesel", "permit:carbon", "certificate:renewable", "material:steel", "part:turbine"];
-const RETRYABLE = /Insufficient|exhausted|timeout|TIMEOUT|broadcast|nonce|InvalidNonce|Expired|LackBalanceForState|NotEnoughBalance/i;
+const RETRYABLE = /Insufficient|exhausted|timeout|TIMEOUT|broadcast|nonce|InvalidNonce|Expired|LackBalanceForState|NotEnoughBalance|allowance/i;
 /** Settle the market at most this often, and players' region earnings at most this often (fewer, bigger batches). */
 const TOWN_BATCH_MS = 120_000;
 const REGION_BATCH_MS = 60_000;
@@ -226,7 +226,11 @@ export class EconomyService {
       // each signer has its own nonce, so different signers go in parallel; one signer's operations stay in order
       const bySigner = new Map<string, OpRow[]>();
       for (const row of rows) {
-        if (row.status === "failed" && !this.retryable(row, row.detail ?? "")) continue;
+        if (row.status === "failed" && !this.retryable(row, row.detail ?? "")) {
+          // retire it for good, so it never again takes a slot from work that can still go out
+          this.db.prepare("UPDATE chain_ops SET attempts = 99 WHERE op_id = ?").run(row.op_id);
+          continue;
+        }
         bySigner.set(row.signer, [...(bySigner.get(row.signer) ?? []), row]);
       }
       await Promise.all(
@@ -471,6 +475,8 @@ export class EconomyService {
     if (this.op(`order:${o.orderId}`)) return;
     const ctx = town.newTCtx();
     if (!this.cfg.npcSpending) return town.failPowerOrder(this.tsvc.state, ctx, o.orderId, "NPC spending is switched off on this server.");
+    // until the market's opening balances have landed, an NPC's escrow would race them
+    if (!this.townOpened()) return town.failPowerOrder(this.tsvc.state, ctx, o.orderId, "The market isn't open on NEAR yet.");
     const buyer = town.FIRM(o.buyerId).chainName;
     const seller = o.sellerKey.startsWith("player:") ? this.activeAccount(o.sellerKey.slice(7)) : this.npcAccount(town.FIRM(o.sellerKey.slice(5)).chainName);
     if (!seller || !this.cfg.npcs[buyer]?.privateKey) return town.failPowerOrder(this.tsvc.state, ctx, o.orderId, "The seller or buyer has no NEAR account.");
@@ -784,6 +790,66 @@ export class EconomyService {
       plants: this.plantsView(userId),
       missing: this.cfg.missing,
     };
+  }
+
+  /**
+   * Re-lines every NPC and player account on NEAR up with the game, after an incident left them apart (an outage,
+   * operations abandoned under old rules). Two phases, so nothing is in flight while it runs:
+   *   1. NPC spending is paused on the server, and the call returns "waiting" until no order is open in the game and
+   *      no credits sit in the contract's escrow.
+   *   2. Every unsettled batch is withdrawn (it never landed, so nothing moved), then the market is reopened on chain
+   *      (each NPC: read its balance on NEAR, settle the exact difference against the world account) and each open
+   *      wallet is re-synced (read its balance, settle the difference against the grid account). Spending resumes.
+   * Every correction is a zero-sum transfer between real accounts; nothing is minted.
+   */
+  async resync(): Promise<{ status: "waiting" | "done"; detail: string }> {
+    if (!this.live) return { status: "done", detail: "No chain connected." };
+    this.cfg.npcSpending = false;
+    const t = this.tsvc.state;
+    const busy = (t.power?.orders ?? []).filter((o) => o.status === "placing" || o.status === "open" || o.status === "awaiting").length;
+    const pool = await this.onChain(this.cfg.contractId!, true);
+    const inflight = (this.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE kind IN ('order', 'confirm', 'expire') AND status IN ('created', 'submitted')").get() as { n: number }).n;
+    if (busy > 0 || inflight > 0 || (pool ?? 1) > 0) return { status: "waiting", detail: `NPC spending paused; waiting for ${busy} open orders, ${inflight} order operations in flight and ₡${Math.round((pool ?? 0) / 100).toLocaleString("en-US")} in escrow to clear` };
+    const at = nowIso();
+    const withdrawn = this.db.prepare("UPDATE chain_ops SET status = 'failed', attempts = 99, detail = 'withdrawn by resync (never landed)', updated_at = ? WHERE kind = 'batch' AND status != 'settled'").run(at).changes;
+    this.db.prepare("UPDATE settlement_epochs SET status = 'local', updated_at = ? WHERE status IN ('pending', 'submitted')").run(at);
+    // the market: reopen with a fresh id (ensureTownOpen reads every NPC's balance on chain and settles the difference)
+    this.db.prepare("DELETE FROM economy_state WHERE key = 'town_open'").run();
+    await this.ensureTownOpen();
+    await this.ensureTownOpen();
+    // each open wallet: read it, settle the difference, and start its epochs from now
+    const tick = this.tsvc.state.epochStart.tick;
+    let wallets = 0;
+    for (const w of this.db.prepare("SELECT * FROM player_wallets WHERE status = 'active'").all() as unknown as WalletRow[]) {
+      const h = this.rsvc.liveFor(w.player_id);
+      const fromInterval = region.forceCloseEpoch(h.state);
+      this.rsvc.checkpoint(h);
+      const cash = region.rbal(h.state, "cc", "player");
+      const have = await this.onChain(w.account_id, true);
+      if (have === null) continue;
+      this.db.prepare("UPDATE player_wallets SET opened_interval = ?, opened_town_tick = ?, updated_at = ? WHERE player_id = ?").run(fromInterval, tick, at, w.player_id);
+      if (cash !== have) {
+        const id = `resync:${w.player_id}:${Date.now().toString(36)}`;
+        this.enqueue({ opId: `batch:${id}`, kind: "batch", subject: `resync:${w.player_id}`, signer: "operator", method: "settle_batch", args: { epoch_id: id, hash: region.sha256(region.canonical({ w: w.account_id, cash, have })), entries: [[CREDIT, [[w.account_id, String(cash - have)], [this.cfg.gridId!, String(have - cash)]].sort(([a], [b]) => a.localeCompare(b))]] } });
+      }
+      wallets++;
+    }
+    // NPCs stay paused until these corrections have landed: an NPC spending meanwhile would invalidate them
+    this.setState("resync", { at, phase: "settling" });
+    return { status: "done", detail: `withdrew ${withdrawn} unsettled batches, reopened the market, re-synced ${wallets} wallets; NPCs resume once the corrections land` };
+  }
+
+  /** Ends a resync once its corrections have landed: NPC spending resumes. Called by the worker. */
+  finishResync(): void {
+    if (!this.getState("resync")) return;
+    const open = this.townOpened();
+    const left = (this.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE subject LIKE 'resync:%' AND status != 'settled'").get() as { n: number }).n;
+    if (!open || left > 0) {
+      this.cfg.npcSpending = false;
+      return;
+    }
+    this.db.prepare("DELETE FROM economy_state WHERE key = 'resync'").run();
+    this.cfg.npcSpending = true;
   }
 
   /** Emergency stop: the contract stops every NPC's spending, and the server stops placing NPC orders. */
