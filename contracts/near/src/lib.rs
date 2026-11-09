@@ -78,6 +78,10 @@ enum StorageKey {
     PlantsByOwner,
     PlantSales,
     Epochs,
+    Grants,
+    GrantedTo,
+    NpcLimits,
+    PowerOrders,
 }
 
 /// A registered exchange trader (an NPC with its own Testnet account and key).
@@ -251,6 +255,13 @@ pub struct Contract {
     plant_count: u64,
     /// settlement epochs already applied (see plants.rs)
     epochs: LookupMap<String, plants::EpochRecord>,
+    /// the fixed-supply treasury (see economy.rs); None until `init_economy`
+    economy: Option<economy::EconomyState>,
+    grants: LookupMap<String, economy::GrantRecord>,
+    /// "<bucket>|<account>" -> grant id, for once-per-account buckets
+    granted_to: LookupMap<String, String>,
+    npc_limits: LookupMap<AccountId, economy::NpcLimits>,
+    power_orders: LookupMap<String, economy::PowerOrder>,
 }
 
 const NANOS_PER_DAY: u64 = 86_400_000_000_000;
@@ -292,6 +303,11 @@ impl Contract {
             plant_sales: LookupMap::new(StorageKey::PlantSales),
             plant_count: 0,
             epochs: LookupMap::new(StorageKey::Epochs),
+            economy: None,
+            grants: LookupMap::new(StorageKey::Grants),
+            granted_to: LookupMap::new(StorageKey::GrantedTo),
+            npc_limits: LookupMap::new(StorageKey::NpcLimits),
+            power_orders: LookupMap::new(StorageKey::PowerOrders),
         };
         c.registered.insert(owner_id);
         c.registered.insert(operator_id);
@@ -319,6 +335,8 @@ impl Contract {
         require!(token_ids.len() == amounts.len(), "Length mismatch");
         require!(self.registered.contains(&owner_id), "Receiver not registered for storage");
         for (t, a) in token_ids.iter().zip(amounts.iter()) {
+            // credits have a fixed supply once the economy exists: only `issue` (bounded, audited) can add more
+            require!(!(self.economy.is_some() && t == plants::CREDIT), "Vesper credits have a fixed supply: use issue()");
             let s = self.supply.get(t).copied().unwrap_or_else(|| env::panic_str("Unknown token"));
             self.supply.insert(t.clone(), s.checked_add(a.0).expect("supply overflow"));
             let k = bkey(t, &owner_id);
@@ -860,9 +878,15 @@ impl Contract {
     }
 
     fn is_player_id(&self, account_id: &AccountId) -> bool {
-        let suffix = format!(".{}", self.operator_id);
+        if self.released.contains(account_id) {
+            return false;
+        }
         let s = account_id.as_str();
-        s.len() > suffix.len() && s.ends_with(&suffix) && !self.released.contains(account_id)
+        let under = |parent: &str| {
+            let suffix = format!(".{}", parent);
+            s.len() > suffix.len() && s.ends_with(&suffix)
+        };
+        under(self.operator_id.as_str()) || self.economy.as_ref().map(|e| under(e.player_parent_id.as_str())).unwrap_or(false)
     }
 
     fn bump_open(&mut self, owner: &AccountId, delta: i64) {
@@ -919,9 +943,12 @@ impl Contract {
     }
 }
 
+pub mod economy;
 pub mod plants;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod plant_tests;
+#[cfg(test)]
+mod economy_tests;

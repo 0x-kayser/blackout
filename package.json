@@ -2,7 +2,7 @@
   "name": "blackout",
   "private": true,
   "version": "0.1.0",
-  "description": "BLACKOUT — Every Light Changes the Economy. NEAR Hackathon games track.",
+  "description": "BLACKOUT \u2014 Every Light Changes the Economy. NEAR Hackathon games track.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.33.4",
@@ -25,7 +25,9 @@
     "chain:bootstrap": "tsx scripts/near-bootstrap.ts",
     "docs:examples": "tsx scripts/capture-examples.ts",
     "test:e2e": "playwright test",
-    "db:migrate": "tsx scripts/migrate.ts"
+    "db:migrate": "tsx scripts/migrate.ts",
+    "chain:economy": "tsx scripts/near-economy-bootstrap.ts",
+    "chain:demo": "tsx scripts/near-economy-demo.ts"
   },
   "devDependencies": {
     "@blackout/api": "workspace:*",

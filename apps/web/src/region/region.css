@@ -391,3 +391,33 @@
 @media (prefers-reduced-motion: reduce) { .news-item, .news-tag { animation: none; } }
 .region-app:has(.news-ticker) .toasts { top: 148px; }
 @media (max-width: 700px) { .region-app:has(.news-ticker) .toasts { top: 168px; } }
+
+/* ------------------------------------------------------------------ power companies and money */
+.company { border: 1px solid var(--edge); border-radius: 12px; padding: 8px 10px; margin: 6px 0; background: rgba(255, 255, 255, 0.03); display: grid; gap: 3px; font-size: 13px; }
+.company.closed { opacity: 0.75; border-color: rgba(239, 68, 68, 0.5); }
+.company .fine { margin: 0; }
+.company-why { margin: 2px 0 0; padding: 6px 8px; border-left: 2px solid var(--gold); background: rgba(251, 191, 36, 0.06); border-radius: 0 8px 8px 0; font-size: 12.5px; line-height: 1.45; color: var(--ink); }
+.desk-you { margin: 10px 0 4px; padding: 8px 10px; border: 1px dashed rgba(45, 212, 191, 0.4); border-radius: 12px; display: grid; gap: 6px; }
+.desk-you .fine { margin: 0; }
+.deals-title { margin: 12px 0 4px; }
+.deal { padding: 7px 0; border-top: 1px solid var(--edge); font-size: 13px; display: grid; gap: 2px; }
+.deal.mine { background: linear-gradient(90deg, rgba(45, 212, 191, 0.08), transparent); padding-left: 6px; border-radius: 6px; }
+.deal-head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.deal-head .pill { margin-left: auto; }
+.deal .fine { margin: 0; }
+.deal-links { display: flex; gap: 12px; flex-wrap: wrap; }
+.tx-link { font-size: 12px; color: var(--info); text-decoration: none; overflow-wrap: anywhere; }
+.tx-link:hover { text-decoration: underline; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid var(--edge); color: var(--mute); }
+.pill.ok { color: #04201c; background: var(--ok); border-color: transparent; }
+.pill.warn { color: #2a1700; background: var(--warn); border-color: transparent; }
+.pill.info { color: #031327; background: var(--info); border-color: transparent; }
+.bucket { margin: 6px 0; }
+.ops { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.ops li { overflow-wrap: anywhere; }
+.modal code { font-size: 12px; background: rgba(255, 255, 255, 0.06); padding: 1px 5px; border-radius: 4px; }
+.ff-companies { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.ff-company { border: 1px solid var(--edge); border-radius: 10px; padding: 6px 8px; display: grid; gap: 2px; font-size: 12px; background: rgba(251, 191, 36, 0.04); }
+.ff-company.closed { border-color: rgba(239, 68, 68, 0.5); }
+.ff-company em { font-style: normal; font-size: 11px; }
+@media (max-width: 700px) { .ff-companies { grid-template-columns: 1fr 1fr; } }

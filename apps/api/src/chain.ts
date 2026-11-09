@@ -73,7 +73,7 @@ export function loadChainConfig(env: NodeJS.ProcessEnv = process.env): ChainConf
     exchangeMissing,
     enabled,
     network: "testnet",
-    rpcUrl: env.NEAR_RPC_URL?.trim() || "https://rpc.testnet.near.org",
+    rpcUrl: env.NEAR_RPC_URL?.trim() || "https://test.rpc.fastnear.com",
     explorerTxBase: env.NEAR_EXPLORER_TX_BASE?.trim() || "https://testnet.nearblocks.io/txns/",
     resourceContractId: contract,
     vaultAccountId: vault,

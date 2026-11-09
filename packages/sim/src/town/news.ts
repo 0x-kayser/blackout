@@ -35,6 +35,8 @@ export interface NewsStory {
   detail: string;
   tone: "warn" | "good";
   effects: NewsEffect[];
+  /** Weather stories: the cloud cover the sky moves to while they run (cuts solar output, firmPolicy.ts). */
+  cloudPct?: number;
 }
 
 export const NEWS_EVERY: [number, number] = [35, 65];
@@ -97,6 +99,22 @@ export const STORIES: NewsStory[] = [
     detail: "Firms are queueing at Lena's desk for certificates. Sell yours while they're dear.",
     tone: "good",
     effects: [{ item: "certificate:renewable", merchants: ["lena"], demand: 2.5 }],
+  },
+  {
+    storyId: "storm-front",
+    headline: "Storm front parks over Vesper",
+    detail: "Thick cloud for hours: solar output collapses. Solara Energy will have to buy backup power, and rooftop solar sells Lena fewer certificates.",
+    tone: "warn",
+    cloudPct: 92,
+    effects: [{ item: "certificate:renewable", merchants: ["lena"], supply: 0.3 }],
+  },
+  {
+    storyId: "clear-skies",
+    headline: "Clear skies all week",
+    detail: "Solar farms run flat out; Solara needs less backup and rooftops send Lena twice the certificates.",
+    tone: "good",
+    cloudPct: 5,
+    effects: [{ item: "certificate:renewable", merchants: ["lena"], supply: 2 }],
   },
   {
     storyId: "carbon-up",

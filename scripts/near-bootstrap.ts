@@ -25,7 +25,7 @@ import { DEFAULT_EXCHANGE_CONFIG } from "../packages/sim/src/exchange/engine.ts"
 
 const parentId = process.env.NEAR_PARENT_ACCOUNT_ID;
 const parentKey = process.env.NEAR_PARENT_PRIVATE_KEY as KeyPairString | undefined;
-const rpcUrl = process.env.NEAR_RPC_URL ?? "https://rpc.testnet.near.org";
+const rpcUrl = process.env.NEAR_RPC_URL ?? "https://test.rpc.fastnear.com";
 const wasmPath = process.env.WASM_PATH ?? "contracts/near/res/blackout_resources.wasm";
 if (!parentId || !parentKey || !parentId.endsWith(".testnet")) {
   console.error("Set NEAR_PARENT_ACCOUNT_ID (a funded *.testnet account you own) and NEAR_PARENT_PRIVATE_KEY.");

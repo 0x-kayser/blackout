@@ -3,7 +3,8 @@
  * happens, and a week of trading you can watch in a minute. Nothing here happens out of sight.
  */
 import { useEffect, useRef, useState } from 'react'
-import type { FastForwardResult, ItemId, MerchantItemView, MerchantView, PriceWhy, RegionView, TownView } from '@blackout/shared'
+import type { EconomyView, FastForwardResult, ItemId, MerchantItemView, MerchantView, PriceWhy, RegionView, TownView } from '@blackout/shared'
+import { CompaniesSection } from './Companies'
 import { ITEMS, ITEM_IDS } from '@blackout/shared'
 import { regionApi } from '../api'
 import { credits } from '../format'
@@ -237,7 +238,7 @@ export function NewsTicker({ town, onMerchant }: { town: TownView | null; onMerc
   )
 }
 
-export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel }: { v: RegionView; town: TownView | null; trade: Trade; onMerchant: (id: string) => void; onWatch: () => void; onAutoFuel: (fuel: 'gas' | 'diesel', on: boolean) => void }) {
+export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, economy, onEconomy }: { v: RegionView; town: TownView | null; trade: Trade; onMerchant: (id: string) => void; onWatch: () => void; onAutoFuel: (fuel: 'gas' | 'diesel', on: boolean) => void; economy: EconomyView | null; onEconomy: (e: EconomyView) => void }) {
   const { busy, msg, run } = useBusy()
   if (!town) return <p className="fine">Opening the market…</p>
   return (
@@ -266,6 +267,7 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel }:
       <button className="btn primary wide" onClick={onWatch}>
         ⏩ Watch a week of trading in a minute
       </button>
+      <CompaniesSection c={town.companies} economy={economy} onEconomy={onEconomy} />
       <Section title="What you hold">
         <Inventory v={v} />
         <div className="row">
@@ -381,7 +383,7 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
           ×
         </button>
         <div className="modal-body">
-          <p className="eyebrow">Fast-forward · same rules, four bot companies, seed {week?.seed ?? 42}</p>
+          <p className="eyebrow">Fast-forward · same rules, four bot companies, three NPC power companies, a storm on day 2 · seed {week?.seed ?? 42}</p>
           <h3>{f ? f.label : 'Simulating a week of Vesper Market…'}</h3>
           {week && (
             <>
@@ -396,6 +398,35 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
                   Skip to the end
                 </button>
               </div>
+              {f!.companies && (
+                <div className="ff-companies">
+                  {f!.companies.map((c) => {
+                    const c0 = week.frames[0].companies!.find((x) => x.firmId === c.firmId)!
+                    const ch = c.cashCc - c0.cashCc
+                    return (
+                      <div key={c.firmId} className={`ff-company ${c.open ? '' : 'closed'}`}>
+                        <b>{c.name}</b>
+                        <span>
+                          {credits(c.cashCc)} <em className={ch >= 0 ? 'ok' : 'warn'}>{ch >= 0 ? '+' : '−'}{credits(Math.abs(ch))}</em>
+                        </span>
+                        {c.firmId === 'halvard' && <small className="fine">potlines {Math.round(c.productionBps / 100)}%</small>}
+                        {!c.open && <span className="pill-closed">STOPPED</span>}
+                        <Spark values={week.frames.slice(0, i + 1).map((fr) => fr.companies!.find((x) => x.firmId === c.firmId)!.cashCc)} height={18} tone="gold" />
+                      </div>
+                    )
+                  })}
+                  <div className="ff-company">
+                    <b>Sky over Vesper</b>
+                    <span>{f!.cloudPct ?? 0}% cloud</span>
+                    {(f!.cloudPct ?? 0) > 70 && <small className="warn-line">Storm: Solara’s panels fall short</small>}
+                    {week.you && (
+                      <small className="ok-line">
+                        {week.you.name}: {credits(f!.youEarnedCc ?? 0)} from the companies
+                      </small>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="ff-grid">
                 {f!.merchants.map((m) => {
                   const first = week.frames[0].merchants.find((x) => x.merchantId === m.merchantId)!
@@ -421,13 +452,22 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
                 })}
               </div>
               <Section title="What happened to the shops">
-                {shown.filter((e) => e.kind !== 'news').length === 0 && <p className="fine">Watch the gas price as Pemberton corners it, and Lena's desk as Greenfield floods it with certificates…</p>}
-                {shown.filter((e) => e.kind !== 'news').slice(-4).reverse().map((e) => (
+                {shown.filter((e) => !e.kind).length === 0 && <p className="fine">Watch the gas price as Pemberton corners it, and Lena's desk as Greenfield floods it with certificates…</p>}
+                {shown.filter((e) => !e.kind).slice(-4).reverse().map((e) => (
                   <p key={e.seq} className={`market-event ${e.severity}`}>
                     <b>{e.title}</b> {e.detail}
                   </p>
                 ))}
               </Section>
+              {shown.some((e) => e.kind === 'power') && (
+                <Section title="What the power companies did">
+                  {shown.filter((e) => e.kind === 'power').slice(-3).reverse().map((e) => (
+                    <p key={e.seq} className="market-event info">
+                      <b>{e.title}</b> <span className="fine">{e.detail}</span>
+                    </p>
+                  ))}
+                </Section>
+              )}
               {shown.some((e) => e.kind === 'news') && (
                 <Section title="In the news that week">
                   {shown.filter((e) => e.kind === 'news').slice(-3).reverse().map((e) => (
@@ -442,6 +482,16 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
                   {week.bots.map((b) => (
                     <Stat key={b.name} label={`${b.name}: ${b.strategy}`} value={credits(b.netWorthCc)} />
                   ))}
+                  {week.companies?.map((c) => (
+                    <Stat key={c.firmId} label={`${c.name}: bought ${c.boughtMWh.toLocaleString('en-US')} MWh, sold ${c.soldMWh.toLocaleString('en-US')} MWh${c.open ? '' : ' (stopped)'}`} value={`${credits(c.startCc)} → ${credits(c.endCc)}`} />
+                  ))}
+                  {week.you ? (
+                    <p className="fine">
+                      {week.you.name} offered {Math.round(week.you.kw / 1000)} MW at ₡{Math.round(week.you.priceCcPerMWh / 100)}/MWh all week and won {week.you.deals} deals worth {credits(week.you.earnedCc)}. A projection from your plants right now, not money you have.
+                    </p>
+                  ) : (
+                    <p className="fine">Start a plant before watching and your company joins the week, selling its spare power to these companies.</p>
+                  )}
                   <p className="fine">{week.trades.toLocaleString('en-US')} player trades · trace {week.traceHash.slice(0, 12)}… (same seed, same week, every time)</p>
                 </Section>
               )}

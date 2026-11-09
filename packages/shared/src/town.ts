@@ -94,8 +94,10 @@ export interface TownEvent {
   title: string;
   detail: string;
   merchantId: string | null;
-  /** "news" for stories from outside the market (news.ts); shop events leave it unset. */
-  kind?: "news";
+  /** "news" for stories from outside the market (news.ts), "power" for the power desk; shop events leave it unset. */
+  kind?: "news" | "power";
+  /** For power events: the seller ("player:<id>" or "firm:<id>"), so a player sees their own deals. */
+  who?: string;
 }
 
 export interface TownNews {
@@ -123,12 +125,73 @@ export interface TownView {
   steelSupplyBps: number;
   /** Stories in the news right now and what each does to the market. */
   news?: TownNews[];
+  /** Vesper's NPC companies and the power desk. */
+  companies?: CompaniesView;
+}
+
+export interface CompanyView {
+  firmId: string;
+  name: string;
+  person: string;
+  face: string;
+  kind: "smelter" | "solar" | "gas";
+  blurb: string;
+  open: boolean;
+  cashCc: number;
+  escrowedCc: number;
+  spendableCc: number;
+  profitCcToday: number;
+  revenueCcToday: number;
+  boughtKwh: number;
+  soldKwh: number;
+  productionBps: number;
+  /** The company's own reasoning for its latest decision, built from the numbers it used. */
+  lastWhy: string;
+  /** Its NEAR account, when the server is connected to testnet. */
+  chainAccount: string | null;
+}
+
+export interface PowerOrderView {
+  orderId: string;
+  buyerId: string;
+  buyerName: string;
+  sellerName: string;
+  mine: boolean;
+  kw: number;
+  kwh: number;
+  priceCcPerMWh: number;
+  escrowCc: number;
+  status: "placing" | "open" | "awaiting" | "settled" | "failed" | "expired";
+  deliveredKwh: number | null;
+  paidCc: number;
+  refundCc: number;
+  why: string;
+  startTick: number;
+  endTick: number;
+  failReason: string | null;
+  /** The buyer's escrow transaction and the operator's confirmation, on NEAR testnet. */
+  txHash: string | null;
+  confirmTxHash: string | null;
+}
+
+export interface CompaniesView {
+  cloudPct: number;
+  sunBps: number;
+  windowTicksLeft: number;
+  firms: CompanyView[];
+  offers: { sellerKey: string; sellerName: string; kw: number; priceCcPerMWh: number; why: string; mine: boolean }[];
+  orders: PowerOrderView[];
 }
 
 export interface FastForwardFrame {
   tick: number;
   label: string;
   merchants: { merchantId: string; open: boolean; cashCc: number; prices: Partial<Record<ItemId, number>>; stock: Partial<Record<ItemId, number>> }[];
+  /** The NPC power companies' cash and output at this moment. */
+  companies?: { firmId: string; name: string; open: boolean; cashCc: number; productionBps: number }[];
+  cloudPct?: number;
+  /** What your company had earned from the power desk so far in this week (projected). */
+  youEarnedCc?: number;
 }
 
 export interface FastForwardResult {
@@ -137,6 +200,10 @@ export interface FastForwardResult {
   frames: FastForwardFrame[];
   events: TownEvent[];
   bots: { name: string; strategy: string; cashCc: number; netWorthCc: number }[];
+  /** Each NPC company's week: cash at the start and end, power bought and sold. */
+  companies?: { firmId: string; name: string; startCc: number; endCc: number; boughtMWh: number; soldMWh: number; open: boolean }[];
+  /** Your company in the week, if it had spare power to offer: what it was projected to offer and earn. */
+  you?: { name: string; kw: number; priceCcPerMWh: number; earnedCc: number; deals: number } | null;
   trades: number;
   traceHash: string;
 }

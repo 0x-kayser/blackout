@@ -36,7 +36,7 @@ export function Seg<T extends string>({ value, options, onChange, disabled }: { 
   )
 }
 
-export function Stat({ label, value, tone }: { label: string; value: ReactNode; tone?: string }) {
+export function Stat({ label, value, tone }: { label: ReactNode; value: ReactNode; tone?: string }) {
   return (
     <div className="stat">
       <span>{label}</span>

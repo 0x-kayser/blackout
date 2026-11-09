@@ -12,6 +12,7 @@ import { nowIso, type Db } from "./db.ts";
 import type { RegionHandle, RegionService } from "./region.ts";
 import { ApiError } from "./services.ts";
 import { npcAccounts } from "./settlement.ts";
+import type { EconomyService } from "./economy/service.ts";
 
 const TOWN_SEED = 20_261_109;
 const CHECKPOINT_EVERY = 5;
@@ -27,7 +28,9 @@ export class TownService {
   private listeners = new Set<{ viewer: string | null; fn: (v: TownView) => void }>();
   private sinceCheckpoint = 0;
   private lastEpochNo: number;
-  private ff = new Map<number, FastForwardResult>();
+  private ff = new Map<string, FastForwardResult>();
+  /** The on-chain economy, when the server has one (set by the server after both services exist). */
+  economy: EconomyService | null = null;
 
   constructor(
     private readonly db: Db,
@@ -43,7 +46,14 @@ export class TownService {
   /* ---------------------------------------------------------------- views */
 
   view(viewer: string | null): TownView {
-    return town.toTownView(this.state, viewer, npcAccounts());
+    const eco = this.economy;
+    const accounts = eco?.live ? Object.fromEntries(Object.entries(eco.cfg.npcs).map(([k, v]) => [k, v.accountId])) : npcAccounts();
+    const v = town.toTownView(this.state, viewer, accounts);
+    if (v.companies && eco) {
+      for (const f of v.companies.firms) f.chainAccount = eco.live ? (eco.cfg.npcs[town.FIRM(f.firmId).chainName]?.accountId ?? null) : null;
+      for (const o of v.companies.orders) Object.assign(o, eco.orderTx(o.orderId));
+    }
+    return v;
   }
 
   subscribe(viewer: string | null, fn: (v: TownView) => void): () => void {
@@ -60,7 +70,8 @@ export class TownService {
 
   tick(): void {
     const ctx = town.newTCtx();
-    town.townTick(this.state, ctx);
+    town.townTick(this.state, ctx, this.economy?.townEnv() ?? {});
+    this.economy?.afterTownTick();
     this.sinceCheckpoint += 1;
     this.persistEpochs();
     if (this.sinceCheckpoint >= CHECKPOINT_EVERY) this.checkpoint();
@@ -70,6 +81,11 @@ export class TownService {
   checkpoint(): void {
     this.db.prepare("INSERT INTO town_state (id, state_json, tick, updated_at) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, tick = excluded.tick, updated_at = excluded.updated_at").run(JSON.stringify(this.state), this.state.tick, nowIso());
     this.sinceCheckpoint = 0;
+  }
+
+  /** Stores any epoch closed out of turn (a wallet opening, the chain going live). */
+  persistEpochsNow(): void {
+    this.persistEpochs();
   }
 
   private persistEpochs(): void {
@@ -234,12 +250,15 @@ export class TownService {
     }
   }
 
-  fastForward(seed: number): FastForwardResult {
-    if (!this.ff.has(seed)) {
-      if (this.ff.size > 16) this.ff.clear();
-      this.ff.set(seed, town.fastForwardWeek(seed, 7, this.state.world));
+  fastForward(seed: number, you: town.FastForwardYou | null = null): FastForwardResult {
+    // your offer is rounded so nearby moments share a cached week
+    const y = you ? { ...you, kw: Math.round(you.kw / 1000) * 1000, priceCcPerMWh: Math.round(you.priceCcPerMWh / 100) * 100 } : null;
+    const k = `${seed}:${y ? `${y.name}:${y.kw}:${y.priceCcPerMWh}` : "-"}`;
+    if (!this.ff.has(k)) {
+      if (this.ff.size > 32) this.ff.clear();
+      this.ff.set(k, town.fastForwardWeek(seed, 7, this.state.world, y));
     }
-    return this.ff.get(seed)!;
+    return this.ff.get(k)!;
   }
 }
 

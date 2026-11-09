@@ -182,6 +182,8 @@ export interface RegionState {
   causes: Record<string, number>;
   /** Last interval an event family fired, to keep the feed readable. */
   cooldowns: Record<string, number>;
+  /** Power the player sold to Vesper's NPC companies: firm loads served from the player's own node (power desk). */
+  exports?: { orderId: string; buyerName: string; kw: number; nodeId: string; untilInterval: number; deliveredKwh: number; priceCcPerMWh: number }[];
   history: RegionHistoryPoint[];
   pulse: { demandKw: number; availableKw: number; shedKw: number; curtailedKw: number; spotCc: number };
   onboarding: { step: number; done: boolean };

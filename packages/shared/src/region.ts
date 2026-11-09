@@ -111,7 +111,11 @@ export type RegionSystemAction =
   /** A trade, investment or dividend in Vesper Market, landing in this region: signed deltas for the player. */
   | { type: "TOWN_SETTLE"; ref: string; reason: string; cc?: number; items?: Partial<Record<import("./town.ts").ItemId, number>>; income?: boolean }
   /** The market's current fuel prices (cc per MMBtu / per litre). */
-  | { type: "TOWN_PRICES"; gas: number | null; diesel: number | null };
+  | { type: "TOWN_PRICES"; gas: number | null; diesel: number | null }
+  /** An NPC company bought `kw` from this player for `intervals`: a firm export load the player's grid must serve. */
+  | { type: "POWER_EXPORT"; orderId: string; buyerName: string; kw: number; intervals: number; priceCcPerMWh: number }
+  /** The buyer's escrow paid the player for a delivered power order (settled on NEAR, or locally). */
+  | { type: "POWER_PAID"; orderId: string; buyerName: string; cc: number };
 export type AnyRegionAction = RegionAction | RegionSystemAction;
 
 export const RegionActionEnvelopeSchema = z.object({

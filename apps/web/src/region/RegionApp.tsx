@@ -4,7 +4,7 @@
  * starts on its own and the first minute teaches by doing (§55–56).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { NodeId, PublicConfig, RegionEvent, RegionView, TechId } from '@blackout/shared'
+import type { EconomyView, NodeId, PublicConfig, RegionEvent, RegionView, TechId } from '@blackout/shared'
 import { api, BlackoutApiError, clearGuestUpgradeToken, guestUpgradeToken, startGuestSession } from '../api/client'
 import { currentSession, initSupabase, signOutProvider } from '../api/auth'
 import { bindAudioToPage, enableSound, playCue, setMusicMood, startMusic, stopMusic, unlockAudio, unlockOnFirstGesture, type Cue } from '../audio'
@@ -38,7 +38,8 @@ const TOAST_TYPES = new Set(['BLACKOUT', 'PLANT_TRIPPED', 'PRICE_SPIKE', 'HEATWA
 
 export default function RegionApp() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
-  const [player, setPlayer] = useState<{ displayName: string; kind: string; companyNamed: boolean } | null>(null)
+  const [player, setPlayer] = useState<{ playerId: string; displayName: string; kind: string; companyNamed: boolean } | null>(null)
+  const [economy, setEconomy] = useState<EconomyView | null>(null)
   const [nameLater, setNameLater] = useState(() => {
     try {
       return sessionStorage.getItem('bo_name_later') === '1'
@@ -121,8 +122,10 @@ export default function RegionApp() {
           clearGuestUpgradeToken()
         }
       }
-      setPlayer({ displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
+      setPlayer({ playerId: me.player.playerId, displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
       const r = await regionApi.live()
+      // a signed-in player's wallet is created (once) as soon as the game opens
+      regionApi.economy().then((x) => setEconomy(x.economy), () => undefined)
       setView(r.view)
       setRegionId(r.view.regionId)
     } catch (e) {
@@ -170,7 +173,10 @@ export default function RegionApp() {
       seenTown.current = last
       return
     }
-    for (const e of town.events) if (e.seq > seenTown.current && e.severity !== 'info') {
+    const me = player ? `player:${player.playerId}` : null
+    for (const e of town.events) if (e.seq > seenTown.current && (e.severity !== 'info' || (e.kind === 'power' && e.who === me))) {
+      // the power desk talks to everyone in the feed, but only toasts the deals that involve you
+      if (e.kind === 'power' && e.who !== me) continue
       // market news appears like region news, linked to the shop
       const asRegion = { seq: 1_000_000 + e.seq, interval: 0, type: 'MARKET', severity: e.severity, title: e.title, detail: e.detail, nodeId: null, actorId: null, causes: [], quote: null, merchantId: e.merchantId } as RegionEvent & { merchantId: string | null }
       setToasts((t) => [...t.slice(-3), asRegion])
@@ -295,7 +301,7 @@ export default function RegionApp() {
   const renameCompany = async (name: string): Promise<{ ok: boolean; message: string }> => {
     try {
       const me = await api.rename(name)
-      setPlayer({ displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
+      setPlayer({ playerId: me.player.playerId, displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
       setRenaming(false)
       setFlash({ text: `You're ${me.player.displayName} now. Everyone in Vesper Market sees it.`, ok: true })
       setTimeout(() => setFlash(null), 3_500)
@@ -368,7 +374,7 @@ export default function RegionApp() {
           <button className="close" onClick={() => setMode(null)} aria-label="Close">
             ×
           </button>
-          <MarketSheet v={view} town={town} trade={trade} onMerchant={(id) => select({ kind: 'merchant', id })} onWatch={() => setWatching(true)} onAutoFuel={(fuel, enabled) => void doAct({ type: 'SET_AUTO_FUEL', fuel, enabled })} />
+          <MarketSheet v={view} town={town} trade={trade} onMerchant={(id) => select({ kind: 'merchant', id })} onWatch={() => setWatching(true)} onAutoFuel={(fuel, enabled) => void doAct({ type: 'SET_AUTO_FUEL', fuel, enabled })} economy={economy} onEconomy={setEconomy} />
         </div>
       )}
       {watching && <WatchAWeek onClose={() => setWatching(false)} />}

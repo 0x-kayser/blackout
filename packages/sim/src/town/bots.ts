@@ -6,6 +6,15 @@ import type { FastForwardResult, ItemId, TownEvent } from "@blackout/shared";
 import { canonical, sha256 } from "../region/settlement.ts";
 import { BOTS, MERCHANTS, TICKS_PER_DAY, referenceCc } from "./config.ts";
 import { bestMerchant, createTown, MACC, newTCtx, quote, reopenCc, tbal, townClock, townInvest, townTick, townTrade, tradePrice, type TCtx, type TownState } from "./engine.ts";
+import { FACC, FIRMS, ensureFirms } from "./firms.ts";
+import { WINDOW_TICKS, type PowerOffer } from "./firmPolicy.ts";
+
+/** Your company in the week: its real spare capacity and ask, held for the week (a projection, not a promise). */
+export interface FastForwardYou {
+  name: string;
+  kw: number;
+  priceCcPerMWh: number;
+}
 
 interface Bot {
   botId: string;
@@ -62,8 +71,17 @@ function botStep(t: TownState, ctx: TCtx, bots: Bot[]): void {
   }
 }
 
-export function fastForwardWeek(seed = 42, days = 7, world?: TownState["world"]): FastForwardResult {
+/**
+ * The power desk in the week: Lakeside (a diesel utility bot) offers 15 MW, and your company offers what it has spare.
+ * A storm front parks over Vesper on day 2 (a fixed weather event so every run of a seed is the same); how the
+ * companies respond to it is entirely their own rules.
+ */
+export function fastForwardWeek(seed = 42, days = 7, world?: TownState["world"], you: FastForwardYou | null = null): FastForwardResult {
   const t = createTown({ seed, world });
+  ensureFirms(t);
+  const startCash = Object.fromEntries(FIRMS.map((f) => [f.firmId, tbal(t, "cc", FACC(f.firmId))]));
+  const offers: PowerOffer[] = [{ sellerKey: "player:bot-lakeside", sellerName: "Lakeside Utilities", kw: 15_000, priceCcPerMWh: 9_800, why: "A diesel utility selling its spare hours." }];
+  if (you && you.kw > 0) offers.push({ sellerKey: "player:you", sellerName: you.name, kw: you.kw, priceCcPerMWh: you.priceCcPerMWh, why: "Your spare capacity." });
   const bots: Bot[] = BOTS.map((b) => ({ ...b, cashCc: 60_000_000, inv: {} }));
   const total = days * TICKS_PER_DAY;
   const every = Math.floor(total / 60);
@@ -73,7 +91,8 @@ export function fastForwardWeek(seed = 42, days = 7, world?: TownState["world"])
   for (let i = 1; i <= total; i++) {
     const ctx = newTCtx();
     botStep(t, ctx, bots);
-    townTick(t, ctx);
+    if (t.tick + 1 === TICKS_PER_DAY) t.news = [...(t.news ?? []), { seq: 900_000, storyId: "storm-front", from: t.tick + 1, until: t.tick + 1 + 180 }];
+    townTick(t, ctx, { offers: (t.tick + 1) % WINDOW_TICKS === 0 ? offers : [], autoSettle: true, delivered: (o) => o.kwh });
     events.push(...ctx.events);
     trades += ctx.trades.length;
     if (i % every === 0 && frames.length < 60)
@@ -87,16 +106,22 @@ export function fastForwardWeek(seed = 42, days = 7, world?: TownState["world"])
           prices: Object.fromEntries(m.items.map((it) => [it.item, quote(t, m.merchantId, it.item).askCc])),
           stock: Object.fromEntries(m.items.map((it) => [it.item, tbal(t, it.item, MACC(m.merchantId))])),
         })),
+        companies: FIRMS.map((f) => ({ firmId: f.firmId, name: f.name, open: t.firms![f.firmId].open, cashCc: tbal(t, "cc", FACC(f.firmId)), productionBps: t.firms![f.firmId].productionBps })),
+        cloudPct: t.sky?.cloudPct,
+        youEarnedCc: t.balances.cc?.["ext:player:you"] ?? 0,
       });
   }
+  const allPower = events.filter((e) => e.kind === "power");
   const worth = (b: Bot) => b.cashCc + Object.entries(b.inv).reduce((a, [item, q]) => a + (q ?? 0) * referenceCc(item as ItemId, t.world), 0);
   return {
     seed,
     days,
     frames,
     // the shops' story (closures, rescues, dividends) and the news are kept apart so neither crowds out the other
-    events: [...events.filter((e) => e.severity !== "info" && e.kind !== "news").slice(-40), ...events.filter((e) => e.kind === "news" && e.severity !== "info").slice(-20)].sort((a, b) => a.seq - b.seq),
+    events: [...events.filter((e) => e.severity !== "info" && !e.kind).slice(-40), ...events.filter((e) => e.kind === "news" && e.severity !== "info").slice(-20), ...events.filter((e) => e.kind === "power" && e.title.includes(" buys ")).slice(-20)].sort((a, b) => a.seq - b.seq),
     bots: bots.map((b) => ({ name: b.name, strategy: b.strategy, cashCc: b.cashCc, netWorthCc: worth(b) })),
+    companies: FIRMS.map((f) => ({ firmId: f.firmId, name: f.name, startCc: startCash[f.firmId], endCc: tbal(t, "cc", FACC(f.firmId)), boughtMWh: Math.round(t.firms![f.firmId].boughtKwh / 1000), soldMWh: Math.round(t.firms![f.firmId].soldKwh / 1000), open: t.firms![f.firmId].open })),
+    you: you && you.kw > 0 ? { ...you, earnedCc: t.balances.cc?.["ext:player:you"] ?? 0, deals: allPower.filter((e) => e.who === "player:you" && / buys /.test(e.title)).length } : null,
     trades,
     traceHash: sha256(canonical(frames)),
   };

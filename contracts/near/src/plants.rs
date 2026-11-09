@@ -22,6 +22,8 @@ use near_sdk::json_types::I64;
 use near_sdk::{Promise, NearToken};
 
 pub const PLANT_ACCOUNT_DEPOSIT: NearToken = NearToken::from_millinear(5);
+/// NEAR the contract keeps free (beyond what its storage locks) before it will pay for a plant account itself.
+pub const PLANT_RESERVE: NearToken = NearToken::from_millinear(200);
 pub const CREDIT: &str = "credit:vesper";
 
 #[near(serializers = [borsh, json])]
@@ -76,8 +78,10 @@ fn nft_event(event: &str, data: serde_json::Value) {
     env::log_str(&format!("EVENT_JSON:{}", ev));
 }
 
+/// `p00042`, or region-scoped `p<region hash><asset no>` (lowercase letters and digits, at most 24 characters), so the
+/// id is also a valid prefix for the plant's own account.
 fn valid_plant_id(id: &str) -> bool {
-    id.len() == 6 && id.starts_with('p') && id[1..].chars().all(|c| c.is_ascii_digit())
+    id.len() >= 6 && id.len() <= 24 && id.starts_with('p') && id[1..].chars().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())
 }
 
 #[near]
@@ -135,7 +139,15 @@ impl Contract {
         self.assert_operator();
         require!(valid_plant_id(&token_id), "Plant ids look like p00042");
         require!(self.plants.get(&token_id).is_none(), "Plant already minted");
-        require!(env::attached_deposit() >= PLANT_ACCOUNT_DEPOSIT, "Attach 0.005 NEAR for the plant account");
+        // the operator's function-call key can't attach a deposit, so the contract may pay for the plant account from
+        // its own balance, but only while it keeps a reserve for its storage
+        let deposit = if env::attached_deposit() >= PLANT_ACCOUNT_DEPOSIT { env::attached_deposit() } else { PLANT_ACCOUNT_DEPOSIT };
+        let locked = env::storage_byte_cost().as_yoctonear().saturating_mul(env::storage_usage() as u128);
+        let free = env::account_balance().as_yoctonear().saturating_sub(locked);
+        require!(
+            env::attached_deposit() >= PLANT_ACCOUNT_DEPOSIT || free > PLANT_RESERVE.as_yoctonear() + PLANT_ACCOUNT_DEPOSIT.as_yoctonear(),
+            "Attach 0.005 NEAR for the plant account (the contract's own reserve is too low)"
+        );
         require!(metadata.title.len() <= 80 && metadata.tech.len() <= 16 && metadata.node_id.len() <= 32, "Metadata too long");
         let plant_account = self.plant_account_id(token_id.clone());
         let asset = PlantAsset { token_id: token_id.clone(), owner_id: owner_id.clone(), plant_account: plant_account.clone(), metadata, approvals: Default::default(), minted_at: env::block_height() };
@@ -146,7 +158,7 @@ impl Contract {
         self.registered.insert(plant_account.clone());
         nft_event("nft_mint", serde_json::json!({ "owner_id": owner_id, "token_ids": [token_id], "memo": format!("plant account {}", plant_account) }));
         // keyless: no access key is ever added, so only this contract can direct the account's game balances
-        Promise::new(plant_account).create_account().transfer(env::attached_deposit())
+        Promise::new(plant_account).create_account().transfer(deposit)
     }
 
     // ------------------------------------------------------------------ NEP-171 core
@@ -258,17 +270,7 @@ impl Contract {
         require!(sum == 0, "Epoch deltas must sum to zero");
         require!(self.supply.get(&credit).is_some(), "Token is not registered");
         // debits first, so a short account fails the whole epoch before anything moves
-        let pool = env::current_account_id();
-        for (acct, d) in deltas.iter().filter(|(_, d)| d.0 < 0) {
-            require!(self.may_debit(acct), "Debit from an account that didn't consent to game custody");
-            self.internal_settle_move(acct, &pool, &credit, (-d.0) as u128);
-        }
-        for (acct, d) in deltas.iter().filter(|(_, d)| d.0 > 0) {
-            if !self.registered.contains(acct) {
-                self.registered.insert(acct.clone());
-            }
-            self.internal_settle_move(&pool, acct, &credit, d.0 as u128);
-        }
+        self.apply_deltas(&credit, &deltas);
         self.epochs.insert(epoch_id.clone(), EpochRecord { epoch_id: epoch_id.clone(), hash: hash.clone(), accounts: deltas.len() as u32, block_height: env::block_height() });
         env::log_str(&format!("EVENT_JSON:{}", serde_json::json!({ "standard": "blackout", "version": "1.0.0", "event": "settle_epoch", "data": [{ "epoch_id": epoch_id, "token_id": credit, "hash": hash, "accounts": deltas.len() }] })));
     }
@@ -290,7 +292,7 @@ impl Contract {
         require!(ok, "Only the plant's owner controls it");
     }
 
-    fn may_debit(&self, acct: &AccountId) -> bool {
+    pub(crate) fn may_debit(&self, acct: &AccountId) -> bool {
         if acct == &self.operator_id || self.is_player_id(acct) || self.npcs.get(acct).is_some() || self.traders.get(acct).is_some() {
             return true;
         }
@@ -300,7 +302,7 @@ impl Contract {
         s.ends_with(&suffix) && valid_plant_id(&s[..s.len() - suffix.len()])
     }
 
-    fn internal_settle_move(&mut self, from: &AccountId, to: &AccountId, token: &TokenId, amount: u128) {
+    pub(crate) fn internal_settle_move(&mut self, from: &AccountId, to: &AccountId, token: &TokenId, amount: u128) {
         let fk = bkey(token, from);
         let fb = self.balances.get(&fk).copied().unwrap_or(0);
         require!(fb >= amount, "Insufficient credits for this epoch");

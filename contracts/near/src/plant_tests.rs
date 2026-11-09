@@ -61,8 +61,20 @@ fn mint_is_operator_only_unique_and_well_formed() {
     ctx(OP, PLANT_ACCOUNT_DEPOSIT.as_yoctonear());
     panics(|| { let _ = c.plant_mint("p00001".into(), acc(BOB), meta()); }, "already minted");
     panics(|| { let _ = c.plant_mint("plant-7".into(), acc(BOB), meta()); }, "p00042");
-    ctx(OP, 0);
+    // no deposit: the contract pays for the plant account itself, but only out of a healthy reserve
+    let mut b = VMContextBuilder::new();
+    b.current_account_id(acc("resources.testnet")).predecessor_account_id(acc(OP)).account_balance(NearToken::from_millinear(100));
+    testing_env!(b.build());
     panics(|| { let _ = c.plant_mint("p00003".into(), acc(BOB), meta()); }, "Attach");
+    let mut b = VMContextBuilder::new();
+    b.current_account_id(acc("resources.testnet")).predecessor_account_id(acc(OP)).account_balance(NearToken::from_near(10));
+    testing_env!(b.build());
+    let _ = c.plant_mint("p00003".into(), acc(BOB), meta());
+    assert_eq!(c.nft_token("p00003".into()).unwrap().owner_id, acc(BOB));
+    // region-scoped ids: unique across every player's region, and still a valid account prefix
+    let _ = c.plant_mint("p3fa9c01b00011".into(), acc(BOB), meta());
+    assert_eq!(c.plant_account_id("p3fa9c01b00011".into()), acc("p3fa9c01b00011.resources.testnet"));
+    panics(|| { let _ = c.plant_mint("pABC00011".into(), acc(BOB), meta()); }, "p00042");
 }
 
 #[test]

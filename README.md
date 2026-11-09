@@ -95,22 +95,29 @@ lives through the same story.
 * **Progression.** Licences (Independent Generator → Regional Producer → System Partner → Grid Anchor) unlock bigger
   plants by energy delivered and regional reliability; tenders, asset sales and the weekly leaderboard.
 
-## NEAR, invisibly (§15–29)
-| Layer | What it is | Where |
-|---|---|---|
-| Fast simulation | Off-chain, deterministic, server-authoritative | `packages/sim/src/region` |
-| Settlement epochs | Every 3 game hours: each identity's net credit change (zero-sum), every Plant Asset's owner and record, SHA-256 | `settlement.ts` (sim), `settlement_epochs` table, `apps/api/src/settlement.ts` worker → `settle_epoch` |
-| Resources (NEP-245) | `fuel:diesel`, `fuel:natural-gas`, `permit:carbon`, `certificate:renewable`, `credit:vesper` | `contracts/near/src/lib.rs`, registered by the bootstrap |
-| Plant Assets (NEP-171) | Token `p00042` ↔ keyless account `p00042.<contract>`; only the current owner can move its balances; whole-asset sales in credits, atomic | `contracts/near/src/plants.rs` |
-| NPC accounts | VoltLine, suppliers (the exchange traders), banks, regulator; settlement may debit only consenting accounts | bootstrap + `NEAR_NPC_*` |
-| Gasless | NEP-366 relayer: allowlisted BLACKOUT methods, ≤1 yocto, bounded gas, signature check, rate limit, idempotent, persisted | `apps/api/src/relayer.ts`, `POST /api/relay` |
-| Identity | `GameIdentity` over guest / Google / email (passkey slot) | `apps/api/src/identity.ts`, `GET /api/identity` |
+## NEAR: the money is real, the chain is invisible
+Full write-ups: [architecture](docs/NEAR_ARCHITECTURE.md) · [economy model](docs/ECONOMY_MODEL.md) ·
+[wallets and treasury](docs/WALLET_AND_TREASURY.md) · [transaction flows](docs/TRANSACTION_FLOWS.md) ·
+[testnet demo](docs/TESTNET_DEMO.md).
 
-**Not done:** NEAR Intents (no `ExternalSettlementAdapter` implementation is claimed), passkey sign-in, and automatic
-`plant_mint` from the game (minting needs an attached deposit, so a function-call key can't do it; mint with the owner
-key for now). Settlement debits a player only while they haven't taken self-custody. In normal play the player has no
-key of their own (their balances live under an id in the operator's namespace and the operator signs settlement), so
-the browser never calls the relayer today; `POST /api/relay` is there for players who take self-custody.
+| Piece | What it is | Where |
+|---|---|---|
+| Money | `credit:vesper` (the game's ₡, 1 unit = ₡0.01) in one NEP-245 contract with every item; **fixed supply** minted once into a treasury split into capped buckets; `issue` owner-only and capped for life | `contracts/near/src/economy.rs`, `apps/api/src/economy/treasury.ts` |
+| Player wallets | a real NEAR account per signed-in player, created once, key encrypted on the server; starting capital ₡300,000 from the treasury, once per account | `apps/api/src/economy/service.ts`, `wallets.ts` |
+| NPC wallets | each merchant and power company its own account; the companies sign their own purchases with function-call keys, bounded per payment and per day, with kill switches | bootstrap, `power_order_place` |
+| NPC power companies | Halvard Aluminium, Solara Energy, Northwind Gas Power decide every 3 market hours from their cash, the weather, gas prices and offers | `packages/sim/src/town/firmPolicy.ts`, `firms.ts` |
+| Power-delivery escrow | the buyer escrows, the player's grid delivers (measured), the operator confirms, the seller is paid for what arrived | `power_order_place` / `power_order_confirm`, region `export:` loads |
+| Settlement | market and region epochs in atomic multi-token batches; nothing per tick | `settle_batch`, `EconomyService.queueSettlement` |
+| Ownership | each player's plants minted as NEP-171 Plant Assets to their wallet, moved out when sold | `plants.rs`, `EconomyService.syncPlants` |
+| Reliability | every chain operation once (`chain_ops`), hash recorded before broadcast, `FINAL` required, unknown outcomes reconciled by reading the contract | `gateway.ts`, `service.ts` |
+
+**Status: live on testnet.** Contract [`vesper-econ.blackout-kay.testnet`](https://testnet.nearblocks.io/address/vesper-econ.blackout-kay.testnet);
+a run on 2026-11-09 settled 40 transactions, including NPCs paying a player for power with their own keys and an NPC
+buying from another NPC ([evidence](docs/TESTNET_DEMO.md#evidence-table)). Reproduce with `pnpm chain:economy`, then
+`pnpm chain:demo`.
+
+**Not done:** player-to-player equipment sales in the game (the contract's atomic `plant_buy` exists), a key-export
+screen for self-custody, wallets for guests (they get one when they sign in), NEAR Intents.
 
 ## How this meets the track (§64)
 * **Games With Real Economies (primary):** prices, wages, debt, closures and construction costs all emerge from
@@ -125,8 +132,9 @@ the browser never calls the relayer today; `POST /api/relay` is there for player
 |---|---|
 | Regional game: market, plants, actors, events, world inputs, 3D client, persistence, weekly challenge, Economy Lab | **works** (Vitest, Playwright) |
 | Live weather (Open-Meteo) | **works** with network; falls back to the last saved snapshot |
-| Contract: Plant Assets, plant accounts, sales, settlement of every item token, region tokens | 42 Rust tests; WASM builds; **deploy with `pnpm chain:bootstrap`** |
-| Settlement worker, relayer | tested against fake submitters; **live after bootstrap** (`NEAR_SETTLEMENT_ENABLED=true`, `NEAR_RELAYER_*`) |
+| Contract: treasury, escrow, batch settlement, Plant Assets, every item token | 53 Rust tests; **deployed** to `vesper-econ.blackout-kay.testnet` |
+| Economy service: wallets, NPC orders, settlement, reconciliation | 9 integration tests; **ran live on testnet** (40 final transactions); the dev server uses it once `.env.economy` is in its env |
+| NPC power companies and the power desk | **works** off chain (9 sim tests); visible in MARKET and in Watch a week |
 | Email sign-in | works locally (code on screen); production uses Supabase |
 | Google sign-in | code complete; needs your Supabase project and Google OAuth client |
 | Classic city game + shared fuel exchange | still works at `/city` |
@@ -137,20 +145,22 @@ the browser never calls the relayer today; `POST /api/relay` is there for player
 3. Tap the Residential East price: *why* it costs what it costs.
 4. Build a peaker on the pad; open GRID and upgrade the Eastside Line.
 5. Open **What happened**: follow one causal chain from a trip to a layoff.
-6. PORTFOLIO: your Plant Assets; list one; accept VoltLine's bid.
-7. Point at the news ticker: tap the story, the merchant opens, hover the price and the story is in the reasoning.
-8. ⚙︎ → Verify: epochs re-hashed in the browser; Economy Lab replay.
+6. MARKET → Power companies: a company explains why it bought your power; follow the deal to "paid".
+7. PORTFOLIO: your Plant Assets; list one; accept VoltLine's bid.
+8. Point at the news ticker: tap the story, the merchant opens, hover the price and the story is in the reasoning.
+9. ⚙︎ → Money: your wallet, the treasury, every NPC wallet and every transaction. ⚙︎ → Verify: epochs re-hashed.
 
 ## Commands
 | | |
 |---|---|
 | `pnpm dev` | API + web (hot reload) |
-| `pnpm test` | 166 TS tests (Vesper Market, power market, region engine and API, relayer, settlement, world inputs, plus the classic game) |
+| `pnpm test` | 184 TS tests (Vesper Market, power market, region engine and API, relayer, settlement, world inputs, plus the classic game) |
 | `pnpm test:e2e` | Playwright: the first session, the market (tooltip, trade, feed, watch a week), a phone layout, and the 8 classic journeys |
-| `pnpm test:contract` | 42 Rust contract tests |
+| `pnpm test:contract` | 53 Rust contract tests |
 | `pnpm typecheck` | type check (also `cd apps/web && npx tsc --noEmit`) |
 | `pnpm build` | production web build into `dist/` |
-| `pnpm build:contract` / `pnpm chain:bootstrap` | build and deploy the contract to Testnet with your account |
+| `pnpm build:contract` / `pnpm chain:economy` | build, deploy and initialise the economy on testnet with your account |
+| `pnpm chain:demo` | run the real economy against testnet and write `docs/TESTNET_RUN.md` |
 
 ## Docs
 [Game design](docs/GAME_DESIGN.md) · [Architecture](docs/ARCHITECTURE.md) · [API contract](docs/API_CONTRACT.md) ·

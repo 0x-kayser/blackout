@@ -213,6 +213,25 @@ export function regionAct(s: RegionState, ctx: RCtx, action: AnyRegionAction): {
       }
       return { message: action.reason };
     }
+    case "POWER_EXPORT": {
+      if (action.kw <= 0 || action.intervals <= 0) throw new SimError("VALIDATION_FAILED", "Nothing to deliver.");
+      s.exports ??= [];
+      if (s.exports.some((x) => x.orderId === action.orderId)) return { message: "Already delivering." };
+      // the contract is served from the node of the player's biggest working plant
+      const mine = s.plants.filter((p) => p.ownerId === "player" && p.status !== "building" && p.status !== "mothballed").sort((a, b) => b.capacityKw - a.capacityKw)[0];
+      if (!mine) throw new SimError("REQUIREMENT_NOT_MET", "No plant to deliver from.");
+      s.exports.push({ orderId: action.orderId, buyerName: action.buyerName, kw: action.kw, nodeId: mine.nodeId, untilInterval: s.interval + action.intervals, deliveredKwh: 0, priceCcPerMWh: action.priceCcPerMWh });
+      return { message: `${action.buyerName} bought ${Math.round(action.kw / 1000)} MW from you.` };
+    }
+    case "POWER_PAID": {
+      if (action.cc > 0) {
+        rtransfer(s, ctx, "cc", "ext:contracts", RACC.player, action.cc, `power sold to ${action.buyerName}`);
+        s.player.profitCcToday += action.cc;
+        s.player.profitCcTotal += action.cc;
+        s.player.revenueCcToday += action.cc;
+      }
+      return { message: `${action.buyerName} paid you.` };
+    }
     case "TOWN_PRICES": {
       s.townPrices = { gas: action.gas, diesel: action.diesel };
       return { message: "Market prices updated." };
@@ -550,6 +569,12 @@ export function regionTick(s: RegionState, ctx: RCtx): void {
   }
   const loadBids = actorBids(s, minute);
   bids.push(...loadBids);
+  // power sold to Vesper's companies: served like a firm customer at the player's node; if the grid is short, these
+  // go first (they are "flexible"), and the buyer pays only for what arrived
+  for (const x of s.exports ?? []) {
+    if (s.interval > x.untilInterval) continue;
+    bids.push({ loadId: `export:${x.orderId}`, nodeId: x.nodeId as NodeId, requestedMW: x.kw / 1000, willingnessToPayPerMWh: Math.max(x.priceCcPerMWh * 2, 50_000), priorityClass: "flexible" });
+  }
   let demandKw = 0;
   for (const b of loadBids) demandKw += Math.round(b.requestedMW * 1000);
 
@@ -598,6 +623,8 @@ export function regionTick(s: RegionState, ctx: RCtx): void {
   licenceStep(s, ctx);
   onboardingStep(s, ctx);
   maybeCloseEpoch(s);
+  // keep finished power contracts long enough for the server to read what was delivered
+  if (s.exports?.length) s.exports = s.exports.filter((x) => s.interval - x.untilInterval < 300);
   if (s.mode === "challenge" && clk.day > CHALLENGE_DAYS) {
     s.ended = true;
     emit(s, ctx, { type: "CHALLENGE_ENDED", severity: "good", title: "Challenge complete", detail: `Score ${regionScore(s).score.toLocaleString("en-US")}. Your result is on the weekly leaderboard.` });
@@ -741,6 +768,20 @@ function settle(s: RegionState, ctx: RCtx, r: ClearingResult, meta: OfferMeta[],
       p.socKwh += Math.round(((kw / 12) * BATTERY_EFF_BPS) / 10_000);
       p.costCcToday += cost;
       s.nodes[p.nodeId].servedKw += kw;
+      continue;
+    }
+    if (loadId.startsWith("export:")) {
+      // the player buys this energy from the regional market to deliver it; the buyer pays them the contract price
+      const x = (s.exports ?? []).find((e) => `export:${e.orderId}` === loadId);
+      if (!x) continue;
+      const cost = intervalCc(priceAt(x.nodeId), kw);
+      const paid = rtransferUpTo(s, ctx, "cc", RACC.player, RACC.market, cost, `power delivered to ${x.buyerName}`);
+      collected += paid;
+      s.player.profitCcToday -= paid;
+      s.player.profitCcTotal -= paid;
+      // if the player can't pay the grid for it, only what they paid for counts as delivered
+      x.deliveredKwh += Math.round(intervalKwh(cost > 0 ? Math.floor((kw * paid) / cost) : kw));
+      s.nodes[x.nodeId as NodeId].servedKw += kw;
       continue;
     }
     const actorId = loadId.slice(0, loadId.lastIndexOf(":"));

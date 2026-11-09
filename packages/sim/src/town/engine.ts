@@ -16,6 +16,8 @@ import { canonical, sha256 } from "../region/settlement.ts";
 import { CLOSE_BELOW_DAY_BPS, DIVIDEND_BPS, EPOCH_TICKS, MERCHANTS, REOPEN_DAYS, RESCUE_AFTER_DAYS, TICKS_PER_DAY, WAREHOUSE_FULL_X, referenceCc, type MerchantConfig, type MerchantItemConfig } from "./config.ts";
 import { priceItem, rationLimit, type Quote } from "./merchantPricing.ts";
 import { NEWS_EVERY, NEWS_LASTS, NEWS_MAX_ACTIVE, STORIES, effectLabel, storyById, type NewsEffect } from "./news.ts";
+import { FACC, FIRMS, FIRM, ensureFirms, firmsTick, minuteOfDay, spendable, type FirmState, type PowerEnv, type PowerOrderState } from "./firms.ts";
+import { WINDOW_TICKS, sunBps, type PowerOffer } from "./firmPolicy.ts";
 
 export type TAsset = "cc" | ItemId;
 
@@ -67,6 +69,12 @@ export interface TownState {
   /** The news desk's own seeded stream, so stories never shift the market's other random draws. */
   newsRng?: RngState;
   lastStoryId?: string;
+  /** NPC companies (firms.ts) and the power desk; optional so older saved towns load and gain them on the next tick. */
+  firms?: Record<string, FirmState>;
+  power?: { seq: number; orders: PowerOrderState[]; offers: PowerOffer[] };
+  sky?: { cloudPct: number };
+  /** Credit flows already settled directly on chain (escrowed power payments) since the last epoch, by identity. */
+  direct?: Record<string, Record<string, number>>;
 }
 
 export interface TCtx {
@@ -233,11 +241,13 @@ export function tradePrice(t: TownState, merchantId: string, item: ItemId, side:
 export interface TradeInput {
   playerId: string;
   name: string;
-  kind?: "player" | "bot";
+  kind?: "player" | "bot" | "npc";
   merchantId: string;
   item: ItemId;
   side: "buy" | "sell";
   quantity: number;
+  /** Pay from (and deliver to) this ledger account instead of the player's: an NPC company's own wallet. */
+  account?: string;
 }
 
 /** A player (or bot) buys from or sells to a merchant. Throws a SimError with a friendly reason if it can't. */
@@ -264,7 +274,8 @@ export function townTrade(t: TownState, ctx: TCtx, inp: TradeInput): TownTrade {
     if (qty > room) throw new SimError("INVALID_STATE", `${m.person} has room for only ${room.toLocaleString("en-US")} more ${unit}.`);
   }
   const { unitCc, totalCc } = tradePrice(t, inp.merchantId, inp.item, inp.side, qty);
-  const pacc = PACC(inp.playerId);
+  const pacc = inp.account ?? PACC(inp.playerId);
+  if (inp.account && inp.side === "buy" && tbal(t, "cc", inp.account) < totalCc) throw new SimError("INSUFFICIENT_CREDITS", `${inp.name} can't afford that.`);
   if (inp.side === "buy") {
     move(t, inp.item, acct, pacc, qty);
     move(t, "cc", pacc, acct, totalCc);
@@ -334,7 +345,7 @@ function perTick(t: TownState, perDay: number): number {
 
 const DECAY = Math.pow(0.5, 1 / 36);
 
-export function townTick(t: TownState, ctx: TCtx): void {
+export function townTick(t: TownState, ctx: TCtx, env: PowerEnv = {}): void {
   t.tick += 1;
   newsStep(t, ctx);
   for (const m of MERCHANTS) {
@@ -359,6 +370,7 @@ export function townTick(t: TownState, ctx: TCtx): void {
     if (tbal(t, "cc", acct) < (m.fixedCcPerDay * CLOSE_BELOW_DAY_BPS) / 10_000) close(t, ctx, m);
   }
   if (t.tick % TICKS_PER_DAY === 0) payDividends(t, ctx);
+  firmsTick(t, ctx, env, () => cheapestGas(t), (firmId, qty) => firmBuysGas(t, ctx, firmId, qty), cloudTarget(t));
   maybeCloseTownEpoch(t);
 }
 
@@ -480,16 +492,68 @@ export function bestMerchant(t: TownState, item: ItemId, side: "buy" | "sell", q
   return best?.id ?? null;
 }
 
+/* ------------------------------------------------------------------------------------------------- firms' needs */
+
+function cheapestGas(t: TownState): { merchantId: string; askCc: number } | null {
+  const id = bestMerchant(t, GAS_ID, "buy", 1);
+  return id ? { merchantId: id, askCc: quote(t, id, GAS_ID).askCc } : null;
+}
+
+/** An NPC company buys gas at Vesper Market from its own wallet, like any customer, and burns it. */
+function firmBuysGas(t: TownState, ctx: TCtx, firmId: string, qty: number): number {
+  let got = 0;
+  for (let tries = 0; tries < 4 && got < qty; tries++) {
+    const want = qty - got;
+    const id = bestMerchant(t, GAS_ID, "buy", 1);
+    if (!id) break;
+    const m = CFG[id];
+    const stock = tbal(t, GAS_ID, MACC(id));
+    const lim = rationLimit({ traits: m.traits, stock, target: m.items.find((x) => x.item === GAS_ID)!.target }) ?? stock;
+    const q = Math.min(want, stock, lim);
+    if (q <= 0) break;
+    try {
+      townTrade(t, ctx, { playerId: `firm:${firmId}`, name: FIRM(firmId).name, kind: "npc", merchantId: id, item: GAS_ID, side: "buy", quantity: q, account: FACC(firmId) });
+    } catch {
+      break;
+    }
+    move(t, GAS_ID, FACC(firmId), "ext:burned", q);
+    got += q;
+  }
+  return got;
+}
+
+const GAS_ID = "fuel:natural-gas" as const;
+/** Cloud cover the sky drifts towards: fair weather, unless a story in the news says otherwise. */
+function cloudTarget(t: TownState): number {
+  let c = 30 + 15 * Math.sin((t.tick / TICKS_PER_DAY) * Math.PI * 2);
+  for (const n of t.news ?? []) {
+    const story = storyById(n.storyId);
+    if (story?.cloudPct !== undefined) c = story.cloudPct;
+  }
+  return Math.round(c);
+}
+
 /* ------------------------------------------------------------------------------------------------- epochs */
 
-const CHAIN = Object.fromEntries(MERCHANTS.map((m) => [MACC(m.merchantId), m.chainName]));
+const CHAIN: Record<string, string> = { ...Object.fromEntries(MERCHANTS.map((m) => [MACC(m.merchantId), m.chainName])), ...Object.fromEntries(FIRMS.map((f) => [FACC(f.firmId), f.chainName])) };
+
+/**
+ * Which on-chain identity holds a ledger account: each merchant and company its own wallet, each player
+ * `player:<id>` (their wallet, once they have one), and everything outside Vesper (importers, outside customers,
+ * owners, costs) the outside world.
+ */
+export function townIdentity(acct: string): string {
+  if (CHAIN[acct]) return CHAIN[acct];
+  if (acct.startsWith("ext:player:")) return `player:${acct.slice(11)}`;
+  return "world";
+}
 
 function identityTotals(b: Record<string, Record<string, number>>): Record<string, Record<string, number>> {
   const out: Record<string, Record<string, number>> = {};
   for (const [asset, book] of Object.entries(b)) {
     const o = (out[asset] = {} as Record<string, number>);
     for (const [acct, v] of Object.entries(book)) {
-      const id = CHAIN[acct] ?? "operator";
+      const id = townIdentity(acct);
       o[id] = (o[id] ?? 0) + v;
     }
   }
@@ -498,15 +562,18 @@ function identityTotals(b: Record<string, Record<string, number>>): Record<strin
 
 const TOKEN: Record<string, string> = { cc: "credit:vesper" };
 
-function maybeCloseTownEpoch(t: TownState): void {
-  if (t.tick - t.epochStart.tick < EPOCH_TICKS) return;
+function maybeCloseTownEpoch(t: TownState, force = false): void {
+  if (!force && t.tick - t.epochStart.tick < EPOCH_TICKS) return;
+  if (force && t.tick === t.epochStart.tick) return;
   const before = identityTotals(t.epochStart.balances);
   const after = identityTotals(t.balances);
+  // flows already settled directly on chain (escrowed power payments) are left out, so nothing settles twice
+  const already = t.direct ?? {};
   const tokens = Object.keys(after)
     .sort()
     .map((asset) => {
       const ids = [...new Set([...Object.keys(before[asset] ?? {}), ...Object.keys(after[asset])])].sort();
-      return { token: TOKEN[asset] ?? asset, transfers: ids.map((account) => ({ account, delta: (after[asset][account] ?? 0) - (before[asset]?.[account] ?? 0) })).filter((x) => x.delta !== 0) };
+      return { token: TOKEN[asset] ?? asset, transfers: ids.map((account) => ({ account, delta: (after[asset][account] ?? 0) - (before[asset]?.[account] ?? 0) - (already[asset]?.[account] ?? 0) })).filter((x) => x.delta !== 0) };
     })
     .filter((x) => x.transfers.length);
   const epochNo = (t.epochs.at(-1)?.epochNo ?? 0) + 1;
@@ -514,6 +581,13 @@ function maybeCloseTownEpoch(t: TownState): void {
   t.epochs.push({ epochNo, ...body, hash: sha256(canonical(body)) });
   if (t.epochs.length > 24) t.epochs.splice(0, t.epochs.length - 24);
   t.epochStart = { tick: t.tick, balances: JSON.parse(JSON.stringify(t.balances)) };
+  t.direct = {};
+}
+
+/** Closes an epoch now (a wallet opening or chain activation needs a clean boundary). Returns the boundary tick. */
+export function forceCloseTownEpoch(t: TownState): number {
+  maybeCloseTownEpoch(t, true);
+  return t.epochStart.tick;
 }
 
 export function verifyTownEpoch(e: TownEpoch): boolean {
@@ -523,6 +597,23 @@ export function verifyTownEpoch(e: TownEpoch): boolean {
 }
 
 /* --------------------------------------------------------------------------------------------------- view */
+
+function firmsView(t: TownState, viewer: string | null): TownView["companies"] {
+  if (!t.firms || !t.power) return undefined;
+  const me = viewer ? `player:${viewer}` : null;
+  const sun = sunBps(minuteOfDay(t.tick), t.sky?.cloudPct ?? 30);
+  return {
+    cloudPct: t.sky?.cloudPct ?? 30,
+    sunBps: sun,
+    windowTicksLeft: WINDOW_TICKS - (t.tick % WINDOW_TICKS),
+    firms: FIRMS.map((f) => {
+      const st = t.firms![f.firmId];
+      return { firmId: f.firmId, name: f.name, person: f.person, face: f.face, kind: f.kind, blurb: f.blurb, open: st.open, cashCc: tbal(t, "cc", FACC(f.firmId)), escrowedCc: st.escrowedCc, spendableCc: spendable(t, f.firmId), profitCcToday: tbal(t, "cc", FACC(f.firmId)) - st.cashAtDayStart, revenueCcToday: st.revenueCcToday, boughtKwh: st.boughtKwh, soldKwh: st.soldKwh, productionBps: st.productionBps, lastWhy: st.lastWhy, chainAccount: null };
+    }),
+    offers: t.power.offers.map((o) => ({ ...o, mine: o.sellerKey === me })),
+    orders: t.power.orders.slice(-24).map((o) => ({ orderId: o.orderId, buyerId: o.buyerId, buyerName: o.buyerName, sellerName: me && o.sellerKey === me ? "You" : o.sellerName, mine: o.sellerKey === me, kw: o.kw, kwh: o.kwh, priceCcPerMWh: o.priceCcPerMWh, escrowCc: o.escrowCc, status: o.status, deliveredKwh: o.deliveredKwh, paidCc: o.paidCc, refundCc: o.refundCc, why: o.why, startTick: o.startTick, endTick: o.endTick, failReason: o.failReason, txHash: null, confirmTxHash: null })),
+  };
+}
 
 export function townClock(tick: number): string {
   const day = Math.floor(tick / TICKS_PER_DAY) + 1;
@@ -574,9 +665,10 @@ export function toTownView(t: TownState, viewer: string | null, chainAccounts: R
     merchants,
     trades: t.trades.slice(-40).map((x) => (viewer && x.who === viewer ? { ...x, whoKind: "you" as const, label: "You" } : x)),
     events: t.events.slice(-30),
-    players: Object.keys(t.names).filter((k) => !k.startsWith("bot:") && k !== "vesper-holdings").length,
+    players: Object.keys(t.names).filter((k) => !k.startsWith("bot:") && !k.startsWith("firm:") && k !== "vesper-holdings").length,
     you: viewer ? { investedCc: invested, dividendsCcTotal: t.dividendsTotal[viewer] ?? 0, pendingCc: t.owed[viewer] ?? 0 } : null,
     steelSupplyBps: t.steelSupplyBps,
+    companies: firmsView(t, viewer),
     news: (t.news ?? []).map((n) => {
       const story = storyById(n.storyId)!;
       return { seq: n.seq, headline: story.headline, detail: story.detail, tone: story.tone, items: [...new Set(story.effects.map((e) => e.item))], merchantIds: [...new Set(story.effects.flatMap((e) => e.merchants ?? MERCHANTS.filter((m) => m.items.some((i) => i.item === e.item)).map((m) => m.merchantId)))], effects: story.effects.map(effectLabel), ticksLeft: n.until - t.tick, ageTicks: t.tick - n.from };

@@ -3,7 +3,7 @@
  * (guest cookie, or a bearer token which the stream sends as ?token=).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FastForwardResult, ItemId, RegionAction, RegionView, TownView } from '@blackout/shared'
+import type { EconomyView, FastForwardResult, ItemId, RegionAction, RegionView, TownView } from '@blackout/shared'
 import { bearerHeader } from '../api/client'
 
 export class RegionError extends Error {
@@ -53,6 +53,8 @@ export const regionApi = {
   invest: (merchantId: string, amountCc: number) => call<{ ok: true; message: string; view: RegionView; town: TownView }>('POST', '/api/town/invest', { merchantId, amountCc, idempotencyKey: newKey() }),
   fastForward: (seed: number) => call<{ ok: true; week: FastForwardResult }>('GET', `/api/town/fastforward?seed=${seed}`),
   chain: () => call<{ ok: true; mode: string; network?: string; resourceContractId?: string | null; missing?: string[] }>('GET', '/api/chain/status'),
+  economy: () => call<{ ok: true; economy: EconomyView }>('GET', '/api/economy'),
+  setDesk: (d: { sell: boolean; markupBps: number }) => call<{ ok: true; economy: EconomyView }>('POST', '/api/economy/desk', d),
 }
 
 export interface EpochDetail {

@@ -14,7 +14,9 @@ const BANK_CHAIN = Object.fromEntries(BANKS.map((b) => [`bank:${b.bankId}`, b.ch
 
 /** Which on-chain identity holds a ledger account (§22). */
 export function chainIdentity(acct: string): string {
-  if (acct === "player") return "player";
+  // trades at Vesper Market and payments for power sold to its companies settle on their own (market epochs and
+  // NEAR escrow), so inside a region they count as the player's own money moving, never as a second payment
+  if (acct === "player" || acct === "ext:town" || acct === "ext:contracts") return "player";
   if (acct === "owner:voltline") return "voltline";
   if (acct === "market" || acct === "grid") return "market";
   if (acct === "regulator") return "regulator";
@@ -41,8 +43,9 @@ export function canonical(v: unknown): string {
 
 export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
-export function maybeCloseEpoch(s: RegionState): REpoch | null {
-  if (s.interval - s.epochStart.interval < EPOCH_INTERVALS) return null;
+export function maybeCloseEpoch(s: RegionState, force = false): REpoch | null {
+  if (!force && s.interval - s.epochStart.interval < EPOCH_INTERVALS) return null;
+  if (force && s.interval === s.epochStart.interval) return null;
   const before = identityTotals(s.epochStart.balances);
   const after = identityTotals(s.balances.cc);
   const ids = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
@@ -59,6 +62,12 @@ export function maybeCloseEpoch(s: RegionState): REpoch | null {
   if (s.epochs.length > 24) s.epochs.splice(0, s.epochs.length - 24);
   s.epochStart = { interval: s.interval, balances: { ...s.balances.cc } };
   return epoch;
+}
+
+/** Closes an epoch now, so a wallet opening starts on a clean boundary. Returns the boundary interval. */
+export function forceCloseEpoch(s: RegionState): number {
+  maybeCloseEpoch(s, true);
+  return s.epochStart.interval;
 }
 
 /** Recomputes an epoch's hash from its body: what Verify uses. */

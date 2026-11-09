@@ -90,6 +90,7 @@ export interface RouteDeps {
   /** The regional power game. */
   rsvc?: RegionService;
   relayer?: Relayer;
+  economy?: import("./economy/service.ts").EconomyService;
 }
 
 
@@ -615,6 +616,6 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     disclaimer: "Credits are imaginary game currency; they cannot be withdrawn, redeemed or traded for money.",
   }));
 
-  if (deps.rsvc) registerRegionRoutes(app, { rsvc: deps.rsvc, requireUser, writeGuard, parse, originFor, httpStatus, relayer: deps.relayer, identity: (u) => gameIdentity(auth, chain, u, !!deps.relayer?.cfg.enabled) });
+  if (deps.rsvc) registerRegionRoutes(app, { rsvc: deps.rsvc, requireUser, writeGuard, parse, originFor, httpStatus, relayer: deps.relayer, identity: (u) => gameIdentity(auth, chain, u, !!deps.relayer?.cfg.enabled), economy: deps.economy });
   if (deps.xsvc) registerExchangeRoutes(app, { xsvc: deps.xsvc, svc, auth, allowGuests: !!deps.exchangeAllowGuests, requireUser, writeGuard, parse, activeRun });
 }

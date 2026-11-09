@@ -42,7 +42,7 @@ export function loadRelayConfig(env: NodeJS.ProcessEnv = process.env): RelayConf
   const receiverId = env.NEAR_RESOURCE_CONTRACT_ID || null;
   const relayerAccountId = env.NEAR_RELAYER_ACCOUNT_ID || null;
   const relayerPrivateKey = env.NEAR_RELAYER_PRIVATE_KEY || null;
-  return { enabled: env.NEAR_CHAIN_ENABLED === "true" && !!(receiverId && relayerAccountId && relayerPrivateKey), rpcUrl: env.NEAR_RPC_URL || "https://rpc.testnet.near.org", receiverId, relayerAccountId, relayerPrivateKey };
+  return { enabled: env.NEAR_CHAIN_ENABLED === "true" && !!(receiverId && relayerAccountId && relayerPrivateKey), rpcUrl: env.NEAR_RPC_URL || "https://test.rpc.fastnear.com", receiverId, relayerAccountId, relayerPrivateKey };
 }
 
 export type RelaySubmit = (cfg: RelayConfig, req: DelegateRequest) => Promise<{ txHash: string; ok: boolean; detail: string }>;

@@ -10,8 +10,9 @@ import { regionApi, type EpochDetail, type LabResult, type LeaderboardRow } from
 import { credits, mw, pct, price } from '../format'
 import { Section, Spark, Stat } from './Bits'
 import { NameCompany } from './Company'
+import { Money } from './Money'
 
-type Tab = 'account' | 'challenge' | 'verify' | 'lab' | 'about'
+type Tab = 'account' | 'money' | 'challenge' | 'verify' | 'lab' | 'about'
 
 export interface SettingsProps {
   v: RegionView
@@ -42,14 +43,15 @@ export function Settings(p: SettingsProps) {
           ×
         </button>
         <nav className="tabs">
-          {(['account', 'challenge', 'verify', 'lab', 'about'] as Tab[]).map((t) => (
+          {(['account', 'money', 'challenge', 'verify', 'lab', 'about'] as Tab[]).map((t) => (
             <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-              {{ account: 'Account', challenge: 'Weekly challenge', verify: 'Verify', lab: 'Economy Lab', about: 'About' }[t]}
+              {{ account: 'Account', money: 'Money', challenge: 'Weekly challenge', verify: 'Verify', lab: 'Economy Lab', about: 'About' }[t]}
             </button>
           ))}
         </nav>
         <div className="modal-body">
           {tab === 'account' && <Account {...p} />}
+          {tab === 'money' && <Money />}
           {tab === 'challenge' && <Challenge {...p} />}
           {tab === 'verify' && <Verify v={p.v} />}
           {tab === 'lab' && <Lab />}

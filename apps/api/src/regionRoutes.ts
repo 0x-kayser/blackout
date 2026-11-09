@@ -10,6 +10,7 @@ import { openSse } from "./events.ts";
 import type { RegionService } from "./region.ts";
 import type { Relayer } from "./relayer.ts";
 import type { GameIdentity } from "./identity.ts";
+import type { EconomyService } from "./economy/service.ts";
 import { z } from "zod";
 import { ApiError } from "./services.ts";
 
@@ -22,7 +23,10 @@ export interface RegionRouteDeps {
   httpStatus: (code: ErrorCode) => number;
   relayer?: Relayer;
   identity?: (u: AuthedUser) => GameIdentity;
+  economy?: EconomyService;
 }
+
+const DeskSchema = z.object({ sell: z.boolean(), markupBps: z.number().int().min(0).max(20_000) });
 
 const DelegateSchema = z.object({
   idempotencyKey: z.string().min(8).max(80),
@@ -41,6 +45,31 @@ const labCache = new Map<string, unknown>();
 
 export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): void {
   const { rsvc } = d;
+
+  /* ---------------------------------------------------------------- money on NEAR */
+
+  app.get("/api/economy", async (req) => {
+    const u = await d.requireUser(req);
+    if (!d.economy) throw new ApiError("NOT_FOUND", "No economy on this server.");
+    return { ok: true, economy: await d.economy.view(u.userId) };
+  });
+
+  app.post("/api/economy/desk", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    if (!d.economy) throw new ApiError("NOT_FOUND", "No economy on this server.");
+    d.economy.setDesk(u.userId, d.parse(DeskSchema, req.body));
+    return { ok: true, economy: await d.economy.view(u.userId) };
+  });
+
+  // emergency stop for NPC spending (contract switch + server switch); needs ECONOMY_ADMIN_TOKEN
+  app.post("/api/economy/admin/npc-spending", async (req) => {
+    const token = req.headers["x-admin-token"];
+    if (!d.economy?.cfg.adminToken || token !== d.economy.cfg.adminToken) throw new ApiError("FORBIDDEN", "Admin token required.");
+    const body = d.parse(z.object({ paused: z.boolean() }), req.body);
+    d.economy.pauseNpcSpending(body.paused);
+    return { ok: true, npcSpending: !body.paused };
+  });
 
   app.get("/api/region", async (req) => {
     const u = await d.requireUser(req);
@@ -142,7 +171,17 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
   });
   app.get<{ Querystring: { seed?: string } }>("/api/town/fastforward", async (req) => {
     const seed = Math.max(1, Math.min(999_999, Number(req.query.seed ?? 42) || 42));
-    return { ok: true, week: townOrFail().fastForward(seed) };
+    // a signed-in player's company joins the week with what its plants have spare right now
+    let you: { name: string; kw: number; priceCcPerMWh: number } | null = null;
+    try {
+      const u = await d.requireUser(req);
+      const h = rsvc.liveFor(u.userId);
+      const o = region.regionPowerOffer(h.state, d.economy?.desk(u.userId).markupBps ?? 1_500);
+      if (o.kw > 0) you = { name: rsvc.nameOf(u.userId) === "An unnamed power company" ? "Your company" : rsvc.nameOf(u.userId), kw: Math.min(o.kw, 30_000), priceCcPerMWh: o.priceCcPerMWh };
+    } catch {
+      /* watching without a session: the week runs without you */
+    }
+    return { ok: true, week: townOrFail().fastForward(seed, you) };
   });
 
   /** GameIdentity: who is playing, however they signed in (§25). */
