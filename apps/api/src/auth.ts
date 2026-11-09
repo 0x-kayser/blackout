@@ -139,7 +139,7 @@ export class AuthService {
       }
       if (guest && guest.kind === "guest") {
         this.db.prepare("INSERT INTO auth_identities (provider, subject, player_id, login_method, created_at, last_login_at) VALUES ('local_email', ?, ?, 'email', ?, ?)").run(subject, guest.userId, now, now);
-        this.db.prepare("UPDATE players SET kind = 'registered', display_name = ?, updated_at = ? WHERE player_id = ?").run(displayName, now, guest.userId);
+        this.db.prepare("UPDATE players SET kind = 'registered', display_name = CASE WHEN company_named = 1 THEN display_name ELSE ? END, updated_at = ? WHERE player_id = ?").run(displayName, now, guest.userId);
         return { token: null, playerId: guest.userId, upgradedGuest: true };
       }
       const pid = this.createPlayer("registered", displayName);
@@ -190,7 +190,7 @@ export class AuthService {
       if (existing) return { ok: false as const, existingPlayerId: existing.player_id };
       const now = nowIso();
       this.db.prepare("INSERT INTO auth_identities (provider, subject, player_id, login_method, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?)").run(provider, subject, guest.userId, loginMethod, now, now);
-      this.db.prepare("UPDATE players SET kind = 'registered', display_name = ?, updated_at = ? WHERE player_id = ?").run(displayName, now, guest.userId);
+      this.db.prepare("UPDATE players SET kind = 'registered', display_name = CASE WHEN company_named = 1 THEN display_name ELSE ? END, updated_at = ? WHERE player_id = ?").run(displayName, now, guest.userId);
       return { ok: true as const, playerId: guest.userId };
     });
   }
@@ -275,8 +275,13 @@ export class AuthService {
     this.db.prepare("UPDATE players SET active_run_id = ?, updated_at = ? WHERE player_id = ?").run(runId, nowIso(), playerId);
   }
 
+  /** The player's company name: chosen by the player, shown to everyone in the market. */
   setDisplayName(playerId: string, name: string): void {
-    this.db.prepare("UPDATE players SET display_name = ?, updated_at = ? WHERE player_id = ?").run(name, nowIso(), playerId);
+    this.db.prepare("UPDATE players SET display_name = ?, company_named = 1, updated_at = ? WHERE player_id = ?").run(name, nowIso(), playerId);
+  }
+
+  companyNamed(playerId: string): boolean {
+    return ((this.db.prepare("SELECT company_named FROM players WHERE player_id = ?").get(playerId) as { company_named: number } | undefined)?.company_named ?? 0) === 1;
   }
 }
 

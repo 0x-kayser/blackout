@@ -368,3 +368,15 @@ export async function exchangeOpOnChain(cfg: ChainConfig, e: exchange.ChainEffec
   const r = await viewCall<{ kind: string } | null>(cfg, cfg.resourceContractId, "exchange_op", { op_id: `${e.op}:${e.opId}` });
   return r ? { done: true, detail: `contract recorded ${e.op} ${e.opId}` } : { done: false, detail: `contract has no ${e.op} ${e.opId}` };
 }
+
+/** Applies one settlement epoch on the resource contract, signed by the game operator (vault) key. */
+export async function submitSettleEpoch(cfg: ChainConfig, epochId: string, hash: string, deltas: [string, string][], onSigned: (txHash: string, signerId: string) => void = () => {}): Promise<SubmitResult> {
+  if (!cfg.enabled || !cfg.vaultAccountId || !cfg.vaultOperatorPrivateKey) throw new Error("CHAIN_UNAVAILABLE");
+  return submitFunctionCall(cfg, cfg.vaultAccountId, cfg.vaultOperatorPrivateKey, "settle_epoch", { epoch_id: epochId, hash, deltas }, onSigned);
+}
+
+/** Settles one item token of a market epoch (`settle_items`), signed by the game operator. */
+export async function submitSettleItems(cfg: ChainConfig, epochId: string, hash: string, tokenId: string, deltas: [string, string][], onSigned: (txHash: string, signerId: string) => void = () => {}): Promise<SubmitResult> {
+  if (!cfg.enabled || !cfg.vaultAccountId || !cfg.vaultOperatorPrivateKey) throw new Error("CHAIN_UNAVAILABLE");
+  return submitFunctionCall(cfg, cfg.vaultAccountId, cfg.vaultOperatorPrivateKey, "settle_items", { epoch_id: epochId, hash, token_id: tokenId, deltas }, onSigned);
+}

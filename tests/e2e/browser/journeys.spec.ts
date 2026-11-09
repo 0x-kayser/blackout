@@ -7,7 +7,7 @@ const credits = async (page: Page) => {
 };
 
 async function startGuest(page: Page) {
-  await page.goto("/");
+  await page.goto("/city");
   await page.getByRole("button", { name: /Play now|Start your city|Continue your city/ }).click();
   await expect(page.getByText("POWER REQUESTS")).toBeVisible();
   // New players get the chapter intro after entering the live city.
@@ -81,7 +81,7 @@ test("infrastructure: installing solar adds a real generator to the plant", asyn
 });
 
 test("economy lab: same seed reproduces the same trace hash", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/city");
   await page.getByRole("button", { name: "Economy Lab" }).click();
   await page.getByRole("button", { name: "Run simulation" }).click();
   const hashA = page.locator(".lab-summary article.a code");

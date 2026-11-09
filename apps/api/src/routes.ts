@@ -21,6 +21,10 @@ import { clearSessionCookie, setSessionCookie, type AuthService, type AuthedUser
 import { chainStatus, lookupTx, MERCHANT_IDS, TOKEN_IDS, type ChainConfig } from "./chain.ts";
 import type { Db } from "./db.ts";
 import { lastEventId, openSse } from "./events.ts";
+import type { RegionService } from "./region.ts";
+import { registerRegionRoutes } from "./regionRoutes.ts";
+import type { Relayer } from "./relayer.ts";
+import { gameIdentity } from "./identity.ts";
 import { oilSnapshot } from "./oil.ts";
 import { isoWeek, challengeFor } from "./challenge.ts";
 import { ApiError, AUTO_PAUSE_MS, type RunHandle, type RunService } from "./services.ts";
@@ -83,6 +87,9 @@ export interface RouteDeps {
   xsvc?: ExchangeService;
   /** Local demos only: let guest players trade on the exchange. */
   exchangeAllowGuests?: boolean;
+  /** The regional power game. */
+  rsvc?: RegionService;
+  relayer?: Relayer;
 }
 
 
@@ -127,6 +134,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return {
       playerId: p.player_id,
       displayName: p.display_name,
+      companyNamed: auth.companyNamed(p.player_id),
       kind: p.kind as "guest" | "registered",
       loginMethod: u.loginMethod,
       identities: auth.identities(p.player_id).map((i) => ({ provider: i.provider, loginMethod: i.login_method, lastLoginAt: i.last_login_at })),
@@ -202,8 +210,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.patch("/api/me", async (req) => {
     const u = await requireUser(req);
     writeGuard(req, u.sessionId);
-    const body = parse(z.object({ displayName: z.string().trim().min(2).max(32).regex(/^[\p{L}\p{N} ._'-]+$/u) }), req.body);
+    const body = parse(z.object({ displayName: z.string().trim().min(2).max(32).regex(/^[\p{L}\p{N} ._'&-]+$/u) }), req.body);
     auth.setDisplayName(u.userId, body.displayName);
+    // the market shows the new name everywhere: the feed, investor lists, future trades
+    deps.rsvc?.town?.renamePlayer(u.userId, body.displayName);
     return { ok: true, player: profile(u) };
   });
 
@@ -605,5 +615,6 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     disclaimer: "Credits are imaginary game currency; they cannot be withdrawn, redeemed or traded for money.",
   }));
 
+  if (deps.rsvc) registerRegionRoutes(app, { rsvc: deps.rsvc, requireUser, writeGuard, parse, originFor, httpStatus, relayer: deps.relayer, identity: (u) => gameIdentity(auth, chain, u, !!deps.relayer?.cfg.enabled) });
   if (deps.xsvc) registerExchangeRoutes(app, { xsvc: deps.xsvc, svc, auth, allowGuests: !!deps.exchangeAllowGuests, requireUser, writeGuard, parse, activeRun });
 }

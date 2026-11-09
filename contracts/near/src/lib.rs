@@ -74,6 +74,10 @@ enum StorageKey {
     Ops,
     Released,
     OpenOrders,
+    Plants,
+    PlantsByOwner,
+    PlantSales,
+    Epochs,
 }
 
 /// A registered exchange trader (an NPC with its own Testnet account and key).
@@ -240,6 +244,13 @@ pub struct Contract {
     released: LookupSet<AccountId>,
     /// open offers per owner, so self-custody can never strand escrowed fuel
     open_orders: LookupMap<AccountId, u32>,
+    /// NEP-171 Plant Assets (see plants.rs)
+    plants: LookupMap<String, plants::PlantAsset>,
+    plants_by_owner: LookupMap<AccountId, Vec<String>>,
+    plant_sales: LookupMap<String, plants::PlantSale>,
+    plant_count: u64,
+    /// settlement epochs already applied (see plants.rs)
+    epochs: LookupMap<String, plants::EpochRecord>,
 }
 
 const NANOS_PER_DAY: u64 = 86_400_000_000_000;
@@ -276,6 +287,11 @@ impl Contract {
             ops: LookupMap::new(StorageKey::Ops),
             released: LookupSet::new(StorageKey::Released),
             open_orders: LookupMap::new(StorageKey::OpenOrders),
+            plants: LookupMap::new(StorageKey::Plants),
+            plants_by_owner: LookupMap::new(StorageKey::PlantsByOwner),
+            plant_sales: LookupMap::new(StorageKey::PlantSales),
+            plant_count: 0,
+            epochs: LookupMap::new(StorageKey::Epochs),
         };
         c.registered.insert(owner_id);
         c.registered.insert(operator_id);
@@ -903,5 +919,9 @@ impl Contract {
     }
 }
 
+pub mod plants;
+
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod plant_tests;

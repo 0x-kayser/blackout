@@ -15,3 +15,5 @@ export { CHAPTERS, CHARACTERS } from "./story.ts";
 export { BRENT_DATASET } from "./config.ts";
 export * as exchange from "./exchange/index.ts";
 export { exchangeDepositableFuelMl } from "./exchangeCity.ts";
+export * as region from "./region/index.ts";
+export * as town from "./town/index.ts";

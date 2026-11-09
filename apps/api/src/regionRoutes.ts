@@ -1,0 +1,166 @@
+/**
+ * Regional power game routes. Every write is idempotent per region + idempotency key; the client never sends
+ * prices or outcomes, only decisions (RegionActionSchema).
+ */
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { CreateRegionRequestSchema, InvestRequestSchema, RegionActionEnvelopeSchema, TradeRequestSchema, type ErrorCode } from "@blackout/shared";
+import { region } from "@blackout/sim";
+import type { AuthedUser } from "./auth.ts";
+import { openSse } from "./events.ts";
+import type { RegionService } from "./region.ts";
+import type { Relayer } from "./relayer.ts";
+import type { GameIdentity } from "./identity.ts";
+import { z } from "zod";
+import { ApiError } from "./services.ts";
+
+export interface RegionRouteDeps {
+  rsvc: RegionService;
+  requireUser: (req: FastifyRequest) => Promise<AuthedUser>;
+  writeGuard: (req: FastifyRequest, key: string) => void;
+  parse: <T>(schema: { safeParse: (x: unknown) => { success: true; data: T } | { success: false; error: { issues: unknown[] } } }, body: unknown) => T;
+  originFor: (req: FastifyRequest) => string | null;
+  httpStatus: (code: ErrorCode) => number;
+  relayer?: Relayer;
+  identity?: (u: AuthedUser) => GameIdentity;
+}
+
+const DelegateSchema = z.object({
+  idempotencyKey: z.string().min(8).max(80),
+  delegate: z.object({
+    senderId: z.string().min(2).max(64),
+    receiverId: z.string().min(2).max(64),
+    nonce: z.string().regex(/^\d{1,20}$/),
+    maxBlockHeight: z.string().regex(/^\d{1,20}$/),
+    publicKey: z.string().min(40).max(120),
+    actions: z.array(z.object({ methodName: z.string().min(1).max(64), args: z.record(z.string(), z.unknown()), gas: z.string().regex(/^\d{1,20}$/), deposit: z.string().regex(/^\d{1,40}$/) })).min(1).max(3),
+    signature: z.string().min(40).max(120),
+  }),
+});
+
+const labCache = new Map<string, unknown>();
+
+export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): void {
+  const { rsvc } = d;
+
+  app.get("/api/region", async (req) => {
+    const u = await d.requireUser(req);
+    const h = rsvc.liveFor(u.userId);
+    return { ok: true, view: rsvc.view(h) };
+  });
+
+  app.post("/api/region/new", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    const body = d.parse(CreateRegionRequestSchema, req.body);
+    const h = rsvc.create(u.userId, body.mode);
+    return { ok: true, view: rsvc.view(h) };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/region/:id", async (req) => {
+    const u = await d.requireUser(req);
+    return { ok: true, view: rsvc.view(rsvc.requireOwner(req.params.id, u.userId)) };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/region/:id/actions", async (req, reply: FastifyReply) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    const env = d.parse(RegionActionEnvelopeSchema, req.body);
+    const h = rsvc.requireOwner(req.params.id, u.userId);
+    const r = rsvc.act(h, env.action, `${u.userId}:${env.idempotencyKey}`, "player", env.expectedVersion);
+    if (!r.ok && r.error) return reply.status(d.httpStatus(r.error.code as ErrorCode)).send({ ok: false, error: r.error, view: r.view });
+    return r;
+  });
+
+  app.get<{ Params: { id: string } }>("/api/region/:id/stream", async (req, reply) => {
+    const u = await d.requireUser(req);
+    const h = rsvc.requireOwner(req.params.id, u.userId);
+    const send = openSse(req, reply, d.originFor(req));
+    send("view", rsvc.view(h));
+    const off = rsvc.subscribe(h, (v) => send("view", v, v.interval));
+    // the shared market rides on the same connection
+    const offTown = rsvc.town ? rsvc.town.subscribe(u.userId, (tv) => send("town", tv)) : () => undefined;
+    if (rsvc.town) send("town", rsvc.town.view(u.userId));
+    req.raw.on("close", () => {
+      off();
+      offTown();
+    });
+  });
+
+  app.get<{ Params: { id: string } }>("/api/region/:id/epochs", async (req) => {
+    const u = await d.requireUser(req);
+    rsvc.requireOwner(req.params.id, u.userId);
+    return { ok: true, epochs: rsvc.epochs(req.params.id) };
+  });
+
+  app.get<{ Querystring: { week?: string } }>("/api/region/leaderboard", async (req) => ({ ok: true, entries: rsvc.leaderboard(req.query.week) }));
+
+  app.get<{ Querystring: { seed?: string; days?: string } }>("/api/region/lab", async (req) => {
+    const seed = Math.max(1, Math.min(2 ** 31 - 1, Number(req.query.seed ?? 42) || 42));
+    const days = Math.max(1, Math.min(7, Number(req.query.days ?? 7) || 7));
+    const key = `${seed}:${days}`;
+    if (!labCache.has(key)) {
+      if (labCache.size > 32) labCache.clear();
+      labCache.set(key, { gasHeavy: region.runRegionLab("gas_heavy", seed, days), solarStorage: region.runRegionLab("solar_storage", seed, days) });
+    }
+    return { ok: true, lab: labCache.get(key) };
+  });
+
+  app.get("/api/world", async () => ({ ok: true, snapshot: rsvc.world.current() }));
+
+  /* ------------------------------------------------------------- Vesper Market (shared by every player) */
+
+  const townOrFail = () => {
+    if (!rsvc.town) throw new ApiError("NOT_FOUND", "The market isn't running on this server.");
+    return rsvc.town;
+  };
+  app.get("/api/town", async (req) => {
+    let viewer: string | null = null;
+    try {
+      viewer = (await d.requireUser(req)).userId;
+    } catch {
+      /* anyone can look at the market */
+    }
+    return { ok: true, town: townOrFail().view(viewer) };
+  });
+  app.post("/api/town/trade", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    const body = d.parse(TradeRequestSchema, req.body);
+    const t = townOrFail();
+    const h = rsvc.liveFor(u.userId);
+    const r = t.trade({ userId: u.userId, name: rsvc.nameOf(u.userId) }, h, rsvc, body, body.idempotencyKey);
+    return { ...r, view: rsvc.view(h), town: t.view(u.userId) };
+  });
+  app.post("/api/town/invest", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    const body = d.parse(InvestRequestSchema, req.body);
+    const t = townOrFail();
+    const h = rsvc.liveFor(u.userId);
+    const r = t.invest({ userId: u.userId, name: rsvc.nameOf(u.userId) }, h, rsvc, body, body.idempotencyKey);
+    return { ...r, view: rsvc.view(h), town: t.view(u.userId) };
+  });
+  app.get<{ Querystring: { seed?: string } }>("/api/town/fastforward", async (req) => {
+    const seed = Math.max(1, Math.min(999_999, Number(req.query.seed ?? 42) || 42));
+    return { ok: true, week: townOrFail().fastForward(seed) };
+  });
+
+  /** GameIdentity: who is playing, however they signed in (§25). */
+  app.get("/api/identity", async (req) => {
+    const u = await d.requireUser(req);
+    return { ok: true, identity: d.identity ? d.identity(u) : null };
+  });
+
+  /** Gasless meta-transactions (NEP-366): the game relayer pays, only for allowlisted BLACKOUT calls. */
+  app.post("/api/relay", async (req, reply) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    const body = d.parse(DelegateSchema, req.body);
+    if (!d.relayer) return reply.status(503).send({ ok: false, error: { code: "CHAIN_UNAVAILABLE", message: "Gasless transactions aren't configured on this server." } });
+    const r = await d.relayer.relay(u.userId, body.idempotencyKey, body.delegate);
+    if (r.status === "rejected") return reply.status(r.error?.startsWith("Too many") ? 429 : 422).send({ ok: false, error: { code: r.error?.startsWith("Too many") ? "RATE_LIMITED" : "VALIDATION_FAILED", message: r.error }, request: r });
+    return { ok: true, request: r };
+  });
+
+  void ApiError;
+}

@@ -294,6 +294,8 @@ export const PublicConfigSchema = z.object({
 export const PlayerProfileSchema = z.object({
   playerId: z.string(),
   displayName: z.string(),
+  /** True once the player has named their company (only then is the name shown to other players). */
+  companyNamed: z.boolean().optional(),
   kind: z.enum(["guest", "registered"]),
   loginMethod: z.string(),
   identities: z.array(z.object({ provider: z.string(), loginMethod: z.string().nullable(), lastLoginAt: z.string() })),

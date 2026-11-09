@@ -15,6 +15,11 @@ import { registerRoutes } from "./routes.ts";
 import { RunService } from "./services.ts";
 import { startChainWorker, startDriver } from "./workers.ts";
 import { ExchangeService, startExchangeDriver } from "./exchange.ts";
+import { RegionService, startRegionDriver } from "./region.ts";
+import { TownService, startTownDriver } from "./town.ts";
+import { Relayer, loadRelayConfig, type RelaySubmit } from "./relayer.ts";
+import { startSettlementWorker } from "./settlement.ts";
+import { LiveWorldInputs, StaticWorldInputs, type WorldInputProvider } from "./world.ts";
 
 export interface BuildOptions {
   dbPath?: string;
@@ -29,14 +34,24 @@ export interface BuildOptions {
   webDist?: string | null;
   /** Local demos only: let guests trade on the shared exchange (default: EXCHANGE_ALLOW_GUESTS env). */
   exchangeAllowGuests?: boolean;
+  /** Real-world inputs; tests pass a static provider. Default: live (WORLD_INPUTS=off disables fetching). */
+  world?: WorldInputProvider;
+  /** Test hook for the NEP-366 relayer. */
+  relay?: { cfg: ReturnType<typeof loadRelayConfig>; submit: RelaySubmit };
 }
 
-export async function buildServer(opts: BuildOptions = {}): Promise<{ app: FastifyInstance; db: Db; svc: RunService; chain: ChainConfig; auth: AuthService; xsvc: ExchangeService }> {
+export async function buildServer(opts: BuildOptions = {}): Promise<{ app: FastifyInstance; db: Db; svc: RunService; chain: ChainConfig; auth: AuthService; xsvc: ExchangeService; rsvc: RegionService; tsvc: TownService }> {
   const db = openDb(opts.dbPath ?? process.env.DATABASE_PATH ?? "data/blackout.sqlite");
   const chain = opts.chain ?? loadChainConfig();
   const svc = new RunService(db, chain, opts.now);
   const xsvc = new ExchangeService(db, svc, chain);
+  const world = opts.world ?? (process.env.WORLD_INPUTS === "off" ? new StaticWorldInputs() : new LiveWorldInputs(db, fetch, { enabled: true }));
+  const settlementOn = chain.enabled && process.env.NEAR_SETTLEMENT_ENABLED === "true";
+  const rsvc = new RegionService(db, world, { enabled: settlementOn }, opts.now);
+  const tsvc = new TownService(db, world.current(), settlementOn);
+  rsvc.town = tsvc;
   const exchangeAllowGuests = opts.exchangeAllowGuests ?? process.env.EXCHANGE_ALLOW_GUESTS === "true";
+  const relayer = opts.relay ? new Relayer(db, opts.relay.cfg, opts.relay.submit, opts.now) : new Relayer(db, loadRelayConfig());
   const allowedOrigins = opts.allowedOrigins ?? (process.env.WEB_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173").split(",").map((s) => s.trim()).filter(Boolean);
   const auth = new AuthService(db, opts.supabase ?? loadSupabaseConfig(), opts.jwks);
   const app = Fastify({
@@ -53,7 +68,7 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
     reply.header("x-request-id", req.id);
   });
   await app.register(cors, { origin: allowedOrigins, credentials: true });
-  registerRoutes(app, { db, svc, chain, auth, allowedOrigins, secureCookies: process.env.COOKIE_SECURE === "true", xsvc, exchangeAllowGuests });
+  registerRoutes(app, { db, svc, chain, auth, allowedOrigins, secureCookies: process.env.COOKIE_SECURE === "true", xsvc, exchangeAllowGuests, rsvc, relayer });
   const dist = opts.webDist === undefined ? (process.env.WEB_DIST ?? resolve(import.meta.dirname, "../../../dist")) : opts.webDist;
   if (dist && existsSync(resolve(dist, "index.html"))) {
     await app.register(fastifyStatic, { root: resolve(dist), prefix: "/", wildcard: false });
@@ -63,11 +78,14 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
       return reply.sendFile("index.html");
     });
   }
-  return { app, db, svc, chain, auth, xsvc };
+  return { app, db, svc, chain, auth, xsvc, rsvc, tsvc };
 }
 
 async function main() {
-  const { app, db, svc, chain, auth, xsvc } = await buildServer({ logger: process.env.LOG_JSON !== "false" });
+  const { app, db, svc, chain, auth, xsvc, rsvc, tsvc } = await buildServer({ logger: process.env.LOG_JSON !== "false" });
+  const stopRegion = startRegionDriver(rsvc);
+  const stopTown = startTownDriver(tsvc);
+  const stopSettlement = process.env.NEAR_SETTLEMENT_ENABLED === "true" ? startSettlementWorker(db, chain) : () => undefined;
   const stopDriver = startDriver(svc);
   const stopExchange = startExchangeDriver(xsvc);
   const stopChain = startChainWorker(db, svc, chain, 2_000, xsvc);
@@ -80,6 +98,11 @@ async function main() {
   console.log(`auth: guest${auth.supabase.enabled ? ` + supabase (${[auth.supabase.providers.google && "google", auth.supabase.providers.email && "email"].filter(Boolean).join(", ")})` : " only (SUPABASE_URL / SUPABASE_ANON_KEY not set)"}`);
   const shutdown = async () => {
     stopDriver();
+    stopRegion();
+    stopTown();
+    tsvc.checkpoint();
+    stopSettlement();
+    rsvc.shutdown();
     stopExchange();
     stopChain();
     svc.shutdown();

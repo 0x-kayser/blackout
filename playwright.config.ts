@@ -14,7 +14,7 @@ export default defineConfig({
     { name: "mobile", use: { ...devices["Pixel 7"] }, grep: /@mobile/ },
   ],
   webServer: {
-    command: `pnpm build:web && rm -f /tmp/blackout-e2e.sqlite* && PORT=${PORT} DATABASE_PATH=/tmp/blackout-e2e.sqlite LOG_JSON=false EXCHANGE_ALLOW_GUESTS=true WEB_ORIGINS=http://127.0.0.1:${PORT} pnpm --filter @blackout/api start`,
+    command: `pnpm build:web && rm -f /tmp/blackout-e2e.sqlite* && PORT=${PORT} DATABASE_PATH=/tmp/blackout-e2e.sqlite LOG_JSON=false WORLD_INPUTS=off EXCHANGE_ALLOW_GUESTS=true WEB_ORIGINS=http://127.0.0.1:${PORT} pnpm --filter @blackout/api start`,
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 120_000,

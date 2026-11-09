@@ -1,5 +1,64 @@
 # BLACKOUT — game design (as implemented)
 
+The numbers live in `packages/sim/src/region/config.ts`; the rules in `packages/sim/src/region/*.ts`.
+
+## The regional power game
+**Primary question:** demand vs available economic generation, and who covers the shortfall.
+
+| Loop | Length | What happens |
+|---|---|---|
+| Immediate | 10–30 s | a trip, a spike, a blackout: start a plant, discharge a battery, change an offer |
+| Operating | 3–5 min (one game day = 288 intervals of 5 game minutes = 4.8 min) | evening peak, fuel buying, tenders, builds landing |
+| Session | 15–30 min | licences, line upgrades, asset sales, the weekly challenge (3 game days) |
+| Persistent | days | your region keeps its state; it only runs while you watch |
+
+### Region
+Seven load centres on a radial network: North Solar Belt, Central City (hub), Industrial South, Port, Tech Corridor,
+Hospital District, Residential East. Six corridors with MW limits (Eastside Line 150 MW is the bottleneck) and
+upgrades owned by whoever pays for them.
+
+### Fleet at start
+| Plant | Owner | MW |
+|---|---|---|
+| Kestrel Peaker (OCGT) | you | 120 |
+| Riverside Battery | you | 60 / 120 MWh |
+| Harbor CCGT, Southgate CCGT, Ridge OCGT, Cityline OCGT, Solar Belt | VoltLine | 420, 260, 140, 130, 180 |
+| Northwind Co-op Solar | Northwind | 150 |
+| Eastbank Gas Engines | Eastbank | 140 |
+| Harbor Diesel Peakers | Harbor Diesel | 80 |
+
+### Market
+Each interval every online plant offers (`GenerationOffer`: available MW, minimum MW at 0, offer price, marginal cost,
+ramp) and every load segment bids (`LoadBid`: essential at its value of lost load, flexible at what the power earns
+it). The clearing maximises welfare subject to line limits; nodal prices come from the residual graph; the cap is
+₡5,000/MWh. Loads pay their node's price, generators receive theirs, the difference is congestion rent paid to line
+owners.
+
+### Your decisions
+Start/stop thermal plants; offer at cost, at a markup, or only into scarcity; battery auto/charge/discharge/hold;
+build (5 technologies, sizes gated by licence, cost × steel index); upgrade lines; buy fuel or auto-buy; borrow and
+repay; list plants for sale and accept bids; buy plants VoltLine sells in distress; meet regulator tenders.
+
+### Consequences
+Businesses earn per MWh they can use, pay wages to households and fixed costs; health follows cash, debt and
+blackouts; distressed businesses lay people off (households earn less, commerce sells less), closed ones vanish from
+demand until outside investors reopen them when power is cheap. Steel output sets construction costs. VoltLine
+mothballs plants when it can't cover interest. The regulator fines idle fuelled capacity during shedding (after the
+first minute) and caps offers above max(2× cost, ₡1,000).
+
+### Licences
+| Licence | Needs | Opens |
+|---|---|---|
+| Independent Generator | start | diesel, 60 MW OCGT, solar 50/100 MW, batteries 50/100 MW |
+| Regional Producer | 3,000 MWh | CCGT 250 MW, OCGT 120 MW, solar 200 MW |
+| System Partner | 15,000 MWh, 97% reliability | CCGT 400 MW, battery 200 MW |
+| Grid Anchor | 45,000 MWh, 98% | — |
+
+### Score (weekly challenge)
+profit/100 − 40 × MWh left dark − 2 × t CO₂ + 20 × (average business output − 80%).
+
+## Classic city mode (/city)
+
 **Every light changes the economy.** The grid keeps failing. You start with one diesel set behind a shop and grow
 into the utility that powers the whole city. Shops, homes, hospitals, factories and the arena call you when they go
 dark. What you charge, how reliably you deliver and how well you build the grid decide whether they prosper, and

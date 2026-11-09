@@ -64,6 +64,20 @@ for (const [t, d, u] of [
   ["SOLAR_COMPONENT", "Solar panel component", "item"],
   ["BATTERY_COMPONENT", "Battery module", "item"],
 ]) await call(contract, resources.id, "register_token", { token_id: t, description: d, unit: u });
+// regional power game tokens (§16): fuel, permits, certificates and the non-speculative settlement unit
+for (const [t, d, u] of [
+  ["fuel:diesel", "Diesel, 1 litre per unit", "L"],
+  ["fuel:natural-gas", "Natural gas, 1 MMBtu per unit", "MMBtu"],
+  ["permit:carbon", "Carbon permit, 1 tonne CO2 per unit", "t"],
+  ["certificate:renewable", "Renewable energy certificate, 1 MWh per unit", "MWh"],
+  ["credit:vesper", "Vesper Credit: in-game settlement unit, 0.01 credit per unit, not redeemable", "cc"],
+  ["material:steel", "Steel, 1 tonne per unit", "t"],
+  ["part:turbine", "Turbine repair kit", "kit"],
+]) await call(contract, resources.id, "register_token", { token_id: t, description: d, unit: u });
+// Vesper Market's clearing stock: every market epoch moves items between the merchants and this custody account
+await call(contract, resources.id, "mt_mint", { owner_id: vault.id, token_ids: ["fuel:natural-gas", "fuel:diesel", "permit:carbon", "certificate:renewable", "material:steel", "part:turbine"], amounts: ["1000000000000", "1000000000000", "1000000000", "1000000000", "100000000", "1000000"], memo: "market clearing stock" });
+// the genesis treasury: every region's first settlement epoch distributes from here (§13)
+await call(contract, resources.id, "mt_mint", { owner_id: vault.id, token_ids: ["credit:vesper"], amounts: ["1000000000000000"], memo: "genesis treasury" });
 
 const storage = nearToYocto("0.01");
 for (const m of Object.values(merchants)) await call(new Account(m.id, provider, m.key), resources.id, "storage_deposit", {}, storage);
@@ -85,6 +99,16 @@ for (const t of EXCHANGE_TRADERS) {
   await call(contract, resources.id, "register_trader", { account_id: acct.id, max_import_per_day: String((t.maxImportPerDayMl / 100) * exchangeDaysPerUtcDay) });
 }
 
+// regional NPCs with their own accounts (§22): VoltLine, the regulator and the banks. Suppliers reuse the trader accounts.
+const regionNpcs: Record<string, { id: string; key: KeyPairString }> = {};
+for (const n of ["voltline", "regulator", "vesper-bank", "meridian", "ruth", "pavel", "nkechi"]) {
+  regionNpcs[n] = await sub(`bo-${n}`, "1");
+  await call(new Account(regionNpcs[n].id, provider, regionNpcs[n].key), resources.id, "storage_deposit", {}, storage);
+  await call(contract, resources.id, "register_npc", { account_id: regionNpcs[n].id, max_per_call: "0" }); // consents to game settlement; can't npc_transfer
+}
+// the gas-paying relayer for NEP-366 meta-transactions needs a full-access key on its own, separately funded account
+const relayer = await sub("bo-relayer", "3");
+
 const env: string[] = [
   "NEAR_CHAIN_ENABLED=true",
   "NEAR_CITY_PURCHASES_ON_CHAIN=false",
@@ -96,7 +120,7 @@ const operatorFc = KeyPairEd25519.fromRandom();
 await new Account(vault.id, provider, vault.key).addFunctionCallAccessKey({
   publicKey: operatorFc.getPublicKey(),
   contractId: resources.id,
-  methodNames: ["exchange_deposit", "exchange_redeem", "exchange_ask", "exchange_cancel", "exchange_fill", "custodial_list", "custodial_cancel_listing", "custodial_fill_listing"],
+  methodNames: ["exchange_deposit", "exchange_redeem", "exchange_ask", "exchange_cancel", "exchange_fill", "custodial_list", "custodial_cancel_listing", "custodial_fill_listing", "settle_epoch", "settle_items", "plant_transfer_for", "plant_buy_for", "plant_withdraw", "plant_list", "plant_cancel_listing"],
   allowance: nearToYocto("2"),
 });
 env.push(`NEAR_VAULT_OPERATOR_PRIVATE_KEY=${operatorFc.toString()}`);
@@ -112,6 +136,10 @@ for (const t of EXCHANGE_TRADERS) {
   const pre = `NEAR_TRADER_${t.traderId.toUpperCase()}`;
   env.push(`${pre}_ACCOUNT_ID=${acct.id}`, `${pre}_PRIVATE_KEY=${fc.toString()}`);
 }
+const SUPPLIER_TRADER: Record<string, string> = { ingrid: "harbor_terminal", bayo: "northline", kettle: "kettle", dayo: "swift_tankers", chioma: "okafor_daughters", lena: "greenline_fund" };
+for (const [npc, traderId] of Object.entries(SUPPLIER_TRADER)) if (traders[traderId]) env.push(`NEAR_NPC_${npc.toUpperCase()}_ACCOUNT_ID=${traders[traderId].id}`);
+for (const [n, a] of Object.entries(regionNpcs)) env.push(`NEAR_NPC_${n.replace("-", "_").toUpperCase()}_ACCOUNT_ID=${a.id}`);
+env.push("NEAR_SETTLEMENT_ENABLED=true", `NEAR_RELAYER_ACCOUNT_ID=${relayer.id}`, `NEAR_RELAYER_PRIVATE_KEY=${relayer.key}`);
 writeFileSync(".env.chain", env.join("\n") + "\n", { mode: 0o600 });
 console.log("\nDone. Server env written to .env.chain (git-ignored). Copy its lines into .env, restart the API, then GET /api/chain/status.");
 console.log(`Contract: ${resources.id}\nVault: ${vault.id}\nTraders: ${Object.values(traders).map((t) => t.id).join(", ")}\nMerchants (legacy): ${Object.values(merchants).map((m) => m.id).join(", ")}`);
