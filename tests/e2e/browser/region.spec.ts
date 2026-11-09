@@ -17,7 +17,7 @@ async function enterAsGuest(page: import("@playwright/test").Page) {
   await page.goto("/");
   const title = page.locator(".title-screen");
   await expect(title).toBeVisible({ timeout: 30_000 });
-  await expect(title).toContainText("No wallet");
+  await expect(title).toContainText("No wallet app");
   await expect(title.getByRole("button", { name: /Sign in/ })).toBeVisible();
   await title.getByRole("button", { name: /Play as guest/ }).click();
 }

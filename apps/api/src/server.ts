@@ -22,6 +22,7 @@ import { startSettlementWorker } from "./settlement.ts";
 import { loadEconomyConfig, type EconomyConfig } from "./economy/config.ts";
 import { NearGateway, type ChainGateway } from "./economy/gateway.ts";
 import { EconomyService } from "./economy/service.ts";
+import { PlantMarket } from "./economy/plantMarket.ts";
 import { LiveWorldInputs, StaticWorldInputs, type WorldInputProvider } from "./world.ts";
 
 export interface BuildOptions {
@@ -43,11 +44,13 @@ export interface BuildOptions {
   world?: WorldInputProvider;
   /** Test hook for the NEP-366 relayer. */
   relay?: { cfg: ReturnType<typeof loadRelayConfig>; submit: RelaySubmit };
+  /** Let visitors play without signing in (default: ALLOW_GUEST_PLAY env; production leaves it off). */
+  guestPlay?: boolean;
   /** The on-chain economy: tests pass a config and a gateway (or null for no chain). */
   economy?: { cfg?: EconomyConfig; gateway?: ChainGateway | null };
 }
 
-export async function buildServer(opts: BuildOptions = {}): Promise<{ app: FastifyInstance; db: Db; svc: RunService; chain: ChainConfig; auth: AuthService; xsvc: ExchangeService; rsvc: RegionService; tsvc: TownService; economy: EconomyService }> {
+export async function buildServer(opts: BuildOptions = {}): Promise<{ app: FastifyInstance; db: Db; svc: RunService; chain: ChainConfig; auth: AuthService; xsvc: ExchangeService; rsvc: RegionService; tsvc: TownService; economy: EconomyService; plants: PlantMarket }> {
   const db = openDb(opts.dbPath ?? process.env.DATABASE_PATH ?? "data/blackout.sqlite");
   const chain = opts.chain ?? loadChainConfig();
   const svc = new RunService(db, chain, opts.now);
@@ -67,6 +70,7 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
   const auth = new AuthService(db, opts.supabase ?? loadSupabaseConfig(), opts.jwks, opts.googleJwks);
   const economy = new EconomyService(db, ecoCfg, ecoGw, rsvc, tsvc, (uid) => auth.player(uid)?.kind === "registered");
   tsvc.economy = economy;
+  const plants = new PlantMarket(db, economy, rsvc);
   const app = Fastify({
     // structured JSON logs; credentials and cookies are redacted, never logged
     logger: opts.logger ? { level: process.env.LOG_LEVEL ?? "info", redact: ["req.headers.authorization", "req.headers.cookie", "res.headers[\"set-cookie\"]"] } : false,
@@ -81,7 +85,7 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
     reply.header("x-request-id", req.id);
   });
   await app.register(cors, { origin: allowedOrigins, credentials: true });
-  registerRoutes(app, { db, svc, chain, auth, allowedOrigins, secureCookies: process.env.COOKIE_SECURE === "true", xsvc, exchangeAllowGuests, rsvc, relayer, economy });
+  registerRoutes(app, { db, svc, chain, auth, allowedOrigins, secureCookies: process.env.COOKIE_SECURE === "true", xsvc, exchangeAllowGuests, rsvc, relayer, economy, plants, guestPlay: opts.guestPlay ?? process.env.ALLOW_GUEST_PLAY === "true" });
   const dist = opts.webDist === undefined ? (process.env.WEB_DIST ?? resolve(import.meta.dirname, "../../../dist")) : opts.webDist;
   if (dist && existsSync(resolve(dist, "index.html"))) {
     await app.register(fastifyStatic, { root: resolve(dist), prefix: "/", wildcard: false });
@@ -91,7 +95,7 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
       return reply.sendFile("index.html");
     });
   }
-  return { app, db, svc, chain, auth, xsvc, rsvc, tsvc, economy };
+  return { app, db, svc, chain, auth, xsvc, rsvc, tsvc, economy, plants };
 }
 
 /** The economy's worker: open the market on chain once, queue settlement, submit and reconcile operations. */

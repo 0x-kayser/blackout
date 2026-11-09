@@ -91,6 +91,9 @@ export interface RouteDeps {
   rsvc?: RegionService;
   relayer?: Relayer;
   economy?: import("./economy/service.ts").EconomyService;
+  /** Let visitors play without signing in (development, tests). Off: everyone signs in first. */
+  guestPlay?: boolean;
+  plants?: import("./economy/plantMarket.ts").PlantMarket;
 }
 
 
@@ -160,6 +163,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   // ------------------------------------------------------------ auth & profile
   app.post("/api/session/start", async (req, reply) => {
+    if (!deps.guestPlay) throw new ApiError("FORBIDDEN", "Sign in with Google or email to play.");
     if (!sessionLimiter.take(`ip:${req.ip}`)) throw new ApiError("RATE_LIMITED", "Too many new guest sessions from this address.");
     parse(StartSessionRequestSchema, req.body);
     const s = auth.createGuestSession();
@@ -632,11 +636,18 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       googleClientId: auth.supabase.googleClientId,
       email: auth.supabase.providers.email || auth.supabase.local.enabled,
       local: auth.supabase.local.enabled,
+      guestPlay: !!deps.guestPlay,
       localShowsCode: auth.supabase.local.showCode,
     },
     disclaimer: "Credits are imaginary game currency; they cannot be withdrawn, redeemed or traded for money.",
   }));
 
-  if (deps.rsvc) registerRegionRoutes(app, { rsvc: deps.rsvc, requireUser, writeGuard, parse, originFor, httpStatus, relayer: deps.relayer, identity: (u) => gameIdentity(auth, chain, u, !!deps.relayer?.cfg.enabled), economy: deps.economy });
+  // the game itself needs a signed-in player (a guest session from before still sees /api/me, to be upgraded)
+  const requirePlayer = async (req: FastifyRequest): Promise<AuthedUser> => {
+    const u = await requireUser(req);
+    if (!deps.guestPlay && u.kind === "guest") throw new ApiError("UNAUTHORIZED", "Sign in with Google or email to play.");
+    return u;
+  };
+  if (deps.rsvc) registerRegionRoutes(app, { rsvc: deps.rsvc, requireUser: requirePlayer, writeGuard, parse, originFor, httpStatus, relayer: deps.relayer, identity: (u) => gameIdentity(auth, chain, u, !!deps.relayer?.cfg.enabled), economy: deps.economy, plants: deps.plants });
   if (deps.xsvc) registerExchangeRoutes(app, { xsvc: deps.xsvc, svc, auth, allowGuests: !!deps.exchangeAllowGuests, requireUser, writeGuard, parse, activeRun });
 }

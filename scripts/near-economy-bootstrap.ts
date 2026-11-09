@@ -124,7 +124,7 @@ for (const n of NPC_IDENTITIES.filter((x) => x.signs)) await call(parent, contra
 // keys the server gets: function-call keys only, except the player parent (it must create accounts)
 const env: string[] = ["NEAR_ECONOMY_ENABLED=true", `NEAR_RPC_URL=${rpcUrl}`, `NEAR_ECONOMY_CONTRACT_ID=${contract.id}`];
 const opFc = KeyPairEd25519.fromRandom();
-await as(operator).addFunctionCallAccessKey({ publicKey: opFc.getPublicKey(), contractId: contract.id, methodNames: ["treasury_grant", "settle_batch", "settle_epoch", "settle_items", "power_order_confirm", "power_order_expire", "set_npc_paused", "set_npc_spending_paused", "plant_mint", "plant_transfer_for", "plant_buy_for"] }); // no allowance cap: reserved gas is never credited back to one
+await as(operator).addFunctionCallAccessKey({ publicKey: opFc.getPublicKey(), contractId: contract.id, methodNames: ["treasury_grant", "settle_batch", "settle_epoch", "settle_items", "power_order_confirm", "power_order_expire", "set_npc_paused", "set_npc_spending_paused", "plant_mint", "plant_transfer_for", "plant_buy_for", "plant_list", "plant_cancel_listing", "prune_closed_orders"] }); // no allowance cap: reserved gas is never credited back to one
 env.push(`NEAR_OPERATOR_ACCOUNT_ID=${operator.id}`, `NEAR_OPERATOR_PRIVATE_KEY=${opFc.toString()}`);
 env.push(`NEAR_PLAYER_PARENT_ACCOUNT_ID=${players.id}`, `NEAR_PLAYER_PARENT_PRIVATE_KEY=${players.key}`);
 env.push(`NEAR_TREASURY_ACCOUNT_ID=${treasury.id}`, `NEAR_GRID_ACCOUNT_ID=${grid.id}`, `NEAR_WORLD_ACCOUNT_ID=${world.id}`);

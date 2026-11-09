@@ -44,6 +44,7 @@ export class FakeChain implements ChainGateway {
   orders = new Map<string, { buyer: string; seller: string; kwh: number; price: number; escrow: number; status: string; paid: number }>();
   epochs = new Set<string>();
   plants = new Map<string, string>();
+  sales = new Map<string, { seller: string; price: number }>();
   calls: { signer: string; method: string; args: Record<string, unknown> }[] = [];
   npcPaused = false;
   private n = 0;
@@ -163,6 +164,7 @@ export class FakeChain implements ChainGateway {
           try {
             for (const [token, legs] of entries) {
               if (legs.reduce((s, [, d]) => s + Number(d), 0) !== 0) throw new Error("Epoch deltas must sum to zero");
+              for (const [acct, d] of legs) if (Number(d) < 0 && this.released.has(acct)) throw new Error("Debit from an account that didn't consent to game custody");
               for (const [acct, d] of legs) if (Number(d) < 0) this.move(token, acct, this.cfg.contractId!, -Number(d));
               for (const [acct, d] of legs) if (Number(d) > 0) this.move(token, this.cfg.contractId!, acct, Number(d));
             }
@@ -178,9 +180,33 @@ export class FakeChain implements ChainGateway {
           this.plants.set(String(a.token_id), String(a.owner_id));
           return;
         }
+        case "plant_list": {
+          if (!this.plants.has(String(a.token_id))) throw new Error("No such plant");
+          this.sales.set(String(a.token_id), { seller: this.plants.get(String(a.token_id))!, price: Number(a.price) });
+          return;
+        }
+        case "plant_cancel_listing": {
+          if (!this.sales.delete(String(a.token_id))) throw new Error("Not listed");
+          return;
+        }
+        case "plant_buy_for": {
+          const tk = String(a.token_id);
+          const sale = this.sales.get(tk);
+          if (!sale) throw new Error("Not for sale");
+          if (sale.seller !== this.plants.get(tk)) throw new Error("Stale listing");
+          this.move("credit:vesper", String(a.buyer_id), sale.seller, sale.price);
+          this.plants.set(tk, String(a.buyer_id));
+          this.sales.delete(tk);
+          return;
+        }
         case "plant_transfer_for": {
           if (this.plants.get(String(a.token_id)) !== a.owner_id) throw new Error("Only the plant's owner controls it");
           this.plants.set(String(a.token_id), String(a.receiver_id));
+          return;
+        }
+        case "release_to_owner": {
+          if (!signer.endsWith(".players.game.testnet")) throw new Error("Only a player id in the operator's namespace can be released");
+          this.released.add(signer);
           return;
         }
         case "set_npc_spending_paused":
@@ -196,12 +222,23 @@ export class FakeChain implements ChainGateway {
     if (method === "grant") return (this.grants.get(String(a.grant_id)) ?? null) as T;
     if (method === "power_order") return (this.orders.get(String(a.order_id)) ?? null) as T;
     if (method === "epoch") return (this.epochs.has(String(a.epoch_id)) ? { epoch_id: a.epoch_id } : null) as T;
+    if (method === "is_released") return this.released.has(String(a.account_id)) as T;
+    if (method === "plant_sale") return (this.sales.get(String(a.token_id)) ?? null) as T;
     if (method === "nft_token") return (this.plants.has(String(a.token_id)) ? { owner_id: this.plants.get(String(a.token_id)) } : null) as T;
     if (method === "mt_batch_balance_of") return (a.token_ids as string[]).map((t) => String(this.balance(String(a.account_id), t))) as T;
     if (method === "mt_balance_of") return String(this.balance(String(a.account_id), String(a.token_id))) as T;
     if (method === "economy_info")
       return { initialized: true, treasury_id: this.cfg.treasuryId, initial_supply: String(TREASURY_PLAN.totalSupply), total_supply: String(this.supply()), treasury_balance: String(this.balance(this.cfg.treasuryId!)), issued: "0", issue_cap: String(TREASURY_PLAN.issueCap), npc_spending_paused: this.npcPaused, buckets: [...this.buckets.entries()].map(([name, b]) => ({ name, cap: String(b.cap), granted: String(b.granted) })) } as T;
     throw new Error(`fake chain: unknown view ${method}`);
+  }
+
+  released = new Set<string>();
+  nears = new Map<string, number>();
+  async sendNear(to: string, near: string, onSigned?: (h: string) => void): Promise<GatewayResult> {
+    return this.result(this.cfg.playerParent!.accountId, () => this.nears.set(to, (this.nears.get(to) ?? 0) + Number(near)), onSigned);
+  }
+  async nearBalance(id: string) {
+    return this.nears.get(id) ?? 0;
   }
 
   async accountExists(id: string) {

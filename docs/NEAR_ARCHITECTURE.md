@@ -101,9 +101,10 @@ players, and power orders are one escrow and one confirmation per deal (every 36
 
 ## Not done (exact)
 
-* **Player-to-player equipment sales** (Flow D) are not wired into the game. The contract has atomic
-  `plant_list` / `plant_buy` (credits and the NFT move in one call) and the relayer accepts player-signed `plant_buy`,
-  but each player's plants live in their own region, and moving a plant between two players' grids is not built.
-* **Wallet key export** (for self-custody) has no UI; the contract side (`release_to_owner`) exists.
-* **Guests** have no wallet; they get one the moment they sign in, with their current balance.
+* **NEAR Intents** are not used. Intents settle swaps of real assets across chains through solvers on NEAR mainnet;
+  this economy's money is a fixed-supply testnet token whose trades all happen inside one contract, where a single
+  atomic call already does what an intent would. Adding it would mean claiming something the game doesn't need.
+
+Built since: sign-in first; guest wallets; key export; player-to-player plant sales; leaving game custody
+(`release_to_owner`, signed by the wallet itself, live: [2vhy33oF…](https://testnet.nearblocks.io/txns/2vhy33oF8fm5FaSRENKh7ssenEv42BPCdQht4qhiVFZY)).
 * **NEAR Intents** are not used and not claimed.

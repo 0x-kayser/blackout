@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EconomyView, FastForwardResult, ItemId, MerchantItemView, MerchantView, PriceWhy, RegionView, TownView } from '@blackout/shared'
 import { CompaniesSection } from './Companies'
+import { PlantSales } from './PlantSales'
 import { ITEMS, ITEM_IDS } from '@blackout/shared'
 import { regionApi } from '../api'
 import { credits } from '../format'
@@ -268,6 +269,7 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, e
         ⏩ Watch a week of trading in a minute
       </button>
       <CompaniesSection c={town.companies} economy={economy} onEconomy={onEconomy} />
+      <PlantSales v={v} />
       <Section title="What you hold">
         <Inventory v={v} />
         <div className="row">

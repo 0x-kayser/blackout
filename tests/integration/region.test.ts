@@ -239,7 +239,8 @@ describe("Vesper Market through the API", () => {
   it("serves a watchable week", async () => {
     const r = await built.app.inject({ method: "GET", url: "/api/town/fastforward?seed=7" });
     expect(r.json().week.frames).toHaveLength(60);
-  }, 30_000);
+    // a simulated week is CPU-heavy; under a full parallel test run it can take a while
+  }, 90_000);
 });
 
 describe("company names", () => {

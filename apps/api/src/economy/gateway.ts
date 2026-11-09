@@ -21,6 +21,9 @@ export interface ChainGateway {
   readonly cfg: EconomyConfig;
   call(signer: Signer, method: string, args: Record<string, unknown>, opts?: { depositYocto?: bigint; onSigned?: (txHash: string) => void }): Promise<GatewayResult>;
   createSubAccount(newAccountId: string, publicKey: string, onSigned?: (txHash: string) => void): Promise<GatewayResult>;
+  /** The player-parent account sends a little NEAR (for a wallet's own transaction fee). */
+  sendNear(receiverId: string, near: string, onSigned?: (txHash: string) => void): Promise<GatewayResult>;
+  nearBalance(accountId: string): Promise<number>;
   view<T>(method: string, args: Record<string, unknown>): Promise<T>;
   accountExists(accountId: string): Promise<boolean>;
   lookup(txHash: string, signerId: string): Promise<GatewayResult>;
@@ -133,8 +136,11 @@ export class NearGateway implements ChainGateway {
       const r = await this.failover((i) => this.providers[i].sendTransactionUntil(signed, "FINAL"));
       return this.toResult(interpretTxResult(txHash, r), accountId);
     } catch (e) {
-      // a broadcast error doesn't mean it failed on chain: the reconciler looks it up later
-      return { status: "pending", txHash, signerId: accountId, detail: `broadcast: ${(e as Error).message}`.slice(0, 400) };
+      const m = (e as Error).message;
+      // the network refused the transaction itself (wrong key permissions, no balance): it never ran, and won't
+      if (/does not allow|AccessKeyNotFound|InvalidAccessKey|NotEnoughAllowance|NotEnoughBalance|Not enough balance|InvalidSignature/i.test(m)) return { status: "failed", txHash, signerId: accountId, detail: `refused by the network: ${m}`.slice(0, 400) };
+      // any other broadcast error doesn't mean it failed on chain: the reconciler looks it up later
+      return { status: "pending", txHash, signerId: accountId, detail: `broadcast: ${m}`.slice(0, 400) };
     }
   }
 
@@ -150,6 +156,15 @@ export class NearGateway implements ChainGateway {
 
   createSubAccount(newAccountId: string, publicKey: string, onSigned?: (txHash: string) => void): Promise<GatewayResult> {
     return this.send({ kind: "player-parent" }, newAccountId, [actions.createAccount(), actions.transfer(nearToYocto(this.cfg.walletNear as `${number}`)), actions.addFullAccessKey(PublicKey.fromString(publicKey))] as never, onSigned);
+  }
+
+  sendNear(receiverId: string, near: string, onSigned?: (txHash: string) => void): Promise<GatewayResult> {
+    return this.send({ kind: "player-parent" }, receiverId, [actions.transfer(nearToYocto(near as `${number}`))] as never, onSigned);
+  }
+
+  async nearBalance(accountId: string): Promise<number> {
+    const r = await this.failover((i) => rpc<{ amount: string }>(this.urls[i], "query", { request_type: "view_account", finality: "final", account_id: accountId }));
+    return Number(BigInt(r.amount) / 10n ** 18n) / 1e6;
   }
 
   async view<T>(method: string, args: Record<string, unknown>): Promise<T> {

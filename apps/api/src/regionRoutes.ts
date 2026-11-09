@@ -11,6 +11,7 @@ import type { RegionService } from "./region.ts";
 import type { Relayer } from "./relayer.ts";
 import type { GameIdentity } from "./identity.ts";
 import type { EconomyService } from "./economy/service.ts";
+import type { PlantMarket } from "./economy/plantMarket.ts";
 import { z } from "zod";
 import { ApiError } from "./services.ts";
 
@@ -24,6 +25,7 @@ export interface RegionRouteDeps {
   relayer?: Relayer;
   identity?: (u: AuthedUser) => GameIdentity;
   economy?: EconomyService;
+  plants?: PlantMarket;
 }
 
 const DeskSchema = z.object({ sell: z.boolean(), markupBps: z.number().int().min(0).max(20_000) });
@@ -60,6 +62,70 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
     if (!d.economy) throw new ApiError("NOT_FOUND", "No economy on this server.");
     d.economy.setDesk(u.userId, d.parse(DeskSchema, req.body));
     return { ok: true, economy: await d.economy.view(u.userId) };
+  });
+
+  // a player's own wallet key, for backup or to open the account in any NEAR wallet. Shown once, never logged or cached.
+  const exportsByUser = new Map<string, number[]>();
+  app.post("/api/economy/wallet/export", async (req, reply) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    if (!d.economy?.live) throw new ApiError("AUTH_PROVIDER_UNAVAILABLE", "This server isn't connected to NEAR, so there's no wallet key to export.");
+    const body = d.parse(z.object({ confirm: z.literal("I understand") }), req.body);
+    void body;
+    const now = Date.now();
+    const recent = (exportsByUser.get(u.userId) ?? []).filter((t) => now - t < 3_600_000);
+    if (recent.length >= 3) throw new ApiError("RATE_LIMITED", "You've exported your key three times this hour. Try again later.");
+    const w = d.economy.wallet(u.userId);
+    const key = d.economy.walletKey(u.userId);
+    if (!w || (w.status !== "active" && w.status !== "released") || !key) throw new ApiError("NOT_FOUND", "Your wallet isn't open yet.");
+    exportsByUser.set(u.userId, [...recent, now]);
+    req.log.info({ userId: u.userId, accountId: w.account_id }, "wallet key exported by its owner");
+    reply.header("cache-control", "no-store");
+    return { ok: true, accountId: w.account_id, privateKey: key, network: "testnet" };
+  });
+
+  /* ---------------------------------------------------------------- plants between companies */
+
+  app.get("/api/plants/market", async (req) => {
+    let viewer: string | null = null;
+    try {
+      viewer = (await d.requireUser(req)).userId;
+    } catch {
+      /* anyone can look */
+    }
+    return { ok: true, sales: d.plants?.view(viewer) ?? [] };
+  });
+  app.post("/api/plants/list", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    const b = d.parse(z.object({ plantId: z.string().min(1).max(64), priceCc: z.number().int().min(100_00).max(100_000_000_00) }), req.body);
+    d.plants!.list(u.userId, b.plantId, b.priceCc);
+    return { ok: true, sales: d.plants!.view(u.userId) };
+  });
+  app.post("/api/plants/cancel", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    d.plants!.cancel(u.userId, d.parse(z.object({ saleId: z.string().min(1).max(40) }), req.body).saleId);
+    return { ok: true, sales: d.plants!.view(u.userId) };
+  });
+  app.post("/api/plants/buy", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    d.plants!.buy(u.userId, d.parse(z.object({ saleId: z.string().min(1).max(40) }), req.body).saleId);
+    return { ok: true, sales: d.plants!.view(u.userId) };
+  });
+
+  // take the company's money to your own wallet and end the game's custody of it, for good
+  app.post("/api/economy/wallet/leave", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    if (!d.economy?.live) throw new ApiError("AUTH_PROVIDER_UNAVAILABLE", "This server isn't connected to NEAR.");
+    d.parse(z.object({ confirm: z.literal("LEAVE") }), req.body);
+    try {
+      return { ok: true, ...(await d.economy.leaveCustody(u.userId)) };
+    } catch (e) {
+      throw new ApiError("INVALID_STATE", (e as Error).message);
+    }
   });
 
   // emergency stop for NPC spending (contract switch + server switch); needs ECONOMY_ADMIN_TOKEN

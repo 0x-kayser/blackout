@@ -84,7 +84,8 @@ export function loadEconomyConfig(env: NodeJS.ProcessEnv = process.env): Economy
     worldId,
     npcs,
     walletSecret,
-    walletNear: env.NEAR_WALLET_FUNDING_NEAR?.trim() || "0.02",
+    // enough for the account's own storage (its key): the game pays every fee, so a wallet never needs more
+    walletNear: env.NEAR_WALLET_FUNDING_NEAR?.trim() || "0.0025",
     npcSpending: (env.NPC_SPENDING_ENABLED ?? "true").toLowerCase() !== "false",
     walletsPerHour: Number(env.NEAR_WALLETS_PER_HOUR ?? 60),
     adminToken: env.ECONOMY_ADMIN_TOKEN?.trim() || null,

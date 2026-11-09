@@ -21,9 +21,9 @@ pnpm install
 ```bash
 AUTH_LOCAL_EMAIL=true AUTH_LOCAL_EMAIL_SHOW_CODE=true pnpm dev
 ```
-Open **http://localhost:5173**. The first page has two buttons: **▶ Play as guest** (one tap and you're in the
-region) or **Sign in** with Google or an email code, so your company follows you to any device. A guest can sign in
-later from ⚙︎ → Account and keep everything. Returning players skip the title and land back in their region. The
+Open **http://localhost:5173**. Everyone signs in first, with Google or an email code: the first page is the sign-in,
+and signing in creates your company, its NEAR wallet and its ₡300,000 starting capital. Returning players skip the
+title and land back in their region. (`ALLOW_GUEST_PLAY=true` adds a guest button, for local development only.) The
 original city game is still playable at **/city**. Node ≥ 22.5, pnpm 10. Set `WORLD_INPUTS=off` to skip live weather.
 
 ## How you learn it: by playing
@@ -116,8 +116,10 @@ a run on 2026-11-09 settled 40 transactions, including NPCs paying a player for 
 buying from another NPC ([evidence](docs/TESTNET_DEMO.md#evidence-table)). Reproduce with `pnpm chain:economy`, then
 `pnpm chain:demo`.
 
-**Not done:** player-to-player equipment sales in the game (the contract's atomic `plant_buy` exists), a key-export
-screen for self-custody, wallets for guests (they get one when they sign in), NEAR Intents.
+Players also sell whole plants to each other (MARKET → Plants for sale): one atomic `plant_buy_for` moves the credits
+and the NFT, then the plant moves grids. Guests get a wallet after their first minute; anyone can export their
+wallet key (⚙︎ → Money), or take all their money out of the game into their own wallet and end the game's custody of
+it for good (`release_to_owner`, signed by the wallet itself). **Not used:** NEAR Intents (see below).
 
 ## How this meets the track (§64)
 * **Games With Real Economies (primary):** prices, wages, debt, closures and construction costs all emerge from
@@ -154,9 +156,9 @@ screen for self-custody, wallets for guests (they get one when they sign in), NE
 | | |
 |---|---|
 | `pnpm dev` | API + web (hot reload) |
-| `pnpm test` | 184 TS tests (Vesper Market, power market, region engine and API, relayer, settlement, world inputs, plus the classic game) |
+| `pnpm test` | 200 TS tests (Vesper Market, power market, region engine and API, relayer, settlement, world inputs, plus the classic game) |
 | `pnpm test:e2e` | Playwright: the first session, the market (tooltip, trade, feed, watch a week), a phone layout, and the 8 classic journeys |
-| `pnpm test:contract` | 53 Rust contract tests |
+| `pnpm test:contract` | 54 Rust contract tests |
 | `pnpm typecheck` | type check (also `cd apps/web && npx tsc --noEmit`) |
 | `pnpm build` | production web build into `dist/` |
 | `pnpm build:contract` / `pnpm chain:economy` | build, deploy and initialise the economy on testnet with your account |

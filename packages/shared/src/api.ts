@@ -286,6 +286,8 @@ export const PublicConfigSchema = z.object({
     email: z.boolean(),
     /** Local email-code sign-in (development / self-hosted demo without Supabase). */
     local: z.boolean(),
+    /** Visitors may play without signing in (development and tests only). */
+    guestPlay: z.boolean().optional(),
     /** Local test mode only: the code is shown on screen instead of being emailed. */
     localShowsCode: z.boolean(),
   }),

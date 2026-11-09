@@ -55,6 +55,27 @@ export const regionApi = {
   chain: () => call<{ ok: true; mode: string; network?: string; resourceContractId?: string | null; missing?: string[] }>('GET', '/api/chain/status'),
   economy: () => call<{ ok: true; economy: EconomyView }>('GET', '/api/economy'),
   setDesk: (d: { sell: boolean; markupBps: number }) => call<{ ok: true; economy: EconomyView }>('POST', '/api/economy/desk', d),
+  plantSales: () => call<{ ok: true; sales: PlantSale[] }>('GET', '/api/plants/market'),
+  listPlant: (plantId: string, priceCc: number) => call<{ ok: true; sales: PlantSale[] }>('POST', '/api/plants/list', { plantId, priceCc }),
+  cancelPlant: (saleId: string) => call<{ ok: true; sales: PlantSale[] }>('POST', '/api/plants/cancel', { saleId }),
+  buyPlant: (saleId: string) => call<{ ok: true; sales: PlantSale[] }>('POST', '/api/plants/buy', { saleId }),
+  leaveCustody: () => call<{ ok: true; status: string; detail: string }>('POST', '/api/economy/wallet/leave', { confirm: 'LEAVE' }),
+  exportKey: () => call<{ ok: true; accountId: string; privateKey: string; network: string }>('POST', '/api/economy/wallet/export', { confirm: 'I understand' }),
+}
+
+export interface PlantSale {
+  saleId: string
+  sellerName: string
+  mine: boolean
+  name: string
+  tech: string
+  nodeId: string
+  capacityKw: number
+  priceCc: number
+  status: 'listing' | 'listed' | 'buying' | 'sold' | 'cancelled' | 'failed'
+  tokenId: string | null
+  tokenUrl: string | null
+  detail: string | null
 }
 
 export interface EpochDetail {

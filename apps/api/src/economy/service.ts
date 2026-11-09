@@ -60,7 +60,7 @@ interface WalletRow {
   account_id: string;
   public_key: string;
   enc_private_key: string;
-  status: "creating" | "opening" | "active" | "failed";
+  status: "creating" | "opening" | "active" | "leaving" | "released" | "failed";
   region_id: string | null;
   opened_interval: number | null;
   opened_town_tick: number | null;
@@ -77,6 +77,8 @@ export class EconomyService {
   private treasuryAt = 0;
   private busy = false;
   private applied = new Set<string>();
+  /** The plant market's callbacks for its own operations (player-to-player sales). */
+  saleHooks: { settled: (row: OpRow) => void; failed: (row: OpRow, detail: string) => void } | null = null;
   /** When each in-flight operation was first seen unconfirmed (to tell "slow" from "never arrived"). */
   private inflightSince = new Map<string, number>();
 
@@ -130,9 +132,14 @@ export class EconomyService {
    */
   ensureWallet(userId: string): { wallet: WalletRow | null; note: string | null } {
     if (!this.live) return { wallet: null, note: "This server isn't connected to NEAR testnet: your money is kept by the game server only." };
-    if (!this.isRegistered(userId)) return { wallet: null, note: "Guests play with game money only. Sign in and your company gets its own NEAR wallet, with the same balance." };
     const have = this.wallet(userId);
     if (have) return { wallet: have, note: null };
+    // guests get a wallet too, once they've actually played (finished the first minute): a page load alone never
+    // creates an account, so the faucet can't be drained by opening the game in a loop
+    if (!this.isRegistered(userId)) {
+      const h = this.rsvc.liveFor(userId);
+      if (!h.state.onboarding.done) return { wallet: null, note: "Finish your first minute and your company gets its own NEAR wallet." };
+    }
     const recent = (this.db.prepare("SELECT COUNT(*) AS n FROM player_wallets WHERE created_at > ?").get(new Date(Date.now() - 3_600_000).toISOString()) as { n: number }).n;
     if (recent >= this.cfg.walletsPerHour) return { wallet: null, note: "Lots of new companies this hour: your wallet will be created in a few minutes." };
     const accountId = walletAccountId(userId, this.cfg.playerParent!.accountId);
@@ -201,6 +208,13 @@ export class EconomyService {
     if (s === "operator") return { kind: "operator" };
     if (s === "player-parent") return { kind: "player-parent" };
     if (s.startsWith("npc:")) return { kind: "npc", id: s.slice(4) };
+    if (s.startsWith("wallet:")) {
+      // a player's own wallet signing for itself (only ever to leave game custody, at their request)
+      const w = this.wallet(s.slice(7));
+      const key = this.walletKey(s.slice(7));
+      if (!w || !key) throw new Error("No wallet key");
+      return { kind: "key", accountId: w.account_id, privateKey: key };
+    }
     throw new Error(`unknown signer ${s}`);
   }
 
@@ -257,7 +271,7 @@ export class EconomyService {
     }
     let r: GatewayResult;
     if (row.status === "submitted" && row.tx_hash) {
-      r = await gw.lookup(row.tx_hash, row.signer.startsWith("npc:") ? this.npcAccount(row.signer.slice(4))! : row.signer === "operator" ? this.cfg.operator!.accountId : this.cfg.playerParent!.accountId);
+      r = await gw.lookup(row.tx_hash, row.signer.startsWith("npc:") ? this.npcAccount(row.signer.slice(4))! : row.signer.startsWith("wallet:") ? this.wallet(row.signer.slice(7))!.account_id : row.signer === "operator" ? this.cfg.operator!.accountId : this.cfg.playerParent!.accountId);
       if (r.status === "pending" && (await this.reconcile(row))) r = { ...r, status: "settled", detail: "confirmed by reading the contract" };
       if (r.status === "pending") {
         const since = this.inflightSince.get(row.op_id) ?? Date.now();
@@ -283,6 +297,7 @@ export class EconomyService {
         // keys starting with "_" are the server's own bookkeeping, never sent to the contract
         const send = Object.fromEntries(Object.entries(args).filter(([k]) => !k.startsWith("_")));
         if (row.kind === "account") r = await gw.createSubAccount(String(args.account_id), String(args.public_key), onSigned);
+        else if (row.kind === "fund") r = await gw.sendNear(String(args.receiver_id), String(args.near), onSigned);
         else r = await gw.call(this.signerOf(row.signer), row.method, send, { onSigned });
       } catch (e) {
         r = { status: "failed", txHash: null, signerId: row.signer, detail: (e as Error).message };
@@ -310,6 +325,9 @@ export class EconomyService {
     const attemptsOk = row.attempts < (row.kind === "expire" || row.kind === "batch" ? 40 : 8);
     if (!attemptsOk) return false;
     if (row.kind === "order") return transient && !this.staleReason(row);
+    // a purchase the contract refuses (say the buyer's wallet is short) is final: the buyer gets their money back
+    // at once and can try again; only network trouble is retried
+    if (row.method === "plant_buy_for" || row.method === "plant_list") return TRANSIENT.test(detail);
     return transient || ((row.kind === "batch" || row.kind === "expire") && TRAP.test(detail));
   }
 
@@ -337,8 +355,13 @@ export class EconomyService {
         return !o || o.status !== "open";
       }
       if (row.kind === "batch") return !!(await gw.view<unknown>("epoch", { epoch_id: a.epoch_id }));
+      if (row.kind === "release") return await gw.view<boolean>("is_released", { account_id: a._account_id });
+      if (row.kind === "fund") return (await gw.nearBalance(String(a.receiver_id))) >= Number(a.near) * 0.5;
       if (row.kind === "plant") {
+        if (row.method === "plant_list") return !!(await gw.view<unknown>("plant_sale", { token_id: a.token_id }));
+        if (row.method === "plant_cancel_listing") return !(await gw.view<unknown>("plant_sale", { token_id: a.token_id }));
         const tkn = await gw.view<{ owner_id: string } | null>("nft_token", { token_id: a.token_id });
+        if (row.method === "plant_buy_for") return !!tkn && tkn.owner_id === a.buyer_id;
         return !!tkn && (row.method === "plant_mint" || tkn.owner_id === a.receiver_id);
       }
     } catch {
@@ -369,9 +392,19 @@ export class EconomyService {
     if (row.kind === "confirm") town.settlePowerOrder(t, ctx, String(a.order_id), Number(a.delivered_kwh));
     // carry it into the seller's region now, not at the next market tick
     if (row.kind === "order" || row.kind === "confirm") this.afterTownTick();
+    if (row.subject?.startsWith("sale:")) this.saleHooks?.settled(row);
+    if (row.subject?.startsWith("leave:")) this.leaveStep(row.subject.slice(6), row);
   }
 
   private onFailed(row: OpRow, detail: string): void {
+    if (row.subject?.startsWith("leave:") && row.kind === "batch" && !(this.retryable(row, detail) && row.attempts < 8)) this.leaveFailed(row.subject.slice(6), detail);
+    // the release couldn't pay its fee: top the wallet up once more and try again (at most three rounds)
+    if (row.subject?.startsWith("leave:") && row.kind === "release" && /balance/i.test(detail)) {
+      const n = Number(row.op_id.split(":").pop()) || 1;
+      const w = this.wallet(row.subject.slice(6));
+      if (w && n < 3) this.enqueue({ opId: `fund:${row.subject}:${n + 1}`, kind: "fund", subject: row.subject, signer: "player-parent", method: "transfer", args: { receiver_id: w.account_id, near: "0.05" } });
+    }
+    if (row.subject?.startsWith("sale:") && !(this.retryable(row, detail) && row.attempts < 8)) this.saleHooks?.failed(row, detail);
     const user = row.subject?.startsWith("wallet:") ? row.subject.slice(7) : null;
     if (this.retryable(row, detail) && row.attempts < 8) return; // the worker tries again later
     if (user && (row.kind === "account" || row.op_id.startsWith("grant:start:"))) this.db.prepare("UPDATE player_wallets SET status = 'failed', detail = ?, updated_at = ? WHERE player_id = ?").run(detail.slice(0, 300), nowIso(), user);
@@ -692,7 +725,8 @@ export class EconomyService {
       if (!w || w.status !== "active" || w.region_id !== h.regionId) continue;
       for (const p of h.state.plants) {
         if (p.status === "building") continue;
-        const token = this.plantTokenId(h.regionId, p.assetNo);
+        // a plant bought from another company keeps the token it already has
+        const token = p.chainTokenId ?? this.plantTokenId(h.regionId, p.assetNo);
         const minted = this.op(`plant:${token}`);
         if (p.ownerId === "player" && !minted)
           this.enqueue({ opId: `plant:${token}`, kind: "plant", subject: `plants:${h.ownerId}`, signer: "operator", method: "plant_mint", args: { token_id: token, owner_id: w.account_id, metadata: { title: p.name.slice(0, 80), tech: p.tech, node_id: p.nodeId, capacity_kw: p.capacityKw } } });
@@ -850,6 +884,60 @@ export class EconomyService {
     }
     this.db.prepare("DELETE FROM economy_state WHERE key = 'resync'").run();
     this.cfg.npcSpending = true;
+  }
+
+  /* ================================================================ leaving game custody */
+
+  /**
+   * "Take my money and leave": the company's cash goes to the player's own wallet, and the wallet calls the
+   * contract's `release_to_owner` itself, after which the game can never move that account's tokens again.
+   *   1. the cash is set aside in the game at once (it can't be spent twice);
+   *   2. waits until no queued settlement still involves the wallet;
+   *   3. one batch settles the wallet to exactly that cash (against the grid);
+   *   4. the player-parent sends the wallet a little NEAR for its own transaction fee;
+   *   5. the wallet signs `release_to_owner`. Done: status "released".
+   * If step 3 is refused, the cash goes back to the company and nothing has left custody.
+   */
+  async leaveCustody(userId: string): Promise<{ status: "leaving" | "waiting" | "released"; detail: string }> {
+    if (!this.live) throw new Error("This server isn't connected to NEAR.");
+    const w = this.wallet(userId);
+    if (!w) throw new Error("You don't have a wallet yet.");
+    if (w.status === "released") return { status: "released", detail: "This wallet is already yours alone." };
+    if (w.status === "leaving") return { status: "leaving", detail: "Already on its way to you." };
+    if (w.status !== "active") throw new Error("Your wallet isn't open yet.");
+    const busy = (this.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE status IN ('created', 'submitted') AND args_json LIKE ?").get(`%${w.account_id}%`) as { n: number }).n;
+    if (busy > 0) return { status: "waiting", detail: `${busy} settlement${busy > 1 ? "s" : ""} for your wallet still on the way. Try again in a minute.` };
+    const h = this.rsvc.liveFor(userId);
+    const cash = Math.max(0, region.rbal(h.state, "cc", "player"));
+    const have = await this.onChain(w.account_id, true);
+    if (have === null) throw new Error("Couldn't read your wallet on NEAR. Try again.");
+    this.setState(`leave:${userId}`, { cash });
+    this.db.prepare("UPDATE player_wallets SET status = 'leaving', detail = NULL, updated_at = ? WHERE player_id = ?").run(nowIso(), userId);
+    if (cash > 0) this.rsvc.act(h, { type: "CASH_OUT", ref: `leave:${userId}`, cc: cash, out: true }, `leave-out:${userId}`, "system");
+    const id = `leave:${userId}`;
+    if (cash !== have)
+      this.enqueue({ opId: `batch:${id}`, kind: "batch", subject: id, signer: "operator", method: "settle_batch", args: { epoch_id: id, hash: region.sha256(region.canonical({ w: w.account_id, cash, have })), entries: [[CREDIT, [[w.account_id, String(cash - have)], [this.cfg.gridId!, String(have - cash)]].sort(([a], [b]) => a.localeCompare(b))]] } });
+    else this.leaveStep(userId, null);
+    return { status: "leaving", detail: `₡${Math.round(cash / 100).toLocaleString("en-US")} is on its way to your wallet.` };
+  }
+
+  private leaveStep(userId: string, row: OpRow | null): void {
+    const w = this.wallet(userId);
+    if (!w || w.status !== "leaving") return;
+    const id = `leave:${userId}`;
+    // the wallet pays its own fee for the release; whatever it doesn't use stays in the wallet, the player's NEAR
+    if (!row || row.kind === "batch") this.enqueue({ opId: `fund:${id}:1`, kind: "fund", subject: id, signer: "player-parent", method: "transfer", args: { receiver_id: w.account_id, near: "0.05" } });
+    else if (row.kind === "fund") this.enqueue({ opId: `release:${id}:${row.op_id.split(":").pop()}`, kind: "release", subject: id, signer: `wallet:${userId}`, method: "release_to_owner", args: { _account_id: w.account_id } });
+    else if (row.kind === "release") this.db.prepare("UPDATE player_wallets SET status = 'released', detail = NULL, updated_at = ? WHERE player_id = ?").run(nowIso(), userId);
+  }
+
+  private leaveFailed(userId: string, detail: string): void {
+    const w = this.wallet(userId);
+    if (!w || w.status !== "leaving") return;
+    const cash = this.getState<{ cash: number }>(`leave:${userId}`)?.cash ?? 0;
+    // nothing left custody: the cash goes back to the company
+    if (cash > 0) this.rsvc.act(this.rsvc.liveFor(userId), { type: "CASH_OUT", ref: `leave:${userId}`, cc: cash, out: false }, `leave-back:${userId}:${Date.now()}`, "system");
+    this.db.prepare("UPDATE player_wallets SET status = 'active', detail = ?, updated_at = ? WHERE player_id = ?").run(`Withdrawal refused (${friendly(detail)}); your cash is back in the company.`, nowIso(), userId);
   }
 
   /** Emergency stop: the contract stops every NPC's spending, and the server stops placing NPC orders. */

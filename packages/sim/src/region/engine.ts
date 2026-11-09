@@ -232,6 +232,49 @@ export function regionAct(s: RegionState, ctx: RCtx, action: AnyRegionAction): {
       }
       return { message: `${action.buyerName} paid you.` };
     }
+    case "PLANT_PAYMENT": {
+      // the price moves through `ext:contracts`, which region epochs leave out: on NEAR it moves in the sale itself
+      if (action.hold) {
+        if (rbal(s, "cc", RACC.player) < action.cc) throw new SimError("INSUFFICIENT_CREDITS", "Not enough cash for that plant.");
+        rtransfer(s, ctx, "cc", RACC.player, "ext:contracts", action.cc, `buying a plant from ${action.sellerName}`);
+      } else rtransfer(s, ctx, "cc", "ext:contracts", RACC.player, action.cc, `purchase from ${action.sellerName} cancelled`);
+      return { message: action.hold ? "Payment held." : "Payment returned." };
+    }
+    case "CASH_OUT": {
+      // through `ext:contracts`, which region epochs leave out: on NEAR the money is already the player's
+      if (action.out) {
+        if (rbal(s, "cc", RACC.player) < action.cc) throw new SimError("INSUFFICIENT_CREDITS", "Not that much cash.");
+        rtransfer(s, ctx, "cc", RACC.player, "ext:contracts", action.cc, "withdrawn to your own wallet");
+      } else rtransfer(s, ctx, "cc", "ext:contracts", RACC.player, action.cc, "withdrawal cancelled");
+      return { message: action.out ? "Withdrawn to your wallet." : "Withdrawal returned." };
+    }
+    case "PLANT_LOCK": {
+      const p = s.plants.find((x) => x.plantId === action.plantId && x.ownerId === "player");
+      if (!p) throw new SimError("NOT_FOUND", "That plant isn't yours.");
+      if (action.locked && s.listings.some((l) => l.plantId === p.plantId)) throw new SimError("INVALID_STATE", "It's already listed for VoltLine's bids; withdraw that first.");
+      p.saleLocked = action.locked || undefined;
+      return { message: action.locked ? "Listed for other companies." : "Listing withdrawn." };
+    }
+    case "PLANT_OUT": {
+      const p = s.plants.find((x) => x.plantId === action.plantId && x.ownerId === "player");
+      if (!p) throw new SimError("NOT_FOUND", "That plant isn't yours any more.");
+      s.plants = s.plants.filter((x) => x !== p);
+      s.listings = s.listings.filter((l) => l.plantId !== p.plantId);
+      rtransfer(s, ctx, "cc", "ext:contracts", RACC.player, action.priceCc, `sold ${p.name} to ${action.buyerName}`);
+      s.player.profitCcToday += action.priceCc;
+      s.player.profitCcTotal += action.priceCc;
+      emit(s, ctx, { type: "PLANT_SOLD", severity: "good", title: `You sold ${p.name} to ${action.buyerName} for ${cr(action.priceCc)}`, detail: "It has left your grid and runs on theirs now.", nodeId: p.nodeId });
+      return { message: `Sold ${p.name}.` };
+    }
+    case "PLANT_IN": {
+      const q = action.plant;
+      const p = addPlant(s, { plantId: `bought-${action.saleId}`.slice(0, 40), name: q.name, tech: q.tech, nodeId: q.nodeId, ownerId: "player", capacityKw: q.capacityKw, energyKwh: q.energyKwh, online: false, healthBps: q.healthBps, built: true });
+      p.socKwh = Math.min(q.socKwh, p.energyKwh);
+      p.cycles = q.cycles;
+      if (q.chainTokenId) p.chainTokenId = q.chainTokenId;
+      emit(s, ctx, { type: "PLANT_BOUGHT", severity: "good", title: `${q.name} is yours: bought from ${action.sellerName} for ${cr(action.priceCc)}`, detail: "It stands where it stood; start it from DISPATCH.", nodeId: q.nodeId });
+      return { message: `Bought ${q.name}.` };
+    }
     case "TOWN_PRICES": {
       s.townPrices = { gas: action.gas, diesel: action.diesel };
       return { message: "Market prices updated." };
@@ -363,6 +406,7 @@ export function regionAct(s: RegionState, ctx: RCtx, action: AnyRegionAction): {
       const p = myPlant(s, action.plantId);
       if (p.status === "building") throw new SimError("INVALID_STATE", "Finish building it first.");
       if (s.listings.some((l) => l.plantId === p.plantId)) throw new SimError("INVALID_STATE", "Already listed.");
+      if (p.saleLocked) throw new SimError("INVALID_STATE", "It's listed for other companies; withdraw that listing first.");
       s.listings.push({ plantId: p.plantId, seller: "player", askCc: action.askCc, bids: [], listedAt: s.interval });
       listingsStep(s, ctx, true);
       return { message: `${p.name} (${assetIdOf(p.assetNo)}) is listed for ${cr(action.askCc)}.` };

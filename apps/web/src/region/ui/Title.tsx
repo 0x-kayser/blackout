@@ -35,7 +35,9 @@ function useSkyline() {
 
 export function Title(p: TitleProps) {
   const skyline = useSkyline()
-  const [mode, setMode] = useState<'start' | 'signin'>('start')
+  const guestPlay = !!p.config?.auth.guestPlay
+  // when everyone signs in first, the sign-in options are the first thing on the page
+  const [mode, setMode] = useState<'start' | 'signin'>(guestPlay ? 'start' : 'signin')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const auth = p.config?.auth
@@ -74,6 +76,7 @@ export function Title(p: TitleProps) {
           BLACK<span>OUT</span>
         </h1>
         <p className="title-tag">Run a power company. Keep a region’s lights on. Trade in a market that remembers what everyone did.</p>
+        {!guestPlay && <p className="title-step">Sign in to start. Your company gets its own wallet and ₡300,000 to build with.</p>}
 
         {mode === 'start' ? (
           <div className="title-actions">
@@ -89,16 +92,18 @@ export function Title(p: TitleProps) {
           </div>
         ) : (
           <div className="title-actions">
-            <SignInOptions g={host} onSignedIn={p.onSignedIn} />
-            <button className="text-link" onClick={() => setMode('start')}>
-              ← Back
-            </button>
+            {canSignIn ? <SignInOptions g={host} onSignedIn={p.onSignedIn} /> : <p className="warn">Sign-in isn’t set up on this server yet.</p>}
+            {guestPlay && (
+              <button className="text-link" onClick={() => setMode('start')}>
+                ← Back
+              </button>
+            )}
           </div>
         )}
         {err && <p className="warn">{err}</p>}
 
         <ul className="title-promises">
-          <li>No wallet</li>
+          <li>No wallet app</li>
           <li>No seed phrase</li>
           <li>No fees</li>
         </ul>

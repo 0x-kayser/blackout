@@ -423,3 +423,9 @@
 @media (max-width: 700px) { .ff-companies { grid-template-columns: 1fr 1fr; } }
 .gis-button { display: flex; justify-content: center; min-height: 44px; }
 .gis-button iframe { margin: 0 auto !important; }
+.key-export { display: grid; gap: 6px; margin-top: 8px; padding: 10px; border: 1px solid rgba(245, 165, 36, 0.4); border-radius: 10px; background: rgba(245, 165, 36, 0.05); }
+.key-export .fine, .key-export .warn-line { margin: 0; }
+.key-box { display: block; padding: 8px; border-radius: 8px; background: #0b1222; border: 1px solid var(--edge); font-size: 11.5px; word-break: break-all; user-select: all; }
+.sell-plant { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 10px; }
+.sell-plant select, .sell-plant input { background: #0b1222; border: 1px solid var(--edge); color: var(--ink); border-radius: 8px; padding: 6px 8px; font: inherit; }
+.title-step { margin: -8px auto 16px; max-width: 34ch; color: var(--ink); font-size: 14px; font-weight: 600; }

@@ -112,6 +112,12 @@ export default function RegionApp() {
         setEntry(true)
         return
       }
+      // this server asks everyone to sign in first: a guest session from before gets the sign-in screen (and keeps
+      // its company when it signs in)
+      if (!cfg.auth.guestPlay && me.player.kind !== 'registered') {
+        setEntry(true)
+        return
+      }
       setEntry(false)
       if (me.player.kind === 'registered' && guestUpgradeToken()) {
         try {
@@ -151,6 +157,12 @@ export default function RegionApp() {
   }, [boot, setView])
 
   // the music follows the grid: tense while the region is short of power or dark
+  // a guest's wallet is created once they finish the first minute: ask again at that moment
+  const onboarded = !!view?.onboarding.done
+  useEffect(() => {
+    if (onboarded && player) regionApi.economy().then((x) => setEconomy(x.economy), () => undefined)
+  }, [onboarded, player?.playerId])
+
   const gridStatus = view?.pulse.status
   useEffect(() => setMusicMood(gridStatus === 'shortfall' || gridStatus === 'blackout' ? 'tense' : 'calm'), [gridStatus])
 

@@ -22,7 +22,7 @@ const provider = new JsonRpcProvider({ url: process.env.NEAR_RPC_URL ?? "https:/
 const contractId = env.NEAR_ECONOMY_CONTRACT_ID;
 
 const KEYS: { accountVar: string; keyVar: string; methods: string[] }[] = [
-  { accountVar: "NEAR_OPERATOR_ACCOUNT_ID", keyVar: "NEAR_OPERATOR_PRIVATE_KEY", methods: ["treasury_grant", "settle_batch", "settle_epoch", "settle_items", "power_order_confirm", "power_order_expire", "prune_closed_orders", "set_npc_paused", "set_npc_spending_paused", "plant_mint", "plant_transfer_for", "plant_buy_for"] },
+  { accountVar: "NEAR_OPERATOR_ACCOUNT_ID", keyVar: "NEAR_OPERATOR_PRIVATE_KEY", methods: ["treasury_grant", "settle_batch", "settle_epoch", "settle_items", "power_order_confirm", "power_order_expire", "prune_closed_orders", "set_npc_paused", "set_npc_spending_paused", "plant_mint", "plant_transfer_for", "plant_buy_for", "plant_list", "plant_cancel_listing"] },
   ...Object.keys(env)
     .filter((k) => /^NEAR_NPC_[A-Z]+_PRIVATE_KEY$/.test(k))
     .map((k) => ({ accountVar: k.replace("_PRIVATE_KEY", "_ACCOUNT_ID"), keyVar: k, methods: ["power_order_place"] })),

@@ -115,7 +115,17 @@ export type RegionSystemAction =
   /** An NPC company bought `kw` from this player for `intervals`: a firm export load the player's grid must serve. */
   | { type: "POWER_EXPORT"; orderId: string; buyerName: string; kw: number; intervals: number; priceCcPerMWh: number }
   /** The buyer's escrow paid the player for a delivered power order (settled on NEAR, or locally). */
-  | { type: "POWER_PAID"; orderId: string; buyerName: string; cc: number };
+  | { type: "POWER_PAID"; orderId: string; buyerName: string; cc: number }
+  /** Another company's plant purchase: hold the price while it settles (hold), or give it back if it fails (release). */
+  | { type: "PLANT_PAYMENT"; saleId: string; cc: number; hold: boolean; sellerName: string }
+  /** The player withdraws their company's cash to their own wallet (out: true), or gets it back if that fails. */
+  | { type: "CASH_OUT"; ref: string; cc: number; out: boolean }
+  /** A plant listed for sale to other players is locked (no selling it twice), or unlocked when the listing ends. */
+  | { type: "PLANT_LOCK"; plantId: string; locked: boolean }
+  /** A plant this player sold to another company leaves their grid; the price arrives. */
+  | { type: "PLANT_OUT"; saleId: string; plantId: string; buyerName: string; priceCc: number }
+  /** A plant this player bought from another company joins their grid, where it stood, as it was. */
+  | { type: "PLANT_IN"; saleId: string; sellerName: string; priceCc: number; plant: { name: string; tech: TechId; nodeId: NodeId; capacityKw: number; energyKwh: number; healthBps: number; socKwh: number; cycles: number; chainTokenId: string | null } };
 export type AnyRegionAction = RegionAction | RegionSystemAction;
 
 export const RegionActionEnvelopeSchema = z.object({

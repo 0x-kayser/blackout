@@ -51,13 +51,19 @@ Same as B with the seller `vesper-northwind…`. Northwind bought the gas for th
 their price when it committed (a market trade from its own wallet, settled in the next market batch), so it delivers
 in full and the operator confirms the whole order.
 
-## Flow D — player-to-player equipment sale
+## Flow D — a player sells a plant to another player
 
-**Not wired into the game.** The contract supports it atomically (`plant_list`, then `plant_buy` moves the buyer's
-credits to the seller and the NFT to the buyer in one call; the plant's own account and balances follow the token),
-and the relayer accepts a player-signed `plant_buy`. What's missing is moving a physical plant between two players'
-regions. Meanwhile, plants a player owns are minted to their wallet and leave it when they sell to an NPC
-(`EconomyService.syncPlants`), so on-chain ownership follows the game.
+1. MARKET → Plants for sale → *Sell one of yours* (`POST /api/plants/list`). The plant is locked in the seller's region
+   (it can't also go to VoltLine) and the operator lists its NFT for the seller: `plant_list` (`plantMarket.ts`).
+2. Another company presses **Buy** (`POST /api/plants/buy`). The price is held in the buyer's region at once.
+3. One transaction, `plant_buy_for`: the buyer's credits go to the seller and the NFT (with its plant account) to the
+   buyer, atomically; a stale or short sale is refused whole.
+4. Final → the plant leaves the seller's grid (`PLANT_OUT`, price paid) and joins the buyer's where it stood, with its
+   health, charge and token id (`PLANT_IN`). Refused → the held price goes back and the plant stays for sale.
+
+Live on testnet (2026-11-09): Eastside Battery, ₡20,000, one transaction
+[GBTrhzDT…](https://testnet.nearblocks.io/txns/GBTrhzDTGGq8krMmuXdca2tGo3JqURgBqSANs9sdHQU6) carrying both the `mt_transfer` (credits buyer → seller)
+and the `nft_transfer` (NFT seller → buyer); the listing was [G9cETXth…](https://testnet.nearblocks.io/txns/G9cETXthZq2A3grjnFgERDMAnPk3RPe9Phpu9hF6jdRX).
 
 ## Failure handling (tested in `tests/integration/economy.test.ts`)
 

@@ -85,6 +85,8 @@ From the run of 2026-11-09 (`docs/TESTNET_RUN.md`), re-checked on chain afterwar
 | NPC starting capital (e.g. Halvard, ₡400,000) | operator | [7xbv14Va…](https://testnet.nearblocks.io/txns/7xbv14Vaqg7mwoRuSizLumwK1aHey5srovX8q4AjPtvA) |
 | Market batch: trades and items settled together | operator | [8e5TtXAA…](https://testnet.nearblocks.io/txns/8e5TtXAAnMuNEwZ2fnWZfoXju6mfLAbLbsmCkWcSpHFL) |
 | Region earnings batch | operator | [2e5pFzrr…](https://testnet.nearblocks.io/txns/2e5pFzrrARdqiQD4TLuQ9J2rW5naVDGnY8DbuuWW1vts) |
+| **Player → player**: Eastside Battery for ₡20,000, credits and NFT in one call | operator, for the buyer | [GBTrhzDT…](https://testnet.nearblocks.io/txns/GBTrhzDTGGq8krMmuXdca2tGo3JqURgBqSANs9sdHQU6) |
+| **Leaving custody**: the wallet releases itself | **the player's wallet** | [2vhy33oF…](https://testnet.nearblocks.io/txns/2vhy33oF8fm5FaSRENKh7ssenEv42BPCdQht4qhiVFZY) |
 | Plant Asset minted to the player (Kestrel Peaker) | operator | [C6a9oGkn…](https://testnet.nearblocks.io/txns/C6a9oGknCJj8sUP6sGmg9fvXzxcmSYfeffX5fwuET64e) |
 
 After the run the credit supply was still exactly 200,000,000,000 cc (₡2 billion): nothing was created. The third

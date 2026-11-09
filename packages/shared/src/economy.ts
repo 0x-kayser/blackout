@@ -2,7 +2,7 @@
 
 export interface ChainOpView {
   opId: string;
-  kind: "account" | "grant" | "order" | "confirm" | "batch" | "plant" | "expire" | "admin";
+  kind: "account" | "grant" | "order" | "confirm" | "batch" | "plant" | "expire" | "fund" | "release" | "admin";
   /** Plain words: "Starting capital: ₡300,000 from the treasury". */
   label: string;
   status: "created" | "submitted" | "settled" | "failed" | "local";
@@ -16,7 +16,7 @@ export interface ChainOpView {
 export interface WalletView {
   accountId: string;
   explorerUrl: string | null;
-  status: "creating" | "opening" | "active" | "failed";
+  status: "creating" | "opening" | "active" | "leaving" | "released" | "failed";
   /** Credits the contract says this account holds (null until read). */
   onChainCc: number | null;
   /** Credits your company holds in the game right now. */

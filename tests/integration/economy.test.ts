@@ -72,11 +72,15 @@ describe("player wallets and starting capital", () => {
     expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
   });
 
-  it("guests play with game money only and are told why; different players never share a wallet", async () => {
+  it("guests get a wallet once they've played their first minute (never on a bare page load); players never share one", async () => {
     const guest = await player(false);
     const e = await economy(guest.token);
     expect(e.wallet).toBeNull();
-    expect(e.walletNote).toMatch(/Guests play with game money only/);
+    expect(e.walletNote).toMatch(/Finish your first minute/);
+    built.rsvc.liveFor(guest.userId).state.onboarding.done = true;
+    expect((await economy(guest.token)).wallet.status).toBe("creating");
+    await drain();
+    expect((await economy(guest.token)).wallet.status).toBe("active");
     const a = await player();
     const b = await player();
     await economy(a.token);
@@ -106,6 +110,27 @@ describe("player wallets and starting capital", () => {
     // Lena paid the player's wallet for them
     expect(chain.balance(wallet)).toBeGreaterThan(before);
     expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
+  });
+
+  it("the owner can export their wallet key (it matches the account's key), only with confirmation, at most 3 times an hour", async () => {
+    const p = await player();
+    await economy(p.token);
+    await drain();
+    const ex = (payload: object) => built.app.inject({ method: "POST", url: "/api/economy/wallet/export", headers: auth(p.token), payload });
+    expect((await ex({})).statusCode).toBe(400);
+    const r = await ex({ confirm: "I understand" });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers["cache-control"]).toBe("no-store");
+    const w = built.economy.wallet(p.userId)!;
+    const { KeyPair } = await import("near-api-js");
+    expect(KeyPair.fromString(r.json().privateKey).getPublicKey().toString()).toBe(w.public_key);
+    expect(r.json().accountId).toBe(w.account_id);
+    await ex({ confirm: "I understand" });
+    await ex({ confirm: "I understand" });
+    expect((await ex({ confirm: "I understand" })).statusCode).toBe(429);
+    // someone else's session can't get it: they get their own (or none)
+    const other = await player(false);
+    expect((await built.app.inject({ method: "POST", url: "/api/economy/wallet/export", headers: auth(other.token), payload: { confirm: "I understand" } })).statusCode).toBe(404);
   });
 
   it("a wallet opened after playing a while starts with exactly the company's current cash", async () => {
@@ -143,6 +168,38 @@ describe("opening the market on chain", () => {
   });
 });
 
+describe("leaving game custody", () => {
+  it("moves the company's cash to the wallet, the wallet releases itself, and the game never settles to it again", async () => {
+    const p = await player();
+    await economy(p.token);
+    await drain();
+    const h = built.rsvc.liveFor(p.userId);
+    h.state.onboarding.done = true;
+    for (let i = 0; i < 20; i++) built.rsvc.advance(h);
+    const wallet = built.economy.activeAccount(p.userId)!;
+    const cash = region.rbal(h.state, "cc", "player");
+    const leave = (confirm: string) => built.app.inject({ method: "POST", url: "/api/economy/wallet/leave", headers: auth(p.token), payload: { confirm } });
+    expect((await leave("yes")).statusCode).toBe(400);
+    const r = (await leave("LEAVE")).json();
+    expect(r.status).toBe("leaving");
+    // the cash left the company at once
+    expect(region.rbal(h.state, "cc", "player")).toBe(0);
+    await drain(6);
+    expect(built.economy.wallet(p.userId)!.status).toBe("released");
+    expect(chain.released.has(wallet)).toBe(true);
+    expect(chain.balance(wallet)).toBe(cash);
+    // the release was signed by the wallet itself
+    expect(chain.calls.find((c) => c.method === "release_to_owner")!.signer).toBe(wallet);
+    // later play settles nothing to it (it's out of the operator's reach), and nothing fails trying
+    for (let i = 0; i < 80; i++) built.rsvc.advance(h);
+    for (let i = 0; i < 80; i++) built.tsvc.tick();
+    await drain(4);
+    expect(chain.balance(wallet)).toBe(cash);
+    expect(built.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE kind = 'batch' AND status = 'failed'").get()).toEqual({ n: 0 });
+    expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
+  });
+});
+
 describe("resync after an incident", () => {
   it("waits until nothing is in flight, then lines every NPC and wallet on NEAR up with the game, minting nothing", async () => {
     const p = await player();
@@ -174,6 +231,68 @@ describe("resync after an incident", () => {
     expect(chain.balance(wallet)).toBe(region.rbal(built.rsvc.liveFor(p.userId).state, "cc", "player"));
     expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
     expect(built.economy.cfg.npcSpending).toBe(true);
+  });
+});
+
+describe("selling plants between companies", () => {
+  async function walletPlayer() {
+    const p = await player();
+    await economy(p.token);
+    await drain();
+    built.economy.syncPlants();
+    await drain();
+    return { ...p, h: built.rsvc.liveFor(p.userId), wallet: built.economy.activeAccount(p.userId)! };
+  }
+  const post = (t: string, url: string, payload: object) => built.app.inject({ method: "POST", url, headers: auth(t), payload });
+
+  it("one atomic sale on NEAR: the buyer's credits go to the seller, the NFT to the buyer, and the plant moves grids", async () => {
+    const seller = await walletPlayer();
+    const buyer = await walletPlayer();
+    const plant = seller.h.state.plants.find((x) => x.ownerId === "player" && x.tech === "battery")!;
+    const token = built.economy.plantTokenId(seller.h.regionId, plant.assetNo);
+    const listed = await post(seller.token, "/api/plants/list", { plantId: plant.plantId, priceCc: 5_000_000 });
+    expect(listed.statusCode).toBe(200);
+    // locked: it can't also be offered to VoltLine meanwhile
+    expect(built.rsvc.act(seller.h, { type: "LIST_PLANT", plantId: plant.plantId, askCc: 1_000_000 }, "list-to-npc").ok).toBe(false);
+    await drain();
+    const saleId = (await built.app.inject({ method: "GET", url: "/api/plants/market", headers: auth(buyer.token) })).json().sales.find((x: { name: string }) => x.name === plant.name).saleId;
+    const sellerChain = chain.balance(seller.wallet);
+    const buyerCash = built.rsvc.liveFor(buyer.userId).state.balances.cc.player;
+    expect((await post(buyer.token, "/api/plants/buy", { saleId })).statusCode).toBe(200);
+    // the price is held at once
+    expect(built.rsvc.liveFor(buyer.userId).state.balances.cc.player).toBe(buyerCash - 5_000_000);
+    await drain();
+    expect(chain.plants.get(token)).toBe(buyer.wallet);
+    expect(chain.balance(seller.wallet)).toBe(sellerChain + 5_000_000);
+    expect(seller.h.state.plants.some((x) => x.plantId === plant.plantId)).toBe(false);
+    const arrived = built.rsvc.liveFor(buyer.userId).state.plants.find((x) => x.chainTokenId === token)!;
+    expect(arrived).toBeTruthy();
+    expect(arrived.nodeId).toBe(plant.nodeId);
+    expect(arrived.ownerId).toBe("player");
+    // the buyer's sync never mints it again: it already is that NFT
+    const mints = chain.calls.filter((c) => c.method === "plant_mint").length;
+    built.economy.syncPlants();
+    await drain();
+    expect(chain.calls.filter((c) => c.method === "plant_mint").length).toBe(mints);
+    expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
+  });
+
+  it("a buy NEAR refuses gives the buyer's money back and leaves the plant for sale", async () => {
+    const seller = await walletPlayer();
+    const buyer = await walletPlayer();
+    const plant = seller.h.state.plants.find((x) => x.ownerId === "player" && x.tech === "battery")!;
+    await post(seller.token, "/api/plants/list", { plantId: plant.plantId, priceCc: 5_000_000 });
+    await drain();
+    const saleId = (await built.app.inject({ method: "GET", url: "/api/plants/market", headers: auth(buyer.token) })).json().sales[0].saleId;
+    const cash = built.rsvc.liveFor(buyer.userId).state.balances.cc.player;
+    // the buyer's wallet is short on chain
+    chain.bal.set(`credit:vesper|${buyer.wallet}`, 10);
+    await post(buyer.token, "/api/plants/buy", { saleId });
+    await drain();
+    expect(built.rsvc.liveFor(buyer.userId).state.balances.cc.player).toBe(cash);
+    expect(seller.h.state.plants.some((x) => x.plantId === plant.plantId)).toBe(true);
+    const sales = (await built.app.inject({ method: "GET", url: "/api/plants/market", headers: auth(buyer.token) })).json().sales;
+    expect(sales.find((x: { saleId: string }) => x.saleId === saleId).status).toBe("listed");
   });
 });
 

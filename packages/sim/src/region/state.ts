@@ -44,6 +44,10 @@ export interface RPlant {
   capexCc: number;
   lifetimeKwh: number;
   lifetimeRevenueCc: number;
+  /** The plant's NEP-171 token when it came from another company's region (its id travels with it). */
+  chainTokenId?: string;
+  /** Listed for sale to other players: it can't be sold to anyone else meanwhile. */
+  saleLocked?: boolean;
   revenueCcToday: number;
   costCcToday: number;
   fuelLimited: boolean;
