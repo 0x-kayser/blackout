@@ -12,6 +12,16 @@ async function tapMission(page: import("@playwright/test").Page, label: string) 
   await b.dispatchEvent("click");
 }
 
+/** The first page: the title screen offers guest play or sign-in; the journeys play as a guest. */
+async function enterAsGuest(page: import("@playwright/test").Page) {
+  await page.goto("/");
+  const title = page.locator(".title-screen");
+  await expect(title).toBeVisible({ timeout: 30_000 });
+  await expect(title).toContainText("No wallet");
+  await expect(title.getByRole("button", { name: /Sign in/ })).toBeVisible();
+  await title.getByRole("button", { name: /Play as guest/ }).click();
+}
+
 /** Right after the first minute the game asks for a company name; the journeys answer it. */
 async function nameCompany(page: import("@playwright/test").Page, name = "Kestrel Energy") {
   const card = page.locator(".name-company");
@@ -24,7 +34,7 @@ async function nameCompany(page: import("@playwright/test").Page, name = "Kestre
 
 test("region: three taps to learn, then the whole game", async ({ page }) => {
   test.setTimeout(180_000);
-  await page.goto("/");
+  await enterAsGuest(page);
   await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
   // world first, one problem, one button: nothing else to read
   const mission = page.locator(".mission");
@@ -84,9 +94,29 @@ test("region: three taps to learn, then the whole game", async ({ page }) => {
   await expect(modal.locator(".lab-col")).toHaveCount(2, { timeout: 30_000 });
 });
 
+test("first page: sign in with an email code and land in your own region", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto("/");
+  const title = page.locator(".title-screen");
+  await expect(title).toBeVisible({ timeout: 30_000 });
+  await title.getByRole("button", { name: /Sign in/ }).click();
+  await title.getByRole("button", { name: /Continue with email/ }).click();
+  await title.getByLabel("Email address").fill(`judge-${Date.now()}@blackout.test`);
+  await title.getByRole("button", { name: /Send my sign-in code/ }).click();
+  const code = (await title.locator(".dev-code").innerText()).trim();
+  await title.getByLabel("Six-digit code").fill(code);
+  await title.getByRole("button", { name: /^Sign in$/ }).click();
+  await expect(title).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.locator(".mission")).toContainText("Residential East is dark", { timeout: 30_000 });
+  // a reload keeps you signed in: straight back to the region, no title screen
+  await page.reload();
+  await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".title-screen")).toHaveCount(0);
+});
+
 test("market: read a merchant's reasoning, trade, see it in the feed, watch a week", async ({ page }) => {
   test.setTimeout(180_000);
-  await page.goto("/");
+  await enterAsGuest(page);
   await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
   for (const label of ["Send power", "Start turbine", "Build diesel plant"]) await tapMission(page, label);
   await expect(page.locator(".dock button")).toHaveCount(5, { timeout: 15_000 });
@@ -129,7 +159,7 @@ test("market: read a merchant's reasoning, trade, see it in the feed, watch a we
 
 test("region on a phone: dock and bottom-sheet inspector @mobile", async ({ page }) => {
   test.skip(page.viewportSize()!.width > 760, "phone layout only");
-  await page.goto("/");
+  await enterAsGuest(page);
   await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".mission")).toBeVisible({ timeout: 20_000 });
   for (const label of ["Send power", "Start turbine", "Build diesel plant"]) await tapMission(page, label);

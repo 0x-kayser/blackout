@@ -1,5 +1,5 @@
 /* BLACKOUT region HUD. System fonts, tabular numbers, semantic colour (§51–53). */
-.region-app, .region-boot, .modal-back {
+.region-app, .region-boot, .modal-back, .title-screen {
   --bg: #070b16;
   --glass: rgba(12, 18, 32, 0.82);
   --glass-hi: rgba(22, 32, 54, 0.92);
@@ -285,7 +285,7 @@
 .item-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
 .prices { display: flex; gap: 10px; align-items: baseline; }
 .bid-price { color: var(--mute); font-size: 12px; }
-.merchant-card { width: 100%; text-align: left; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--edge); border-radius: 12px; padding: 8px 10px; margin: 6px 0; display: grid; gap: 4px; font-size: 13px; }
+.merchant-card { cursor: pointer; box-sizing: border-box; width: 100%; text-align: left; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--edge); border-radius: 12px; padding: 8px 10px; margin: 6px 0; display: grid; gap: 4px; font-size: 13px; }
 .merchant-card:hover { border-color: rgba(255, 255, 255, 0.3); }
 .merchant-card.closed { opacity: 0.75; border-color: rgba(239, 68, 68, 0.5); }
 .mc-head, .mc-item { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
@@ -335,3 +335,59 @@
 .market-sign { cursor: pointer; }
 .market-sign small { color: #cbd5e1; font-weight: 600; letter-spacing: 0.04em; }
 .market-sign.has-closed { border-color: #ef4444; }
+
+/* ------------------------------------------------------------------ title screen (first page) */
+.title-screen { position: fixed; inset: 0; overflow: hidden; display: grid; place-items: center; padding: 16px; background: radial-gradient(120% 80% at 50% 110%, #3b1d2e 0%, #1a1530 38%, #070b16 75%); }
+.title-sky { position: absolute; inset: 0; pointer-events: none; }
+.title-glow { position: absolute; left: 50%; bottom: 18%; width: 140vmax; height: 40vmax; transform: translateX(-50%); background: radial-gradient(closest-side, rgba(251, 146, 60, 0.28), transparent 70%); filter: blur(10px); }
+.title-skyline { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 300px; }
+.tb { display: grid; gap: 4px 3px; align-content: start; padding: 8px 5px; background: linear-gradient(180deg, #18223a, #0b1120 70%); border-top: 1px solid rgba(164, 191, 230, 0.16); border-radius: 2px 2px 0 0; flex: none; }
+.tb i { height: 4px; border-radius: 1px; background: rgba(148, 163, 184, 0.07); }
+.tb i.on { background: #fcd34d; box-shadow: 0 0 5px rgba(252, 211, 77, 0.55); opacity: 0.9; animation: title-flick 7s infinite; }
+/* each district loses power on its own beat, then the lights come back */
+.tb.d0 i.on { animation: title-out 11s 1.5s infinite; }
+.tb.d2 i.on { animation: title-out 13s 5s infinite; }
+.tb.d4 i.on { animation: title-out 9s 3s infinite; }
+@keyframes title-out { 0%, 62% { opacity: 1; } 64% { opacity: 0.1; } 66% { opacity: 0.7; } 68%, 86% { opacity: 0.05; } 90%, 100% { opacity: 1; } }
+@keyframes title-flick { 0%, 96% { opacity: 1; } 97% { opacity: 0.6; } 98%, 100% { opacity: 1; } }
+.title-lines { position: absolute; left: 0; right: 0; bottom: 240px; height: 60px; background: repeating-linear-gradient(90deg, transparent 0 140px, rgba(164, 191, 230, 0.12) 140px 142px), linear-gradient(180deg, transparent 48%, rgba(164, 191, 230, 0.18) 49%, transparent 51%); mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent); }
+.title-card { position: relative; width: min(440px, 100%); padding: 28px 26px 22px; border: 1px solid var(--edge); border-radius: 20px; background: rgba(9, 14, 26, 0.78); backdrop-filter: blur(14px); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55); text-align: center; animation: title-in 0.7s ease-out both; }
+@keyframes title-in { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
+.title-logo { font-family: 'Outfit', system-ui, sans-serif; margin: 0; font-size: clamp(44px, 12vw, 64px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; color: var(--ink); }
+.title-logo span { color: var(--gold); text-shadow: 0 0 26px rgba(251, 191, 36, 0.55); animation: title-hum 4.5s infinite; }
+@keyframes title-hum { 0%, 70%, 100% { opacity: 1; } 72% { opacity: 0.25; } 74% { opacity: 1; } 76% { opacity: 0.4; } 78% { opacity: 1; } }
+.title-tag { margin: 12px auto 20px; max-width: 34ch; color: var(--mute); font-size: 15px; line-height: 1.45; }
+.title-actions { display: grid; gap: 10px; }
+.title-actions .btn { width: 100%; padding: 13px 16px; font-size: 15px; }
+.title-signin { background: rgba(255, 255, 255, 0.06) !important; border: 1px solid rgba(255, 255, 255, 0.22) !important; color: var(--ink) !important; }
+.title-play { font-size: 16px !important; font-weight: 800; box-shadow: 0 10px 30px rgba(251, 191, 36, 0.25); }
+.title-actions .signin2 { display: grid; gap: 8px; text-align: left; }
+.title-actions .signin2 .button { width: 100%; padding: 12px 14px; font-size: 14px; margin: 0; }
+.title-actions input[type='email'], .title-actions .code-input { width: 100%; box-sizing: border-box; background: #0b1222; border: 1px solid var(--edge); color: var(--ink); border-radius: 10px; padding: 12px; font: inherit; font-size: 15px; }
+.title-actions form { display: grid; gap: 8px; }
+.title-actions .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.title-promises { display: flex; justify-content: center; gap: 14px; margin: 18px 0 8px; padding: 0; list-style: none; font-size: 12px; color: var(--mute); }
+.title-promises li::before { content: '✓ '; color: var(--ok); }
+.title-music { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--mute); cursor: pointer; }
+@media (max-width: 520px) { .title-skyline { height: 220px; } .title-lines { bottom: 170px; } .title-card { padding: 22px 18px 18px; } }
+@media (prefers-reduced-motion: reduce) { .tb i.on, .title-logo span, .title-card { animation: none !important; } }
+
+/* ------------------------------------------------------------------ market news */
+.news-ticker { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); z-index: 21; display: flex; gap: 8px; max-width: calc(100% - 32px); pointer-events: none; }
+.news-item { pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 10px 5px 5px; border: 1px solid var(--edge); border-radius: 999px; background: rgba(9, 14, 26, 0.88); color: var(--ink); font-size: 12px; cursor: pointer; animation: news-in 0.5s ease-out both; }
+.news-item:hover { border-color: rgba(255, 255, 255, 0.35); }
+.news-tag { flex: none; padding: 2px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; background: var(--crisis); color: #fff; animation: news-pulse 2s infinite; }
+.news-item.good .news-tag { background: var(--ok); color: #04201c; animation: none; }
+.news-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+.news-move { flex: none; font-variant-numeric: tabular-nums; color: var(--mute); }
+.news-move.up { color: #fca5a5; }
+.news-move.down { color: #5eead4; }
+@keyframes news-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes news-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+.news-card { display: grid; gap: 3px; width: 100%; text-align: left; padding: 10px 12px; margin: 0 0 8px; border: 1px solid var(--edge); border-left: 3px solid var(--crisis); border-radius: 10px; background: rgba(239, 68, 68, 0.06); color: var(--ink); cursor: pointer; }
+.news-card.good { border-left-color: var(--ok); background: rgba(45, 212, 191, 0.06); }
+.news-card .fine { margin: 0; }
+@media (max-width: 700px) { .news-ticker { top: 128px; flex-direction: column; align-items: center; } .news-head { max-width: 190px; } .news-item:nth-child(2) { display: none; } }
+@media (prefers-reduced-motion: reduce) { .news-item, .news-tag { animation: none; } }
+.region-app:has(.news-ticker) .toasts { top: 148px; }
+@media (max-width: 700px) { .region-app:has(.news-ticker) .toasts { top: 168px; } }

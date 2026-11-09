@@ -284,18 +284,21 @@ export function fuelMarketCc(s: RegionState, fuel: FuelId): number {
   return best === Infinity ? Math.round(worst * 1.5) : best;
 }
 
+/** Cuts one fuel supplier's imports to a fifth for a few game hours. False if it was already disrupted. */
+export function disruptSupplier(s: RegionState, ctx: RCtx, supplierId: string): boolean {
+  const pick = SUPPLIERS.find((x) => x.supplierId === supplierId)!;
+  const sp = s.suppliers[pick.supplierId];
+  if (s.interval < sp.disruptionUntil) return false;
+  sp.disruptionUntil = s.interval + 96 + rngInt(s.rng, 96);
+  const why = pick.fuel === "gas" ? (pick.supplierId === "northline" ? "pipeline compressor maintenance" : "a delayed tanker") : "a tanker drivers' strike";
+  emit(s, ctx, { type: "SUPPLY_DISRUPTION", severity: "warn", title: `${pick.name}: imports cut by ${why}`, detail: `${pick.person}'s ${pick.fuel} imports drop to a fifth for about ${Math.round(((sp.disruptionUntil - s.interval) * 5) / 60)} game hours.`, quote: supplierQuote(pick.supplierId, "disrupted", {}) }, `supply:${pick.supplierId}`);
+  return true;
+}
+
 export function suppliersStep(s: RegionState, ctx: RCtx, init: boolean): void {
   // a disruption roughly every few days, never during the first game hours
   if (!init && s.interval > 72 && s.interval % 96 === 48) {
-    if (rngInt(s.rng, 1000) < 330) {
-      const pick = SUPPLIERS[rngInt(s.rng, SUPPLIERS.length)];
-      const sp = s.suppliers[pick.supplierId];
-      if (s.interval >= sp.disruptionUntil) {
-        sp.disruptionUntil = s.interval + 96 + rngInt(s.rng, 96);
-        const why = pick.fuel === "gas" ? (pick.supplierId === "northline" ? "pipeline compressor maintenance" : "a delayed tanker") : "a tanker drivers' strike";
-        emit(s, ctx, { type: "SUPPLY_DISRUPTION", severity: "warn", title: `${pick.name}: imports cut by ${why}`, detail: `${pick.person}'s ${pick.fuel} imports drop to a fifth for about ${Math.round(((sp.disruptionUntil - s.interval) * 5) / 60)} game hours.`, quote: supplierQuote(pick.supplierId, "disrupted", {}) }, `supply:${pick.supplierId}`);
-      }
-    }
+    if (rngInt(s.rng, 1000) < 330) disruptSupplier(s, ctx, SUPPLIERS[rngInt(s.rng, SUPPLIERS.length)].supplierId);
   }
   const anyRationing = Object.values(s.suppliers).some((x) => x.rationing);
   for (const c of SUPPLIERS) {

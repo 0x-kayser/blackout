@@ -94,7 +94,8 @@ export function fastForwardWeek(seed = 42, days = 7, world?: TownState["world"])
     seed,
     days,
     frames,
-    events: events.filter((e) => e.severity !== "info").slice(-40),
+    // the shops' story (closures, rescues, dividends) and the news are kept apart so neither crowds out the other
+    events: [...events.filter((e) => e.severity !== "info" && e.kind !== "news").slice(-40), ...events.filter((e) => e.kind === "news" && e.severity !== "info").slice(-20)].sort((a, b) => a.seq - b.seq),
     bots: bots.map((b) => ({ name: b.name, strategy: b.strategy, cashCc: b.cashCc, netWorthCc: worth(b) })),
     trades,
     traceHash: sha256(canonical(frames)),

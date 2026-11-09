@@ -18,7 +18,7 @@ import {
 } from "./config.ts";
 import type { ItemId } from "@blackout/shared";
 import { R_ASSETS } from "./state.ts";
-import { actorsStep, buyFuel, financeStep, fuelMarketCc, listingsStep, regulatorStep, suppliersStep, tendersStep, voltlineStep, steelStep, autoFuelStep, buildCostBps, playerBookValue, actorBids } from "./economy.ts";
+import { actorsStep, buyFuel, disruptSupplier, financeStep, fuelMarketCc, listingsStep, regulatorStep, suppliersStep, tendersStep, voltlineStep, steelStep, autoFuelStep, buildCostBps, playerBookValue, actorBids } from "./economy.ts";
 import { close, cooled, cr, emit, mw, open, openKeys } from "./events.ts";
 import { clearMarket, type ClearingResult } from "./market.ts";
 import { burnPerKwInterval, clockOf, co2KgPerMWh, isNewDay, marginalCost, solarFactorBps, stepWeather } from "./physics.ts";
@@ -404,6 +404,57 @@ export function loanOffer(s: RegionState, bankId: string): { maxCc: number; rate
   return { maxCc: Math.floor(maxCc / 100_000) * 100_000, rateBps, leverageBps };
 }
 
+/* -------------------------------------------------------------------------------------------------- incidents */
+
+const INCIDENTS = new Set(["HEATWAVE", "STORM", "PLANT_TRIPPED", "SUPPLY_DISRUPTION"]);
+/** Intervals (≈ real seconds) the region may go without an incident once the first minute is over. */
+export const INCIDENT_GAP = 150;
+
+/**
+ * Something happens at least every INCIDENT_GAP intervals once you're playing, so a session never goes quiet: a storm
+ * front, a heatwave, a breakdown at a rival's plant, or a cut to a fuel supplier's imports. Each one moves the
+ * market through the same physics as a random one (less solar, more demand, less supply, dearer fuel). Seeded, so
+ * every player of the weekly challenge lives through the same story.
+ */
+function incidentDesk(s: RegionState, ctx: RCtx): void {
+  if (!s.onboarding.done || s.interval % 6 !== 0) return;
+  if (s.cooldowns.incident === undefined) {
+    // the first one comes about a minute and a half after the first minute
+    s.cooldowns.incident = s.interval - (INCIDENT_GAP - 90);
+    return;
+  }
+  let last = s.cooldowns.incident;
+  for (const e of s.events) if (INCIDENTS.has(e.type) && e.interval > 1) last = Math.max(last, e.interval);
+  if (s.interval - last < INCIDENT_GAP) return;
+  s.cooldowns.incident = s.interval;
+  const w = s.weather;
+  const calmSky = s.interval >= w.heatUntil && s.interval >= w.stormUntil;
+  const rivals = s.plants.filter((p) => p.ownerId !== "player" && p.status === "online" && TECHS[p.tech].fuel);
+  const options: ("storm" | "heatwave" | "trip" | "supply")[] = [...(calmSky ? (["storm", "heatwave"] as const) : []), ...(rivals.length ? (["trip", "trip"] as const) : []), "supply"];
+  const pick = options[rngInt(s.rng, options.length)];
+  if (pick === "storm") {
+    w.stormUntil = s.interval + 30 + rngInt(s.rng, 30);
+    emit(s, ctx, { type: "STORM", severity: "warn", title: "Storm front over the region", detail: "Cloud kills solar output for a few game hours and wind strains the lines. Fuelled plants earn more while it lasts.", causeKeys: [] }, "storm");
+  } else if (pick === "heatwave") {
+    w.heatUntil = s.interval + 96 + rngInt(s.rng, 48);
+    emit(s, ctx, { type: "HEATWAVE", severity: "warn", title: "Heatwave: air-conditioners everywhere", detail: "About 6°C hotter for the next day. Homes and offices draw more, thermal plants lose output, solar panels run hot.", causeKeys: [] }, "heat");
+  } else if (pick === "trip") {
+    const p = rivals.sort((a, b) => b.capacityKw - a.capacityKw)[rngInt(s.rng, Math.min(3, rivals.length))];
+    const dur = 40 + rngInt(s.rng, 60);
+    const reasons = ["a boiler-feed pump failed", "a transformer fault", "a turbine vibration alarm", "a fuel-valve failure"];
+    p.status = "tripped";
+    p.tripUntil = s.interval + dur;
+    p.tripReason = reasons[rngInt(s.rng, reasons.length)];
+    p.outputKw = 0;
+    const owner = `${OWNERS.find((o) => o.ownerId === p.ownerId)?.name ?? p.ownerId}'s`;
+    emit(s, ctx, { type: "PLANT_TRIPPED", severity: "crisis", title: `${owner} ${p.name} tripped: ${mw(p.capacityKw)} lost`, detail: `Cause: ${p.tripReason}. Back in about ${Math.round((dur * 5) / 60)} game hours. Everyone still running earns the higher price.`, nodeId: p.nodeId, causeKeys: ["heat", "storm"] }, `trip:${p.plantId}`);
+  } else {
+    const order = SUPPLIERS.map((x) => x.supplierId);
+    const start = rngInt(s.rng, order.length);
+    for (let k = 0; k < order.length && !disruptSupplier(s, ctx, order[(start + k) % order.length]); k++);
+  }
+}
+
 /* -------------------------------------------------------------------------------------------------- tick */
 
 interface OfferMeta {
@@ -423,6 +474,7 @@ export function regionTick(s: RegionState, ctx: RCtx): void {
   if (wx.ended === "heatwave") close(s, "heat");
   if (wx.started === "storm") emit(s, ctx, { type: "STORM", severity: "warn", title: "Storm front over the region", detail: "Cloud kills solar output and wind threatens the lines.", causeKeys: [] }, "storm");
   if (wx.ended === "storm") close(s, "storm");
+  incidentDesk(s, ctx);
 
   plantsStep(s, ctx);
   suppliersStep(s, ctx, false);

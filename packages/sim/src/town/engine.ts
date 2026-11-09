@@ -15,6 +15,7 @@ import { SimError } from "../state.ts";
 import { canonical, sha256 } from "../region/settlement.ts";
 import { CLOSE_BELOW_DAY_BPS, DIVIDEND_BPS, EPOCH_TICKS, MERCHANTS, REOPEN_DAYS, RESCUE_AFTER_DAYS, TICKS_PER_DAY, WAREHOUSE_FULL_X, referenceCc, type MerchantConfig, type MerchantItemConfig } from "./config.ts";
 import { priceItem, rationLimit, type Quote } from "./merchantPricing.ts";
+import { NEWS_EVERY, NEWS_LASTS, NEWS_MAX_ACTIVE, STORIES, effectLabel, storyById, type NewsEffect } from "./news.ts";
 
 export type TAsset = "cc" | ItemId;
 
@@ -59,6 +60,13 @@ export interface TownState {
   names: Record<string, string>;
   epochs: TownEpoch[];
   epochStart: { tick: number; balances: Record<string, Record<string, number>> };
+  /** Stories running now (news.ts). Optional so towns saved before the news desk load unchanged. */
+  news?: { seq: number; storyId: string; from: number; until: number }[];
+  newsSeq?: number;
+  nextNewsAt?: number;
+  /** The news desk's own seeded stream, so stories never shift the market's other random draws. */
+  newsRng?: RngState;
+  lastStoryId?: string;
 }
 
 export interface TCtx {
@@ -134,6 +142,54 @@ export function createTown(opts: { seed: number; world?: Pick<WorldSnapshot, "ga
   return t;
 }
 
+/* --------------------------------------------------------------------------------------------------- news */
+
+/** Effects of running stories on one merchant's item. */
+function effectsOn(t: TownState, merchantId: string, item: ItemId): { headline: string; e: NewsEffect }[] {
+  const out: { headline: string; e: NewsEffect }[] = [];
+  for (const n of t.news ?? []) {
+    const story = storyById(n.storyId);
+    if (!story) continue;
+    for (const e of story.effects) if (e.item === item && (!e.merchants || e.merchants.includes(merchantId))) out.push({ headline: story.headline, e });
+  }
+  return out;
+}
+
+function newsMult(t: TownState, merchantId: string, item: ItemId, key: "imports" | "demand" | "supply" | "outside"): number {
+  return effectsOn(t, merchantId, item).reduce((a, x) => a * (x.e[key] ?? 1), 1);
+}
+
+/** The outside price a merchant starts from today, after any story that moves it. */
+function refOf(t: TownState, merchantId: string, item: ItemId): number {
+  return Math.round(referenceCc(item, t.world) * newsMult(t, merchantId, item, "outside"));
+}
+
+/** Ends stories that have run their course and, every minute or so, breaks a new one. */
+function newsStep(t: TownState, ctx: TCtx): void {
+  t.news ??= [];
+  t.newsRng ??= seedRng((t.seed ^ 0x6e657773) >>> 0);
+  t.nextNewsAt ??= t.tick + 20;
+  for (const n of t.news.filter((x) => x.until <= t.tick)) {
+    const story = storyById(n.storyId);
+    if (story) emit(t, ctx, { kind: "news", severity: "info", title: `Over: ${story.headline.charAt(0).toLowerCase()}${story.headline.slice(1)}`, detail: "Flows are back to normal; prices drift back as stock recovers.", merchantId: story.effects[0].merchants?.[0] ?? null });
+  }
+  t.news = t.news.filter((x) => x.until > t.tick);
+  if (t.tick < t.nextNewsAt) return;
+  const r = t.newsRng;
+  t.nextNewsAt = t.tick + NEWS_EVERY[0] + rngInt(r, NEWS_EVERY[1] - NEWS_EVERY[0] + 1);
+  if (t.news.length >= NEWS_MAX_ACTIVE) return;
+  // never two stories about the same item at once, and never the story that just ran
+  const busy = new Set(t.news.flatMap((n) => storyById(n.storyId)?.effects.map((e) => e.item) ?? []));
+  const lastId = t.lastStoryId;
+  const pool = STORIES.filter((x) => x.storyId !== lastId && x.effects.every((e) => !busy.has(e.item)) && x.effects.every((e) => !e.merchants || e.merchants.some((m) => t.merchants[m]?.open)));
+  if (!pool.length) return;
+  const story = pool[rngInt(r, pool.length)];
+  t.newsSeq = (t.newsSeq ?? 0) + 1;
+  t.news.push({ seq: t.newsSeq, storyId: story.storyId, from: t.tick, until: t.tick + NEWS_LASTS[0] + rngInt(r, NEWS_LASTS[1] - NEWS_LASTS[0] + 1) });
+  t.lastStoryId = story.storyId;
+  emit(t, ctx, { kind: "news", severity: story.tone === "good" ? "good" : "warn", title: story.headline, detail: story.detail, merchantId: story.effects[0].merchants?.[0] ?? null });
+}
+
 /* ------------------------------------------------------------------------------------------------- quotes */
 
 function rivalShort(t: TownState, merchantId: string, item: ItemId): boolean {
@@ -153,13 +209,14 @@ export function quote(t: TownState, merchantId: string, item: ItemId, stockDelta
     person: m.person,
     traits: m.traits,
     item,
-    referenceCc: referenceCc(item, t.world),
+    referenceCc: refOf(t, merchantId, item),
     stock: tbal(t, item, MACC(merchantId)) + stockDelta,
     target: it.target,
     recentNet: (st.recentNet[item] ?? 0) + netDelta,
     markupBps: it.markupBps,
     spreadBps: it.spreadBps,
     rivalShort: rivalShort(t, merchantId, item),
+    news: effectsOn(t, merchantId, item).map((x) => ({ label: `News: ${x.headline}`, factor: effectLabel(x.e) })),
   });
 }
 
@@ -279,6 +336,7 @@ const DECAY = Math.pow(0.5, 1 / 36);
 
 export function townTick(t: TownState, ctx: TCtx): void {
   t.tick += 1;
+  newsStep(t, ctx);
   for (const m of MERCHANTS) {
     const st = t.merchants[m.merchantId];
     const acct = MACC(m.merchantId);
@@ -306,12 +364,13 @@ export function townTick(t: TownState, ctx: TCtx): void {
 
 function flows(t: TownState, m: MerchantConfig, it: MerchantItemConfig): void {
   const acct = MACC(m.merchantId);
-  const ref = referenceCc(it.item, t.world);
+  const ref = refOf(t, m.merchantId, it.item);
   const stock = tbal(t, it.item, acct);
   // imports when short, at 92% of the outside price, as far as cash allows
   if (it.importPerDay > 0 && stock < it.target) {
     let q = perTick(t, it.importPerDay);
     if (it.item === "material:steel") q = Math.round((q * t.steelSupplyBps) / 10_000);
+    q = Math.round(q * newsMult(t, m.merchantId, it.item, "imports"));
     const unit = Math.round(ref * 0.92);
     // a merchant keeps a day of costs in reserve: it won't spend the rent on stock
     q = Math.min(q, it.target - stock, Math.floor(Math.max(0, tbal(t, "cc", acct) - m.fixedCcPerDay) / Math.max(1, unit)));
@@ -324,7 +383,7 @@ function flows(t: TownState, m: MerchantConfig, it: MerchantItemConfig): void {
   // outside customers buy less when it's dear
   if (it.sells && it.npcDemandPerDay > 0) {
     const elastic = Math.max(0.2, Math.min(2, Math.pow(ref / Math.max(1, qte.askCc), 1.5)));
-    const q = Math.min(Math.round(perTick(t, it.npcDemandPerDay) * elastic), tbal(t, it.item, acct));
+    const q = Math.min(Math.round(perTick(t, it.npcDemandPerDay) * elastic * newsMult(t, m.merchantId, it.item, "demand")), tbal(t, it.item, acct));
     if (q > 0) {
       move(t, it.item, acct, "ext:npc", q);
       move(t, "cc", "ext:npc", acct, q * qte.askCc);
@@ -334,7 +393,7 @@ function flows(t: TownState, m: MerchantConfig, it: MerchantItemConfig): void {
   if (it.buys && it.npcSupplyPerDay > 0) {
     const room = it.target * WAREHOUSE_FULL_X - tbal(t, it.item, acct);
     const elastic = Math.max(0.2, Math.min(2, qte.bidCc / Math.max(1, ref)));
-    const q = Math.min(Math.round(perTick(t, it.npcSupplyPerDay) * elastic), room, Math.floor(tbal(t, "cc", acct) / Math.max(1, qte.bidCc)));
+    const q = Math.min(Math.round(perTick(t, it.npcSupplyPerDay) * elastic * newsMult(t, m.merchantId, it.item, "supply")), room, Math.floor(tbal(t, "cc", acct) / Math.max(1, qte.bidCc)));
     if (q > 0) {
       move(t, it.item, "ext:npc", acct, q);
       move(t, "cc", acct, "ext:npc", q * qte.bidCc);
@@ -496,7 +555,7 @@ export function toTownView(t: TownState, viewer: string | null, chainAccounts: R
           target: it.target,
           askCc: it.sells ? q.askCc : null,
           bidCc: it.buys ? q.bidCc : null,
-          referenceCc: referenceCc(it.item, t.world),
+          referenceCc: refOf(t, m.merchantId, it.item),
           why: q.why,
           askAnHourAgoCc: h.length ? h[h.length - 1] : null,
           history: h,
@@ -518,5 +577,9 @@ export function toTownView(t: TownState, viewer: string | null, chainAccounts: R
     players: Object.keys(t.names).filter((k) => !k.startsWith("bot:") && k !== "vesper-holdings").length,
     you: viewer ? { investedCc: invested, dividendsCcTotal: t.dividendsTotal[viewer] ?? 0, pendingCc: t.owed[viewer] ?? 0 } : null,
     steelSupplyBps: t.steelSupplyBps,
+    news: (t.news ?? []).map((n) => {
+      const story = storyById(n.storyId)!;
+      return { seq: n.seq, headline: story.headline, detail: story.detail, tone: story.tone, items: [...new Set(story.effects.map((e) => e.item))], merchantIds: [...new Set(story.effects.flatMap((e) => e.merchants ?? MERCHANTS.filter((m) => m.items.some((i) => i.item === e.item)).map((m) => m.merchantId)))], effects: story.effects.map(effectLabel), ticksLeft: n.until - t.tick, ageTicks: t.tick - n.from };
+    }),
   };
 }

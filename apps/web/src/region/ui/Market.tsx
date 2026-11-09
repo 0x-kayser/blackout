@@ -200,6 +200,43 @@ export function MerchantInspector({ m, v, town, trade, invest }: { m: MerchantVi
   )
 }
 
+/** The price of the story's main item now, and how far it has moved since the story broke. */
+function storyMove(town: TownView, n: NonNullable<TownView['news']>[number]) {
+  const m = town.merchants.find((x) => x.merchantId === n.merchantIds[0])
+  const it = m?.items.find((i) => n.items.includes(i.item))
+  if (!m || !it) return null
+  const now = it.askCc ?? it.bidCc
+  const h = it.history
+  const at = h.length - 1 - Math.ceil(n.ageTicks / 12)
+  const then = at >= 0 ? h[at] : h[0]
+  const pctMove = now && then ? Math.round(((now - then) / then) * 100) : 0
+  return { m, it, now, pctMove }
+}
+
+/** A slim strip of the stories moving Vesper Market right now. Tap one to open the merchant it hits. */
+export function NewsTicker({ town, onMerchant }: { town: TownView | null; onMerchant: (id: string) => void }) {
+  const news = town?.news ?? []
+  if (!town || !news.length) return null
+  return (
+    <div className="news-ticker" aria-label="Market news">
+      {news.map((n) => {
+        const mv = storyMove(town, n)
+        return (
+          <button key={n.seq} className={`news-item ${n.tone}`} onClick={() => mv && onMerchant(mv.m.merchantId)} title={`${n.detail} (${n.effects.join('; ')})`}>
+            <span className="news-tag">{n.tone === 'good' ? 'GOOD NEWS' : 'BREAKING'}</span>
+            <span className="news-head">{n.headline}</span>
+            {mv?.now != null && (
+              <span className={`news-move ${mv.pctMove > 0 ? 'up' : mv.pctMove < 0 ? 'down' : ''}`}>
+                {ITEMS[mv.it.item].icon} {credits(mv.now)} {mv.pctMove > 0 ? `▲${mv.pctMove}%` : mv.pctMove < 0 ? `▼${-mv.pctMove}%` : ''}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel }: { v: RegionView; town: TownView | null; trade: Trade; onMerchant: (id: string) => void; onWatch: () => void; onAutoFuel: (fuel: 'gas' | 'diesel', on: boolean) => void }) {
   const { busy, msg, run } = useBusy()
   if (!town) return <p className="fine">Opening the market…</p>
@@ -209,6 +246,23 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel }:
       <p className="fine">
         {town.clock} · {town.players} {town.players === 1 ? 'company' : 'companies'} trading · every merchant sets prices from its own stock and recent demand. Hover a price to see why.
       </p>
+      {!!town.news?.length && (
+        <Section title="In the news">
+          {town.news.map((n) => {
+            const mv = storyMove(town, n)
+            return (
+              <button key={n.seq} className={`news-card ${n.tone}`} onClick={() => mv && onMerchant(mv.m.merchantId)}>
+                <b>{n.headline}</b>
+                <span className="fine">{n.detail}</span>
+                <small className="fine">
+                  What it does: {n.effects.join('; ')} · about {Math.max(1, Math.round((n.ticksLeft * 5) / 60))} market hours left
+                  {mv?.now != null && mv.pctMove !== 0 && ` · ${ITEMS[mv.it.item].name} ${mv.pctMove > 0 ? 'up' : 'down'} ${Math.abs(mv.pctMove)}% so far`}
+                </small>
+              </button>
+            )
+          })}
+        </Section>
+      )}
       <button className="btn primary wide" onClick={onWatch}>
         ⏩ Watch a week of trading in a minute
       </button>
@@ -230,7 +284,7 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel }:
       </Section>
       <Section title="Merchants">
         {town.merchants.map((m) => (
-          <button key={m.merchantId} className={`merchant-card ${m.open ? '' : 'closed'}`} onClick={() => onMerchant(m.merchantId)}>
+          <div key={m.merchantId} role="button" tabIndex={0} className={`merchant-card ${m.open ? '' : 'closed'}`} onClick={() => onMerchant(m.merchantId)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onMerchant(m.merchantId))}>
             <span className="mc-head">
               <span>
                 {m.face} <b>{m.person}</b> <small>{m.name}</small>
@@ -252,7 +306,7 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel }:
                 </span>
               </span>
             ))}
-          </button>
+          </div>
         ))}
       </Section>
       <TradeFeed town={town} />
@@ -366,14 +420,23 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
                   )
                 })}
               </div>
-              <Section title="What happened">
-                {shown.length === 0 && <p className="fine">Watch the gas price as Pemberton corners it, and Lena's desk as Greenfield floods it with certificates…</p>}
-                {shown.slice(-5).reverse().map((e) => (
+              <Section title="What happened to the shops">
+                {shown.filter((e) => e.kind !== 'news').length === 0 && <p className="fine">Watch the gas price as Pemberton corners it, and Lena's desk as Greenfield floods it with certificates…</p>}
+                {shown.filter((e) => e.kind !== 'news').slice(-4).reverse().map((e) => (
                   <p key={e.seq} className={`market-event ${e.severity}`}>
                     <b>{e.title}</b> {e.detail}
                   </p>
                 ))}
               </Section>
+              {shown.some((e) => e.kind === 'news') && (
+                <Section title="In the news that week">
+                  {shown.filter((e) => e.kind === 'news').slice(-3).reverse().map((e) => (
+                    <p key={e.seq} className={`market-event ${e.severity}`}>
+                      <b>{e.title}</b>
+                    </p>
+                  ))}
+                </Section>
+              )}
               {done && (
                 <Section title="The bots after a week">
                   {week.bots.map((b) => (

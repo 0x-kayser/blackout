@@ -94,6 +94,21 @@ export interface TownEvent {
   title: string;
   detail: string;
   merchantId: string | null;
+  /** "news" for stories from outside the market (news.ts); shop events leave it unset. */
+  kind?: "news";
+}
+
+export interface TownNews {
+  seq: number;
+  headline: string;
+  detail: string;
+  tone: "warn" | "good";
+  items: ItemId[];
+  merchantIds: string[];
+  /** e.g. "imports ×0.15", "outside price ×1.18" */
+  effects: string[];
+  ticksLeft: number;
+  ageTicks: number;
 }
 
 export interface TownView {
@@ -106,6 +121,8 @@ export interface TownView {
   /** Your stake and what you're owed. */
   you: { investedCc: number; dividendsCcTotal: number; pendingCc: number } | null;
   steelSupplyBps: number;
+  /** Stories in the news right now and what each does to the market. */
+  news?: TownNews[];
 }
 
 export interface FastForwardFrame {

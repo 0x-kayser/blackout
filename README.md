@@ -21,8 +21,10 @@ pnpm install
 ```bash
 AUTH_LOCAL_EMAIL=true AUTH_LOCAL_EMAIL_SHOW_CODE=true pnpm dev
 ```
-Open **http://localhost:5173**. No menu: a guest session starts and you're in the region. The original city game is
-still playable at **/city**. Node ≥ 22.5, pnpm 10. Set `WORLD_INPUTS=off` to skip live weather.
+Open **http://localhost:5173**. The first page has two buttons: **▶ Play as guest** (one tap and you're in the
+region) or **Sign in** with Google or an email code, so your company follows you to any device. A guest can sign in
+later from ⚙︎ → Account and keep everything. Returning players skip the title and land back in their region. The
+original city game is still playable at **/city**. Node ≥ 22.5, pnpm 10. Set `WORLD_INPUTS=off` to skip live weather.
 
 ## How you learn it: by playing
 There is no manual and no menu. The first minute is three taps on glowing buttons in the world; the clock waits for
@@ -49,8 +51,8 @@ its price is what it is. **What happened** tells the region's story, cause by ca
 | Flood the market and it gets cheap | Sell certificates and Lena's price falls for every player; buy gas and it rises for everyone |
 | A broke merchant closes until someone invests | Shops close when cash runs out; **Invest** reopens them and pays you a share of profits daily |
 | Items are NEP-245, one contract | `fuel:natural-gas`, `fuel:diesel`, `permit:carbon`, `certificate:renewable`, `material:steel`, `part:turbine`, `credit:vesper` in one contract; market epochs settle each one (`settle_items`) |
-| Social/email login, no seed phrases, popups or gas | Guest → email or Google; the relayer pays gas; no chain words in play |
-| Pricing rules in one readable file, reasoning in a tooltip | [`merchantPricing.ts`](packages/sim/src/town/merchantPricing.ts); hover any price |
+| Social/email login, no seed phrases, popups or gas | The first page offers guest play, Google or an email code; the relayer pays gas; no chain words in play |
+| Pricing rules in one readable file, reasoning in a tooltip | [`merchantPricing.ts`](packages/sim/src/town/merchantPricing.ts); hover any price. Outside events live in [`news.ts`](packages/sim/src/town/news.ts) and show up in the same tooltip |
 | Fast-forward a week in a minute | **⏩ Watch a week** in MARKET: seven market days, four bot companies, 60 seconds |
 | Game loop on paper first | [docs/GAME_LOOP.md](docs/GAME_LOOP.md) |
 | Multiple players | Every player trades with the same merchants; their trades show in the live feed and move your prices |
@@ -60,6 +62,21 @@ Nine stalls in the middle of the region: Ingrid and Bayo (gas), Kettle, Dayo and
 certificates), Ruth (carbon permits), Pavel (steel) and Nkechi (turbine kits). Tap a stall: its wallet, stock, buy
 and sell prices with the reasoning, recent trades, investors, and buttons to trade or invest. MARKET shows them all
 plus what you hold and a live feed of who's trading.
+
+**The news moves the market.** About once a minute a story breaks outside Vesper: an LNG tanker stuck in fog, Henry
+Hub up 18%, a cold snap, a drivers' strike, a sunny week flooding Lena with certificates, a steel strike, a turbine
+recall. Each story multiplies a real flow (a merchant's imports, its outside customers, its outside suppliers or the
+outside reference price) for a couple of minutes; it never sets a price. Stock and demand move, the pricing rule does
+the rest, and the price tooltip names the story. A ticker under the top bar shows each running story with the price
+it is moving (*Steelworkers strike at the port · ₡344 ▲20%*). Gas and diesel prices then flow into every region, so a
+delayed tanker shows up in your evening power price. The stories and their exact effects are in
+[`news.ts`](packages/sim/src/town/news.ts).
+
+**The region never goes quiet.** Random trips, storms and supply cuts still happen, and once the first minute is over
+an incident desk guarantees one at least every 2½ minutes: a storm front (solar drops), a heatwave (demand rises), a
+breakdown at a rival's plant (supply drops and prices jump), or a fuel supplier's imports cut. Each moves the market
+through the same physics and appears in **What happened** with its causes. It is seeded, so every challenge player
+lives through the same story.
 
 ## The game
 * **Market (§6–7).** Pure deterministic clearing (`packages/sim/src/region/market.ts`): `GenerationOffer`s and
@@ -91,7 +108,9 @@ plus what you hold and a live feed of who's trading.
 
 **Not done:** NEAR Intents (no `ExternalSettlementAdapter` implementation is claimed), passkey sign-in, and automatic
 `plant_mint` from the game (minting needs an attached deposit, so a function-call key can't do it; mint with the owner
-key for now). Settlement debits a player only while they haven't taken self-custody.
+key for now). Settlement debits a player only while they haven't taken self-custody. In normal play the player has no
+key of their own (their balances live under an id in the operator's namespace and the operator signs settlement), so
+the browser never calls the relayer today; `POST /api/relay` is there for players who take self-custody.
 
 ## How this meets the track (§64)
 * **Games With Real Economies (primary):** prices, wages, debt, closures and construction costs all emerge from
@@ -113,19 +132,20 @@ key for now). Settlement debits a player only while they haven't taken self-cust
 | Classic city game + shared fuel exchange | still works at `/city` |
 
 ## Demo script (§65, 3 minutes)
-1. Open the game: the crisis is already happening — read the Pulse question aloud.
+1. Open the game: **▶ Play as guest** (or sign in). The crisis is already happening — read the Pulse question aloud.
 2. Start Kestrel, discharge the battery: the shortfall closes on screen.
 3. Tap the Residential East price: *why* it costs what it costs.
 4. Build a peaker on the pad; open GRID and upgrade the Eastside Line.
 5. Open **What happened**: follow one causal chain from a trip to a layoff.
 6. PORTFOLIO: your Plant Assets; list one; accept VoltLine's bid.
-7. ⚙︎ → Verify: epochs re-hashed in the browser; Economy Lab replay.
+7. Point at the news ticker: tap the story, the merchant opens, hover the price and the story is in the reasoning.
+8. ⚙︎ → Verify: epochs re-hashed in the browser; Economy Lab replay.
 
 ## Commands
 | | |
 |---|---|
 | `pnpm dev` | API + web (hot reload) |
-| `pnpm test` | 160 TS tests (Vesper Market, power market, region engine and API, relayer, settlement, world inputs, plus the classic game) |
+| `pnpm test` | 166 TS tests (Vesper Market, power market, region engine and API, relayer, settlement, world inputs, plus the classic game) |
 | `pnpm test:e2e` | Playwright: the first session, the market (tooltip, trade, feed, watch a week), a phone layout, and the 8 classic journeys |
 | `pnpm test:contract` | 42 Rust contract tests |
 | `pnpm typecheck` | type check (also `cd apps/web && npx tsc --noEmit`) |

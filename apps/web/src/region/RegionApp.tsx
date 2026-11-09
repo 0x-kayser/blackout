@@ -6,8 +6,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeId, PublicConfig, RegionEvent, RegionView, TechId } from '@blackout/shared'
 import { api, BlackoutApiError, clearGuestUpgradeToken, guestUpgradeToken, startGuestSession } from '../api/client'
-import { currentSession, initSupabase } from '../api/auth'
-import { bindAudioToPage, enableSound, playCue, startMusic, stopMusic, unlockAudio, unlockOnFirstGesture, type Cue } from '../audio'
+import { currentSession, initSupabase, signOutProvider } from '../api/auth'
+import { bindAudioToPage, enableSound, playCue, setMusicMood, startMusic, stopMusic, unlockAudio, unlockOnFirstGesture, type Cue } from '../audio'
 import { regionApi, useRegion } from './api'
 import { World3D, type FocusCmd, type Selection, type ZoomLevel } from './scene/World3D'
 import { Dock, ModeSheet, type DockMode } from './ui/Dock'
@@ -16,8 +16,9 @@ import { PulseBar } from './ui/Pulse'
 import { Settings } from './ui/Settings'
 import { Feed, Toasts, useNewEvents } from './ui/Story'
 import { CELEBRATE, Celebration, MissionBanner, NextMoveBar, missionFor, nextMove } from './ui/Guide'
-import { MarketSheet, MerchantInspector, WatchAWeek, type Trade, type Invest } from './ui/Market'
+import { MarketSheet, MerchantInspector, NewsTicker, WatchAWeek, type Trade, type Invest } from './ui/Market'
 import { NameCompany } from './ui/Company'
+import { Title } from './ui/Title'
 import type { TownEvent } from '@blackout/shared'
 import './region.css'
 
@@ -26,7 +27,7 @@ const loadPrefs = (): Prefs => {
   try {
     const p = JSON.parse(localStorage.getItem('bo_prefs') ?? '{}')
     const lowEnd = (navigator.hardwareConcurrency ?? 8) <= 4 || window.matchMedia?.('(max-width: 700px)').matches || navigator.webdriver
-    return { sound: !!p.sound, music: !!p.music, quality: p.quality ?? (lowEnd ? 'low' : 'high') }
+    return { sound: !!p.sound, music: p.music ?? true, quality: p.quality ?? (lowEnd ? 'low' : 'high') }
   } catch {
     return { sound: false, music: false, quality: 'high' }
   }
@@ -48,6 +49,8 @@ export default function RegionApp() {
   const [renaming, setRenaming] = useState(false)
   const [regionId, setRegionId] = useState<string | null>(null)
   const [bootError, setBootError] = useState<string | null>(null)
+  /** No session yet: show the title screen (play as guest, or sign in) instead of creating a guest on our own. */
+  const [entry, setEntry] = useState(false)
   const { view, setView, town, conn, act, market } = useRegion(regionId)
   const [watching, setWatching] = useState(false)
   const viewRef = useRef<RegionView>(null as unknown as RegionView)
@@ -81,6 +84,16 @@ export default function RegionApp() {
   }
   useEffect(() => bindAudioToPage(), [])
   useEffect(() => (prefs.sound || prefs.music ? unlockOnFirstGesture() : undefined), [prefs.sound, prefs.music])
+  // music that was on last visit starts again on the first tap (browsers only allow sound after a gesture)
+  useEffect(() => {
+    if (!prefs.music) return
+    const go = () => {
+      unlockAudio()
+      startMusic()
+    }
+    window.addEventListener('pointerdown', go, { once: true })
+    return () => window.removeEventListener('pointerdown', go)
+  }, [prefs.music])
 
   /* -------------------------------------------------------------- boot: session → region */
   const boot = useCallback(async () => {
@@ -95,9 +108,10 @@ export default function RegionApp() {
         me = await api.me()
       } catch (e) {
         if (!(e instanceof BlackoutApiError && e.code === 'UNAUTHORIZED')) throw e
-        await startGuestSession()
-        me = await api.me()
+        setEntry(true)
+        return
       }
+      setEntry(false)
       if (me.player.kind === 'registered' && guestUpgradeToken()) {
         try {
           me = await api.linkGuest(guestUpgradeToken())
@@ -118,6 +132,24 @@ export default function RegionApp() {
   useEffect(() => {
     void boot()
   }, [boot])
+
+  const playAsGuest = useCallback(async () => {
+    await startGuestSession()
+    await boot()
+  }, [boot])
+  const signOut = useCallback(async () => {
+    await api.logout().catch(() => undefined)
+    await signOutProvider().catch(() => undefined)
+    setSettings(false)
+    setRegionId(null)
+    setView(null)
+    setPlayer(null)
+    await boot()
+  }, [boot, setView])
+
+  // the music follows the grid: tense while the region is short of power or dark
+  const gridStatus = view?.pulse.status
+  useEffect(() => setMusicMood(gridStatus === 'shortfall' || gridStatus === 'blackout' ? 'tense' : 'calm'), [gridStatus])
 
   /* -------------------------------------------------------------- market: trades, investments, its news */
   const trade: Trade = useCallback(async (merchantId, item, side, qty) => {
@@ -229,6 +261,28 @@ export default function RegionApp() {
         </button>
       </div>
     )
+  if (entry)
+    return (
+      <Title
+        config={config}
+        music={prefs.music}
+        onMusic={(on) => setPrefs({ ...prefs, music: on })}
+        onGuest={async () => {
+          if (prefs.music) {
+            unlockAudio()
+            startMusic()
+          }
+          await playAsGuest()
+        }}
+        onSignedIn={async () => {
+          if (prefs.music) {
+            unlockAudio()
+            startMusic()
+          }
+          await boot()
+        }}
+      />
+    )
   if (!view)
     return (
       <div className="region-boot">
@@ -289,6 +343,7 @@ export default function RegionApp() {
       />
       <PulseBar v={view} simple={simple} company={player?.companyNamed ? player.displayName : null} onCompany={() => setRenaming(true)} conn={conn} zoom={zoom} onSettings={() => setSettings(true)} onHome={() => { setSelection(null); setFocus({ kind: 'home', id: '', nonce: Date.now() }) }} sound={prefs.sound} onSound={() => setPrefs({ ...prefs, sound: !prefs.sound })} />
       {mission && <MissionBanner m={mission} />}
+      {!simple && !mode && <NewsTicker town={town} onMerchant={(id) => select({ kind: 'merchant', id })} />}
       {celebrate && <Celebration text={celebrate} />}
       {move && !mode && !selection && !askName && !renaming && <NextMoveBar m={move} onDo={() => void doMove()} />}
       {(askName || renaming) && !mode && (
@@ -353,6 +408,7 @@ export default function RegionApp() {
           config={config}
           player={player}
           onRename={renameCompany}
+          onSignOut={signOut}
           boot={boot}
           toast={(text) => setFlash({ text, ok: true })}
           sound={prefs.sound}

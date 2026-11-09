@@ -36,6 +36,8 @@ export interface PricingInput {
   spreadBps: number;
   /** Another merchant of this item is closed or nearly empty. */
   rivalShort: boolean;
+  /** Stories in the news moving this item right now (news.ts), already reflected in stock, demand and reference. */
+  news?: { label: string; factor: string }[];
 }
 
 export interface Quote {
@@ -81,10 +83,12 @@ export function priceItem(p: PricingInput): Quote {
     { label: `${p.person}'s margin`, factor: `+${Math.round(p.markupBps / 100)}%` },
   ];
   if (hoard > 1) lines.push({ label: "Another seller is short, so she charges a premium", factor: "+25%" });
+  for (const n of p.news ?? []) lines.push(n);
   lines.push({ label: `Buys back ${Math.round(p.spreadBps / 100)}% under that`, factor: cr(bidCc) });
 
+  const headline = p.news?.[0]?.label.replace(/^News: /, "");
   const summary =
-    sf > 1.3 ? `${p.person} is running low, so it's dear.` : sf < 0.75 ? `${p.person} is overstocked, so it's cheap.` : df > 1.12 ? "Everyone's been buying, so the price is up." : df < 0.88 ? "Everyone's been selling, so the price is down." : "A normal price for Vesper.";
+    sf > 1.3 ? `${p.person} is running low, so it's dear.` : sf < 0.75 ? `${p.person} is overstocked, so it's cheap.` : df > 1.12 ? "Everyone's been buying, so the price is up." : df < 0.88 ? "Everyone's been selling, so the price is down." : headline ? `In the news: ${headline}.` : "A normal price for Vesper.";
   return { askCc, bidCc, why: { lines, summary } };
 }
 

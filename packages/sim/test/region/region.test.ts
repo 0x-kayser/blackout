@@ -201,4 +201,15 @@ describe("regional engine", () => {
     expect(a.traceHash).not.toBe(b.traceHash);
     expect(b.emissionsT).toBeLessThan(a.emissionsT);
   });
+
+  it("never goes quiet: once the first minute is done an incident comes at least every INCIDENT_GAP intervals", () => {
+    const s = createRegion({ regionId: "news", seed: 21 });
+    s.onboarding.done = true;
+    const ctx = newRCtx();
+    for (let i = 0; i < 700; i++) regionTick(s, ctx);
+    const kinds = new Set(["HEATWAVE", "STORM", "PLANT_TRIPPED", "SUPPLY_DISRUPTION"]);
+    const at = [0, ...ctx.events.filter((e) => kinds.has(e.type) && e.interval > 1).map((e) => e.interval)];
+    expect(at.length).toBeGreaterThanOrEqual(4);
+    for (let k = 1; k < at.length; k++) expect(at[k] - at[k - 1]).toBeLessThanOrEqual(region.INCIDENT_GAP + 6);
+  });
 });

@@ -15,7 +15,9 @@ Every player trades with the same merchants, so everyone's buying and selling mo
 |---|---|---|
 | A district goes dark (a trip, a full line, an empty battery) | discharge a battery, start a plant, repair with kits | its windows light up, the red ring stops |
 | A merchant's price jumps or dips (▲▼ on its stall) | buy fuel cheap, sell certificates before others flood the desk | your trade in the live feed, the price moving |
-| You wonder why something costs what it costs | hover a price | the merchant's reasoning: stock, recent demand, margin |
+| You wonder why something costs what it costs | hover a price | the merchant's reasoning: stock, recent demand, margin, and the news story moving it |
+| A story breaks (BREAKING under the top bar: a tanker stuck, a cold snap, a steel strike) | buy before the price climbs, or sell into it | the ticker's price moving ▲▼ as the story plays out |
+| An incident hits the region (storm, heatwave, a rival's plant trips) | start a plant, discharge a battery, sell into the spike | the spot price jumping, then settling as you respond |
 
 The bottom line of the screen always names the single most useful move, with a button that does it.
 
@@ -41,6 +43,7 @@ weather and fuel prices feeding the world have changed since you left.
 | Rule | File |
 |---|---|
 | How every merchant prices (stock × recent demand × margin, plus two special rules) | [`packages/sim/src/town/merchantPricing.ts`](../packages/sim/src/town/merchantPricing.ts) |
+| The news: every story and exactly which flow it multiplies | [`packages/sim/src/town/news.ts`](../packages/sim/src/town/news.ts) |
 | Merchants: wallets, stock, imports, outside customers, rent, closing, investing, dividends | [`packages/sim/src/town/engine.ts`](../packages/sim/src/town/engine.ts), numbers in [`config.ts`](../packages/sim/src/town/config.ts) |
 | The power market (merit order, line limits, nodal prices) | [`packages/sim/src/region/market.ts`](../packages/sim/src/region/market.ts) |
 | Businesses, households, VoltLine, banks, regulator | [`packages/sim/src/region/economy.ts`](../packages/sim/src/region/economy.ts) |

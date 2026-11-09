@@ -19,6 +19,7 @@ export interface SettingsProps {
   config: PublicConfig | null
   player: { displayName: string; kind: string; companyNamed?: boolean } | null
   onRename: (name: string) => Promise<{ ok: boolean; message: string }>
+  onSignOut: () => Promise<void>
   boot: () => Promise<void>
   toast: (text: string, tone?: 'info' | 'good' | 'bad') => void
   sound: boolean
@@ -70,6 +71,13 @@ function Account(p: SettingsProps) {
         <NameCompany current={p.player?.companyNamed ? p.player.displayName : ''} title={p.player?.companyNamed ? 'Rename your company' : 'Name your company'} onSave={p.onRename} />
       </Section>
       {!registered && <SignInOptions g={host} onSignedIn={p.boot} />}
+      {registered && (
+        <div className="row">
+          <button className="btn" onClick={() => void p.onSignOut()}>
+            Sign out
+          </button>
+        </div>
+      )}
       <Section title="Preferences">
         <label className="toggle">
           <input type="checkbox" checked={p.sound} onChange={(e) => p.onSound(e.target.checked)} /> Sound effects
@@ -215,7 +223,7 @@ function Verify({ v }: { v: RegionView }) {
       </Section>
       <Section title="Plant Assets">
         <p className="fine">
-          Each plant is a numbered asset ({v.plants.slice(0, 3).map((p) => p.assetId).join(', ')}…). {live ? `On testnet each is an NEP-171 token in ${chain?.resourceContractId}, with its own account p00042.${chain?.resourceContractId} that only the current owner can direct.` : 'On a testnet deployment each becomes an NEP-171 token with its own plant account that only the current owner can direct; this server has no testnet connection.'}
+          Each plant is a numbered asset ({v.plants.slice(0, 3).map((p) => p.assetId).join(', ')}…). {live ? `The contract ${chain?.resourceContractId} can hold each one as an NEP-171 token with its own account (p00042.${chain?.resourceContractId}) that only the current owner can direct. The game doesn't mint them automatically yet; their records are in every settlement epoch above.` : 'The contract can hold each one as an NEP-171 token with its own plant account that only the current owner can direct. This server has no Testnet connection, and the game doesn’t mint plants automatically yet; their records are in every settlement epoch above.'}
         </p>
       </Section>
     </>

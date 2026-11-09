@@ -1,4 +1,4 @@
-export { createRegion, regionAct, regionTick, regionScore, loanOffer, assetIdOf, ONBOARDING, ensureRegion } from "./engine.ts";
+export { createRegion, regionAct, regionTick, regionScore, loanOffer, assetIdOf, ONBOARDING, ensureRegion, INCIDENT_GAP } from "./engine.ts";
 export { toRegionView, type ViewOptions } from "./view.ts";
 export { clearMarket, type ClearingInput, type ClearingResult } from "./market.ts";
 export { verifyEpoch, chainIdentity, canonical, sha256 } from "./settlement.ts";

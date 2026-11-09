@@ -119,3 +119,49 @@ describe("watch a week", () => {
     expect(Math.max(...gas)).toBeGreaterThan(Math.min(...gas) * 1.5);
   });
 });
+
+describe("market news", () => {
+  const { STORIES } = town;
+  it("breaks a story within a minute of play and keeps the news coming", () => {
+    const t = createTown({ seed: 5 });
+    const ctx = newTCtx();
+    for (let i = 0; i < 600; i++) townTick(t, ctx);
+    const headlines = new Set(STORIES.map((s) => s.headline));
+    const broke = ctx.events.filter((e) => headlines.has(e.title));
+    expect(broke[0].tick).toBeLessThanOrEqual(60);
+    expect(broke.length).toBeGreaterThanOrEqual(6);
+    expect(toTownView(t, null).news!.length).toBeGreaterThan(0);
+  });
+  it("a delayed tanker drains Ingrid's tanks, her gas gets dearer and the tooltip says why", () => {
+    const run = (withStory: boolean) => {
+      const t = createTown({ seed: 9 });
+      t.nextNewsAt = 1e9; // no random stories: only the one under test
+      if (withStory) t.news = [{ seq: 1, storyId: "tanker-delayed", from: 0, until: 500 }];
+      const ctx = newTCtx();
+      for (let i = 0; i < 120; i++) townTick(t, ctx);
+      return { stock: tbal(t, "fuel:natural-gas", MACC("ingrid")), q: quote(t, "ingrid", "fuel:natural-gas") };
+    };
+    const calm = run(false);
+    const news = run(true);
+    expect(news.stock).toBeLessThan(calm.stock * 0.8);
+    expect(news.q.askCc).toBeGreaterThan(calm.q.askCc * 1.1);
+    expect(news.q.why.lines.map((l) => l.label).join(" ")).toMatch(/News: LNG tanker stuck/);
+  });
+  it("an outside-price story moves every seller of that item at once", () => {
+    const t = createTown({ seed: 9 });
+    t.nextNewsAt = 1e9;
+    const before = [quote(t, "ingrid", "fuel:natural-gas").askCc, quote(t, "bayo", "fuel:natural-gas").askCc];
+    t.news = [{ seq: 1, storyId: "henry-hub-jump", from: 0, until: 500 }];
+    const after = [quote(t, "ingrid", "fuel:natural-gas").askCc, quote(t, "bayo", "fuel:natural-gas").askCc];
+    expect(after[0] / before[0]).toBeCloseTo(1.18, 1);
+    expect(after[1] / before[1]).toBeCloseTo(1.18, 1);
+  });
+  it("keeps conserving every item while stories run", () => {
+    const t = createTown({ seed: 12 });
+    const ctx = newTCtx();
+    const start = Object.fromEntries(ITEM_IDS.map((i) => [i, townSum(t, i)]));
+    for (let i = 0; i < 400; i++) townTick(t, ctx);
+    for (const i of ITEM_IDS) expect(townSum(t, i)).toBe(start[i]);
+    expect(townSum(t, "cc")).toBe(0);
+  });
+});
