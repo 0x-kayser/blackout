@@ -16,6 +16,7 @@ export function fakeEconomyConfig(): EconomyConfig {
     enabled: true,
     network: "testnet",
     rpcUrl: "http://fake",
+    rpcUrls: ["http://fake"],
     explorerTxBase: "https://testnet.nearblocks.io/txns/",
     explorerAccountBase: "https://testnet.nearblocks.io/address/",
     contractId: "econ.game.testnet",

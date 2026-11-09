@@ -2,7 +2,7 @@
 
 export interface ChainOpView {
   opId: string;
-  kind: "account" | "grant" | "order" | "confirm" | "batch" | "plant" | "admin";
+  kind: "account" | "grant" | "order" | "confirm" | "batch" | "plant" | "expire" | "admin";
   /** Plain words: "Starting capital: ₡300,000 from the treasury". */
   label: string;
   status: "created" | "submitted" | "settled" | "failed" | "local";

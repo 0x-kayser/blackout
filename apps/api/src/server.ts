@@ -33,6 +33,8 @@ export interface BuildOptions {
   supabase?: SupabaseConfig;
   /** Test hook: a local JWKS instead of fetching the Supabase one. */
   jwks?: JWTVerifyGetKey;
+  /** Test hook: a local JWKS instead of Google's published keys. */
+  googleJwks?: JWTVerifyGetKey;
   /** Directory with the built web app to serve at / (single-origin deployment). */
   webDist?: string | null;
   /** Local demos only: let guests trade on the shared exchange (default: EXCHANGE_ALLOW_GUESTS env). */
@@ -62,7 +64,7 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
   const exchangeAllowGuests = opts.exchangeAllowGuests ?? process.env.EXCHANGE_ALLOW_GUESTS === "true";
   const relayer = opts.relay ? new Relayer(db, opts.relay.cfg, opts.relay.submit, opts.now) : new Relayer(db, loadRelayConfig());
   const allowedOrigins = opts.allowedOrigins ?? (process.env.WEB_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173").split(",").map((s) => s.trim()).filter(Boolean);
-  const auth = new AuthService(db, opts.supabase ?? loadSupabaseConfig(), opts.jwks);
+  const auth = new AuthService(db, opts.supabase ?? loadSupabaseConfig(), opts.jwks, opts.googleJwks);
   const economy = new EconomyService(db, ecoCfg, ecoGw, rsvc, tsvc, (uid) => auth.player(uid)?.kind === "registered");
   tsvc.economy = economy;
   const app = Fastify({
@@ -103,6 +105,7 @@ export function startEconomyWorker(economy: EconomyService, ms = 3_000): () => v
         economy.queueSettlement();
         economy.syncPlants();
         await economy.processOps();
+        if (beats % 20 === 0) economy.sweepEscrows();
         if (beats++ % 20 === 0) await economy.topUpFloats();
       } catch (e) {
         console.error("economy worker", e);
@@ -129,6 +132,7 @@ async function main() {
   console.log(`chain mode: ${chain.enabled ? `testnet (${chain.resourceContractId})` : `disabled (missing ${chain.missing.join(", ")})`}`);
   console.log(`exchange: ${xsvc.sandbox ? `sandbox (server ledger only; Testnet exchange needs ${chain.enabled ? chain.exchangeMissing.join(", ") : "chain mode"})` : "testnet"}`);
   console.log(`economy: ${economy.live ? `NEAR testnet (${economy.cfg.contractId})` : `game server only (missing ${economy.cfg.missing.slice(0, 4).join(", ")}${economy.cfg.missing.length > 4 ? ", …" : ""})`}`);
+  console.log(`google sign-in: ${auth.supabase.googleClientId ? "on (Google Identity Services)" : auth.supabase.providers.google ? "via Supabase" : "off (set GOOGLE_CLIENT_ID)"}`);
   console.log(`auth: guest${auth.supabase.enabled ? ` + supabase (${[auth.supabase.providers.google && "google", auth.supabase.providers.email && "email"].filter(Boolean).join(", ")})` : " only (SUPABASE_URL / SUPABASE_ANON_KEY not set)"}`);
   const shutdown = async () => {
     stopDriver();

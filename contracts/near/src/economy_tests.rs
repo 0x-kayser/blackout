@@ -151,12 +151,13 @@ fn an_npc_buys_power_from_a_player_paying_only_for_what_was_delivered() {
     panics(|| c.power_order_confirm("o1".into(), 200), "Only the grid operator");
     ctx(OP, 0);
     c.power_order_confirm("o1".into(), 150);
-    let o = c.power_order("o1".into()).unwrap();
-    assert_eq!((o.status.as_str(), o.paid.0, o.refunded.0), ("settled", 7_500, 2_500));
+    // the closed order is deleted (storage released); the event is its record
+    assert!(c.power_order("o1".into()).is_none());
+    assert!(near_sdk::test_utils::get_logs().iter().any(|l| l.contains("power_order_settled") && l.contains("\"paid\":\"7500\"") && l.contains("\"refunded\":\"2500\"")));
     assert_eq!(bal(&c, ALICE), 5_000 + 7_500);
     assert_eq!(bal(&c, SMELTER), 60_000 - 7_500);
     assert_eq!(bal(&c, POOL), 0);
-    panics(|| c.power_order_confirm("o1".into(), 150), "already closed");
+    panics(|| c.power_order_confirm("o1".into(), 150), "No such order");
     assert_eq!(c.mt_supply(C.into()).unwrap().0, 1_000_000);
 }
 
@@ -221,9 +222,9 @@ fn players_attach_one_yocto_and_unconfirmed_orders_refund_after_expiry() {
     ctx_at(OUTSIDER, 0, 1_000_000_000_000 + 3 * 60_000_000_000);
     c.power_order_expire("p1".into());
     assert_eq!(bal(&c, ALICE), 5_000);
-    assert_eq!(c.power_order("p1".into()).unwrap().status, "expired");
+    assert!(c.power_order("p1".into()).is_none());
     ctx(OP, 0);
-    panics(|| c.power_order_confirm("p1".into(), 10), "already closed");
+    panics(|| c.power_order_confirm("p1".into(), 10), "No such order");
 }
 
 #[test]
@@ -241,12 +242,33 @@ fn batch_settlement_moves_credits_and_items_together_with_consent_only() {
     assert_eq!(bal(&c, ALICE), 2_000);
     assert_eq!(c.mt_balance_of(acc(ALICE), "fuel:diesel".into()).0, 100);
     panics(|| c.settle_batch("town:1".into(), "a".repeat(64), vec![(C.into(), vec![(acc(ALICE), I64(-1)), (acc(GASCO), I64(1))])]), "already settled");
+    // a settled batch is remembered by a marker, readable through `epoch`
+    assert!(c.epoch("town:1".into()).is_some());
+    assert!(c.epoch("town:2".into()).is_none());
     // an account outside the game's custody can't be debited
     ctx(OUTSIDER, STORAGE_DEPOSIT.as_yoctonear());
     c.storage_deposit(None);
     ctx(OP, 0);
     panics(|| c.settle_batch("town:2".into(), "b".repeat(64), vec![(C.into(), vec![(acc(OUTSIDER), I64(-1)), (acc(GASCO), I64(1))])]), "didn't consent");
     panics(|| c.settle_batch("town:3".into(), "b".repeat(64), vec![(C.into(), vec![(acc(ALICE), I64(-2)), (acc(GASCO), I64(1))])]), "sum to zero");
+}
+
+#[test]
+fn pruning_deletes_only_closed_orders_and_only_for_the_owner_or_operator() {
+    let mut c = funded();
+    ctx(SMELTER, 0);
+    c.power_order_place("open1".into(), acc(GASCO), 10, U128(50_000), 10, "x".into());
+    // an order closed under the old rules stays stored as "settled": prune deletes it, never an open one
+    let mut closed = c.power_order("open1".into()).unwrap();
+    closed.order_id = "old1".into();
+    closed.status = "settled".into();
+    c.power_orders.insert("old1".into(), closed);
+    ctx(OUTSIDER, 0);
+    panics(|| { c.prune_closed_orders(vec!["old1".into()]); }, "Only the owner or operator");
+    ctx(OP, 0);
+    assert_eq!(c.prune_closed_orders(vec!["old1".into(), "open1".into(), "nope".into()]), 1);
+    assert!(c.power_order("old1".into()).is_none());
+    assert_eq!(c.power_order("open1".into()).unwrap().status, "open");
 }
 
 #[test]

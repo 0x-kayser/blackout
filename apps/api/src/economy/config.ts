@@ -9,6 +9,8 @@ export interface EconomyConfig {
   enabled: boolean;
   network: "testnet";
   rpcUrl: string;
+  /** Endpoints tried in order when one rate-limits or times out (the first is rpcUrl). */
+  rpcUrls: string[];
   explorerTxBase: string;
   explorerAccountBase: string;
   contractId: string | null;
@@ -71,6 +73,7 @@ export function loadEconomyConfig(env: NodeJS.ProcessEnv = process.env): Economy
     enabled,
     network: "testnet",
     rpcUrl: env.NEAR_RPC_URL?.trim() || "https://test.rpc.fastnear.com",
+    rpcUrls: [...new Set([env.NEAR_RPC_URL?.trim() || "https://test.rpc.fastnear.com", ...(env.NEAR_RPC_FALLBACK_URLS ?? "https://near-testnet.drpc.org,https://rpc.testnet.fastnear.com").split(",").map((u) => u.trim()).filter(Boolean)])],
     explorerTxBase: env.NEAR_EXPLORER_TX_BASE?.trim() || "https://testnet.nearblocks.io/txns/",
     explorerAccountBase: env.NEAR_EXPLORER_ACCOUNT_BASE?.trim() || "https://testnet.nearblocks.io/address/",
     contractId,

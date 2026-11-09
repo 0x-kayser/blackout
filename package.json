@@ -27,7 +27,8 @@
     "test:e2e": "playwright test",
     "db:migrate": "tsx scripts/migrate.ts",
     "chain:economy": "tsx scripts/near-economy-bootstrap.ts",
-    "chain:demo": "tsx scripts/near-economy-demo.ts"
+    "chain:demo": "tsx scripts/near-economy-demo.ts",
+    "chain:upgrade": "tsx scripts/near-economy-upgrade.ts"
   },
   "devDependencies": {
     "@blackout/api": "workspace:*",

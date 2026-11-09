@@ -261,7 +261,7 @@ pub struct Contract {
     /// "<bucket>|<account>" -> grant id, for once-per-account buckets
     granted_to: LookupMap<String, String>,
     npc_limits: LookupMap<AccountId, economy::NpcLimits>,
-    power_orders: LookupMap<String, economy::PowerOrder>,
+    pub(crate) power_orders: LookupMap<String, economy::PowerOrder>,
 }
 
 const NANOS_PER_DAY: u64 = 86_400_000_000_000;

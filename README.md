@@ -136,7 +136,7 @@ screen for self-custody, wallets for guests (they get one when they sign in), NE
 | Economy service: wallets, NPC orders, settlement, reconciliation | 9 integration tests; **ran live on testnet** (40 final transactions); the dev server uses it once `.env.economy` is in its env |
 | NPC power companies and the power desk | **works** off chain (9 sim tests); visible in MARKET and in Watch a week |
 | Email sign-in | works locally (code on screen); production uses Supabase |
-| Google sign-in | code complete; needs your Supabase project and Google OAuth client |
+| Google sign-in | direct (Google Identity Services, ID token verified on the server, 4 tests); needs a Google OAuth client id in `GOOGLE_CLIENT_ID` ([steps](docs/AUTH_PROVIDER_DECISION.md#google-sign-in-without-supabase-simplest)) |
 | Classic city game + shared fuel exchange | still works at `/city` |
 
 ## Demo script (§65, 3 minutes)

@@ -120,8 +120,12 @@ impl Contract {
         self.plant_sales.get(&token_id).cloned()
     }
 
+    /// A settled epoch. Batches settled since storage pruning keep only a marker: their hash is in the event log.
     pub fn epoch(&self, epoch_id: String) -> Option<EpochRecord> {
-        self.epochs.get(&epoch_id).cloned()
+        if let Some(e) = self.epochs.get(&epoch_id) {
+            return Some(e.clone());
+        }
+        env::storage_has_key(&super::economy::settled_key(&epoch_id)).then(|| EpochRecord { epoch_id, hash: "see the settle_batch event".into(), accounts: 0, block_height: 0 })
     }
 
     pub fn nft_is_approved(&self, token_id: String, approved_account_id: AccountId, approval_id: Option<u64>) -> bool {
@@ -264,7 +268,7 @@ impl Contract {
         self.assert_operator();
         require!(!epoch_id.is_empty() && epoch_id.len() <= 160, "Bad epoch id");
         require!(hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()), "Hash must be 64 hex characters");
-        require!(self.epochs.get(&epoch_id).is_none(), "Epoch already settled");
+        require!(self.epochs.get(&epoch_id).is_none() && !env::storage_has_key(&super::economy::settled_key(&epoch_id)), "Epoch already settled");
         require!(!deltas.is_empty() && deltas.len() <= 40, "1 to 40 accounts per epoch");
         let sum: i128 = deltas.iter().map(|(_, d)| d.0 as i128).sum();
         require!(sum == 0, "Epoch deltas must sum to zero");

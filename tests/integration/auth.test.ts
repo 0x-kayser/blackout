@@ -11,7 +11,7 @@ import { loadChainConfig } from "../../apps/api/src/chain.ts";
 import type { SupabaseConfig } from "../../apps/api/src/auth.ts";
 
 const SUPA = "https://demo-project.supabase.co";
-const supabase: SupabaseConfig = { enabled: true, url: SUPA, anonKey: "public-anon", issuer: `${SUPA}/auth/v1`, audience: "authenticated", providers: { google: true, email: true }, local: { enabled: false, showCode: false } };
+const supabase: SupabaseConfig = { enabled: true, url: SUPA, anonKey: "public-anon", issuer: `${SUPA}/auth/v1`, audience: "authenticated", providers: { google: true, email: true }, local: { enabled: false, showCode: false }, googleClientId: null };
 
 type Built = Awaited<ReturnType<typeof buildServer>>;
 let built: Built;

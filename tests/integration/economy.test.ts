@@ -87,6 +87,27 @@ describe("player wallets and starting capital", () => {
     expect(wa).not.toBe(wb);
   });
 
+  it("a player selling items to a merchant settles on chain (items come back into the market's stock)", async () => {
+    const p = await player();
+    await economy(p.token);
+    await drain();
+    const h = built.rsvc.liveFor(p.userId);
+    built.rsvc.act(h, { type: "TOWN_SETTLE", ref: "gift", reason: "test certificates", items: { "certificate:renewable": 40 } }, "gift-certs", "system");
+    built.tsvc.trade({ userId: p.userId, name: "Test Co" }, h, built.rsvc, { merchantId: "lena", item: "certificate:renewable", side: "sell", quantity: 40 }, "sell-certs");
+    const wallet = built.economy.activeAccount(p.userId)!;
+    const before = chain.balance(wallet);
+    // close the market epoch now and let the batch go out (the server batches on a timer; tests don't wait for it)
+    for (let i = 0; i < 72; i++) built.tsvc.tick();
+    built.db.prepare("UPDATE settlement_epochs SET created_at = ? WHERE region_id = 'town'").run(new Date(Date.now() - 600_000).toISOString());
+    await drain(3);
+    const settled = built.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE op_id LIKE 'batch:town:%' AND status = 'settled'").get() as { n: number };
+    expect(settled.n).toBeGreaterThan(0);
+    expect(built.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE op_id LIKE 'batch:town:%' AND status = 'failed'").get()).toEqual({ n: 0 });
+    // Lena paid the player's wallet for them
+    expect(chain.balance(wallet)).toBeGreaterThan(before);
+    expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
+  });
+
   it("a wallet opened after playing a while starts with exactly the company's current cash", async () => {
     const p = await player();
     const h = built.rsvc.liveFor(p.userId);
@@ -175,8 +196,10 @@ describe("NPC companies buying power from players on chain", () => {
   it("the NPC signs its own escrow, the player's grid delivers, the operator confirms, the player is paid once", async () => {
     const p = await playerSelling();
     const wallet = built.economy.activeAccount(p.userId)!;
-    await run(36 * 4, p.h);
-    const orders = built.tsvc.state.power!.orders.filter((o) => o.sellerKey === `player:${p.userId}` && o.status === "settled");
+    // regions are randomly seeded, so give the companies up to eight windows to buy from this player
+    const sold = () => built.tsvc.state.power!.orders.filter((o) => o.sellerKey === `player:${p.userId}` && o.status === "settled");
+    for (let w = 0; w < 8 && sold().length === 0; w++) await run(36, p.h);
+    const orders = sold();
     expect(orders.length).toBeGreaterThan(0);
     const o = orders[0];
     const placed = chain.calls.find((c) => c.method === "power_order_place" && c.args.order_id === o.orderId)!;
@@ -207,10 +230,13 @@ describe("NPC companies buying power from players on chain", () => {
     built.tsvc.tick();
     const placing = built.tsvc.state.power!.orders.filter((o) => o.status === "placing");
     expect(placing.length).toBeGreaterThan(0);
-    const victim = placing[0];
-    const escrowedBefore = built.tsvc.state.firms![victim.buyerId].escrowedCc;
+    const escrowed = Object.fromEntries(Object.entries(built.tsvc.state.firms!).map(([k, f]) => [k, f.escrowedCc]));
     chain.failNext = "Smart contract panicked: Above this NPC's per-payment limit";
     await built.economy.processOps(1);
+    // whichever order the chain refused
+    const victim = placing.find((o) => /per-payment limit/.test(built.economy.op(`order:${o.orderId}`)?.detail ?? ""))!;
+    expect(victim).toBeTruthy();
+    const escrowedBefore = escrowed[victim.buyerId];
     const after = built.tsvc.state.power!.orders.find((o) => o.orderId === victim.orderId)!;
     expect(after.status).toBe("failed");
     expect(after.failReason).toMatch(/per-payment limit/);
@@ -232,6 +258,47 @@ describe("NPC companies buying power from players on chain", () => {
     await built.economy.processOps(50);
     expect(built.economy.op("grant:test")!.status).toBe("settled");
     expect(chain.calls.filter((c) => c.args.grant_id === "test-grant")).toHaveLength(1);
+  });
+
+  it("never sends an order the game already gave up on, and retries what a rate limit stopped", async () => {
+    const p = await playerSelling();
+    while ((built.tsvc.state.tick + 1) % 36 !== 0) built.tsvc.tick();
+    built.tsvc.tick();
+    const placing = built.tsvc.state.power!.orders.filter((o) => o.status === "placing");
+    expect(placing.length).toBeGreaterThan(0);
+    // the window passes before the queue gets to them (a backlog, a slow endpoint)
+    for (let i = 0; i < 36; i++) built.tsvc.tick();
+    expect(placing.every((o) => o.status === "failed")).toBe(true);
+    await built.economy.processOps(50);
+    for (const o of placing) {
+      expect(chain.orders.has(o.orderId)).toBe(false);
+      expect(built.economy.op(`order:${o.orderId}`)!.detail).toMatch(/gave up on this order/);
+    }
+    // a grant stopped by a rate limit is retried, not given up on
+    built.economy.enqueue({ opId: "grant:rl", kind: "grant", subject: "test", signer: "operator", method: "treasury_grant", args: { grant_id: "rl-grant", bucket: "reserve", receiver_id: "grid.game.testnet", amount: "1000", memo: "test" } });
+    chain.failNext = 'Rate limits exceeded. For higher rate limits get a subscription (429)';
+    await built.economy.processOps(50);
+    expect(built.economy.op("grant:rl")!.status).toBe("failed");
+    built.db.prepare("UPDATE chain_ops SET updated_at = ? WHERE op_id = 'grant:rl'").run(new Date(Date.now() - 120_000).toISOString());
+    await built.economy.processOps(50);
+    expect(built.economy.op("grant:rl")!.status).toBe("settled");
+    void p;
+  });
+
+  it("an escrow that landed after the game gave up on its order is refunded through the contract", async () => {
+    await playerSelling();
+    while ((built.tsvc.state.tick + 1) % 36 !== 0) built.tsvc.tick();
+    built.tsvc.tick();
+    const placing = built.tsvc.state.power!.orders.filter((x) => x.status === "placing");
+    // the first escrow's response is lost (it lands, but the server never hears); the window passes
+    chain.pendingNext = true;
+    await built.economy.processOps(1);
+    const o = placing.find((x) => built.economy.op(`order:${x.orderId}`)?.status === "submitted")!;
+    expect(chain.orders.get(o.orderId)?.status).toBe("open");
+    for (let i = 0; i < 36; i++) built.tsvc.tick();
+    expect(built.tsvc.state.power!.orders.find((x) => x.orderId === o.orderId)!.status).toBe("failed");
+    built.economy.sweepEscrows();
+    expect(built.economy.op(`expire:${o.orderId}`)).toBeTruthy();
   });
 
   it("the kill switch stops NPC spending on the server and in the contract", async () => {

@@ -25,13 +25,16 @@ import { nowIso, type Db } from "../db.ts";
 import type { RegionHandle, RegionService } from "../region.ts";
 import type { TownService } from "../town.ts";
 import type { EconomyConfig } from "./config.ts";
-import type { ChainGateway, GatewayResult, Signer } from "./gateway.ts";
+import { TRANSIENT, type ChainGateway, type GatewayResult, type Signer } from "./gateway.ts";
 import { GRID_TRANCHE_CC, NPC_IDENTITIES, STARTER_GRANT_CC, TOPUP_BELOW_BPS, WORLD_TRANCHE_CC } from "./treasury.ts";
 import { newWalletKey, openKey, sealKey, walletAccountId } from "./wallets.ts";
 
 const CREDIT = "credit:vesper";
 const ITEM_TOKENS = ["fuel:natural-gas", "fuel:diesel", "permit:carbon", "certificate:renewable", "material:steel", "part:turbine"];
-const RETRYABLE = /Insufficient|exhausted|timeout|TIMEOUT|broadcast|nonce|InvalidNonce|Expired/i;
+const RETRYABLE = /Insufficient|exhausted|timeout|TIMEOUT|broadcast|nonce|InvalidNonce|Expired|LackBalanceForState|NotEnoughBalance/i;
+/** Settle the market at most this often, and players' region earnings at most this often (fewer, bigger batches). */
+const TOWN_BATCH_MS = 120_000;
+const REGION_BATCH_MS = 60_000;
 /** A contract refusal in a release build arrives as a bare WebAssembly trap, without its message. */
 const TRAP = /WasmTrap|unreachable/i;
 const ALREADY = /already (paid|used|settled|closed|received|exists)|AccountAlreadyExists/i;
@@ -74,6 +77,8 @@ export class EconomyService {
   private treasuryAt = 0;
   private busy = false;
   private applied = new Set<string>();
+  /** When each in-flight operation was first seen unconfirmed (to tell "slow" from "never arrived"). */
+  private inflightSince = new Map<string, number>();
 
   constructor(
     private readonly db: Db,
@@ -205,14 +210,19 @@ export class EconomyService {
     this.busy = true;
     let n = 0;
     try {
+      // each signer gets its own share of the pass, so one busy signer (the operator) never starves another
       const rows = this.db
         .prepare(
-          `SELECT * FROM chain_ops WHERE status = 'created'
-             OR (status = 'submitted' AND updated_at < ?)
-             OR (status = 'failed' AND attempts < 8 AND updated_at < ? AND detail IS NOT NULL)
-           ORDER BY rowid LIMIT ?`,
+          // within a signer: wallets and grants first (a player is waiting), then confirmations (someone is owed
+          // money), then orders, batches and the rest
+          `SELECT * FROM (
+             SELECT *, ROW_NUMBER() OVER (PARTITION BY signer ORDER BY CASE WHEN subject LIKE 'wallet:%' THEN 0 WHEN kind = 'grant' THEN 1 WHEN kind = 'confirm' THEN 2 WHEN kind = 'order' THEN 3 WHEN kind = 'batch' THEN 4 ELSE 5 END, rowid) AS k
+             FROM chain_ops WHERE status = 'created'
+               OR (status = 'submitted' AND updated_at < ?)
+               OR (status = 'failed' AND attempts < 40 AND updated_at < ? AND detail IS NOT NULL)
+           ) WHERE k <= ? ORDER BY signer, k`,
         )
-        .all(new Date(Date.now() - 20_000).toISOString(), new Date(Date.now() - 60_000).toISOString(), limit) as unknown as OpRow[];
+        .all(new Date(Date.now() - 20_000).toISOString(), new Date(Date.now() - 60_000).toISOString(), Math.max(1, Math.ceil(limit / 3))) as unknown as OpRow[];
       // each signer has its own nonce, so different signers go in parallel; one signer's operations stay in order
       const bySigner = new Map<string, OpRow[]>();
       for (const row of rows) {
@@ -235,10 +245,32 @@ export class EconomyService {
 
   private async runOp(row: OpRow): Promise<void> {
     const gw = this.gateway!;
+    // never send something the game has already moved past
+    const stale = row.status === "created" ? this.staleReason(row) : null;
+    if (stale) {
+      this.db.prepare("UPDATE chain_ops SET status = 'failed', attempts = 99, detail = ?, updated_at = ? WHERE op_id = ?").run(stale, nowIso(), row.op_id);
+      return;
+    }
     let r: GatewayResult;
     if (row.status === "submitted" && row.tx_hash) {
       r = await gw.lookup(row.tx_hash, row.signer.startsWith("npc:") ? this.npcAccount(row.signer.slice(4))! : row.signer === "operator" ? this.cfg.operator!.accountId : this.cfg.playerParent!.accountId);
       if (r.status === "pending" && (await this.reconcile(row))) r = { ...r, status: "settled", detail: "confirmed by reading the contract" };
+      if (r.status === "pending") {
+        const since = this.inflightSince.get(row.op_id) ?? Date.now();
+        this.inflightSince.set(row.op_id, since);
+        if (Date.now() - since > 120_000) {
+          // two minutes unconfirmed and the contract shows no trace: it never reached the chain
+          this.inflightSince.delete(row.op_id);
+          if (row.kind === "order") {
+            // the game has moved past that window: never send it again (if it lands after all, it gets refunded)
+            r = { ...r, status: "failed", detail: "never reached the chain (lost in transit); not re-sent" };
+          } else {
+            // single-use ids make a resend safe: a late copy of the first one can only be refused
+            this.db.prepare("UPDATE chain_ops SET status = 'created', detail = ?, updated_at = ? WHERE op_id = ?").run("re-sending: the first transaction never reached the chain", nowIso(), row.op_id);
+            return;
+          }
+        }
+      } else this.inflightSince.delete(row.op_id);
     } else {
       this.db.prepare("UPDATE chain_ops SET status = 'submitted', attempts = attempts + 1, updated_at = ? WHERE op_id = ?").run(nowIso(), row.op_id);
       const onSigned = (h: string) => this.db.prepare("UPDATE chain_ops SET tx_hash = ?, updated_at = ? WHERE op_id = ?").run(h, nowIso(), row.op_id);
@@ -264,12 +296,27 @@ export class EconomyService {
   }
 
   /**
-   * Worth trying again? Transient network trouble, or a batch the contract refused (nothing moves when one is refused:
-   * usually a float that needs topping up). Never an NPC's order: a refused escrow is final for that window.
+   * Worth trying again? Transient network trouble (rate limits, timeouts), or a batch or expiry the contract refused
+   * for now (nothing moves when one is refused: a float that needs topping up, a deadline not reached yet). An NPC's
+   * order is retried only for network trouble and only while its window is still open; a refusal is final.
    */
   private retryable(row: OpRow, detail: string): boolean {
-    if (row.kind === "order") return false;
-    return RETRYABLE.test(detail) || (row.kind === "batch" && TRAP.test(detail));
+    const transient = RETRYABLE.test(detail) || TRANSIENT.test(detail);
+    // settlement batches and refunds are the ledger itself: they keep trying (with a minute between tries) until they land
+    const attemptsOk = row.attempts < (row.kind === "expire" || row.kind === "batch" ? 40 : 8);
+    if (!attemptsOk) return false;
+    if (row.kind === "order") return transient && !this.staleReason(row);
+    return transient || ((row.kind === "batch" || row.kind === "expire") && TRAP.test(detail));
+  }
+
+  /** Why an operation should no longer be sent, if the game has moved on without it. */
+  private staleReason(row: OpRow): string | null {
+    if (row.kind !== "order" && row.kind !== "confirm") return null;
+    const id = String((JSON.parse(row.args_json) as { order_id: string }).order_id);
+    const o = this.tsvc.state.power?.orders.find((x) => x.orderId === id);
+    if (row.kind === "order" && (!o || o.status !== "placing")) return "not sent: the game gave up on this order before its escrow went out";
+    if (row.kind === "confirm" && (!o || o.status !== "awaiting")) return "not sent: the order was already closed in the game";
+    return null;
   }
 
   /** Did this operation happen on chain? Answered by reading the contract, never by guessing. */
@@ -280,9 +327,10 @@ export class EconomyService {
       if (row.kind === "account") return await gw.accountExists(String(a.account_id));
       if (row.kind === "grant") return !!(await gw.view<unknown>("grant", { grant_id: a.grant_id }));
       if (row.kind === "order") return !!(await gw.view<unknown>("power_order", { order_id: a.order_id }));
-      if (row.kind === "confirm") {
+      if (row.kind === "confirm" || row.kind === "expire") {
+        // the contract deletes an order when it closes, so "gone" means confirmed or expired
         const o = await gw.view<{ status: string } | null>("power_order", { order_id: a.order_id });
-        return !!o && o.status === "settled";
+        return !o || o.status !== "open";
       }
       if (row.kind === "batch") return !!(await gw.view<unknown>("epoch", { epoch_id: a.epoch_id }));
       if (row.kind === "plant") {
@@ -308,7 +356,12 @@ export class EconomyService {
     }
     const t = this.tsvc.state;
     const ctx = town.newTCtx();
-    if (row.kind === "order") town.activatePowerOrder(t, ctx, String(a.order_id));
+    if (row.kind === "order") {
+      const o = t.power?.orders.find((x) => x.orderId === String(a.order_id));
+      // the escrow landed after the game had given up on the order: get the buyer's money back through the contract
+      if (!o || o.status !== "placing") this.enqueueExpire(String(a.order_id));
+      else town.activatePowerOrder(t, ctx, String(a.order_id));
+    }
     if (row.kind === "confirm") town.settlePowerOrder(t, ctx, String(a.order_id), Number(a.delivered_kwh));
     // carry it into the seller's region now, not at the next market tick
     if (row.kind === "order" || row.kind === "confirm") this.afterTownTick();
@@ -361,6 +414,8 @@ export class EconomyService {
     for (const o of t.power?.orders ?? []) {
       if (this.live) {
         if (o.status === "placing") this.queueOrder(o);
+        // the game expired an order whose escrow is on chain: the contract must refund the buyer too
+        if ((o.status === "expired" || o.status === "failed") && this.op(`order:${o.orderId}`)?.status === "settled" && this.op(`confirm:${o.orderId}`)?.status !== "settled") this.enqueueExpire(o.orderId);
         // an order made before this server was on chain was never escrowed there: it settles in the market's books
         if ((o.status === "open" || o.status === "awaiting") && !this.op(`order:${o.orderId}`)) {
           if (o.status === "awaiting" && o.deliveredKwh !== null) town.settlePowerOrder(t, town.newTCtx(), o.orderId, o.deliveredKwh, false);
@@ -382,6 +437,36 @@ export class EconomyService {
     }
   }
 
+  /**
+   * The escrow sweeper. Any order this server ever sent to NEAR that the game is no longer delivering, and that was
+   * never confirmed, may hold the buyer's money in escrow (it arrived late, or its response was lost). Queue the
+   * contract's expiry for each: it refunds the buyer in full once the deadline passes, and is a no-op if the order
+   * never landed. Without this, slow or lost transactions would quietly lock NPCs' money.
+   */
+  sweepEscrows(): void {
+    if (!this.live) return;
+    const t = this.tsvc.state;
+    const live = new Set((t.power?.orders ?? []).filter((o) => o.status === "placing" || o.status === "open" || o.status === "awaiting").map((o) => o.orderId));
+    const rows = this.db
+      .prepare(
+        `SELECT o.args_json FROM chain_ops o
+           WHERE o.kind = 'order' AND o.tx_hash IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM chain_ops c WHERE c.op_id = 'confirm:' || substr(o.op_id, 7) AND c.status = 'settled')
+             AND NOT EXISTS (SELECT 1 FROM chain_ops e WHERE e.op_id = 'expire:' || substr(o.op_id, 7))`,
+      )
+      .all() as { args_json: string }[];
+    for (const r of rows) {
+      const id = String((JSON.parse(r.args_json) as { order_id: string }).order_id);
+      if (!live.has(id)) this.enqueueExpire(id);
+    }
+  }
+
+  /** Refunds an on-chain escrow the game no longer wants (anyone may expire it once its deadline has passed). */
+  private enqueueExpire(orderId: string): void {
+    // the contract lets anyone expire an order after its deadline; the player-parent account pays the gas
+    this.enqueue({ opId: `expire:${orderId}`, kind: "expire", subject: `order:${orderId}`, signer: "player-parent", method: "power_order_expire", args: { order_id: orderId } });
+  }
+
   private queueOrder(o: town.PowerOrderState): void {
     if (this.op(`order:${o.orderId}`)) return;
     const ctx = town.newTCtx();
@@ -395,7 +480,7 @@ export class EconomyService {
       subject: `order:${o.orderId}`,
       signer: `npc:${buyer}`,
       method: "power_order_place",
-      args: { order_id: o.orderId, seller_id: seller, kwh: o.kwh, price_per_mwh: String(o.priceCcPerMWh), expires_in_minutes: 20, memo: o.why.slice(0, 280) },
+      args: { order_id: o.orderId, seller_id: seller, kwh: o.kwh, price_per_mwh: String(o.priceCcPerMWh), expires_in_minutes: 5, memo: o.why.slice(0, 280) },
     });
   }
 
@@ -482,18 +567,30 @@ export class EconomyService {
     if (!this.live) return;
     const open = this.townOpened();
     if (!open) return;
-    const rows = this.db.prepare("SELECT epoch_id, from_interval, body_json FROM settlement_epochs WHERE region_id = 'town' AND status = 'pending' ORDER BY epoch_no LIMIT 6").all() as { epoch_id: string; from_interval: number; body_json: string }[];
+    const rows = this.db.prepare("SELECT epoch_id, from_interval, body_json, created_at FROM settlement_epochs WHERE region_id = 'town' AND status = 'pending' ORDER BY epoch_no LIMIT 12").all() as { epoch_id: string; from_interval: number; body_json: string; created_at: string }[];
+    const fresh: town.TownEpoch[] = [];
     for (const r of rows) {
-      if (r.from_interval < open.tick) {
-        this.db.prepare("UPDATE settlement_epochs SET status = 'local', updated_at = ? WHERE epoch_id = ?").run(nowIso(), r.epoch_id);
-        continue;
-      }
-      const e = JSON.parse(r.body_json) as town.TownEpoch;
-      const entries = this.townEntries(e);
-      if (entries.length) this.enqueue({ opId: `batch:${e.epochId}`, kind: "batch", subject: "town", signer: "operator", method: "settle_batch", args: { epoch_id: e.epochId, hash: e.hash, entries, _epochs: [e.epochId] } });
-      this.db.prepare("UPDATE settlement_epochs SET status = ?, updated_at = ? WHERE epoch_id = ?").run(entries.length ? "submitted" : "confirmed", nowIso(), r.epoch_id);
+      if (r.from_interval < open.tick) this.db.prepare("UPDATE settlement_epochs SET status = 'local', updated_at = ? WHERE epoch_id = ?").run(nowIso(), r.epoch_id);
+      else fresh.push(JSON.parse(r.body_json) as town.TownEpoch);
     }
-    this.queueRegionEpochs();
+    // several market epochs in one transaction: fewer transactions, and far less contract storage
+    const oldest = rows.find((r) => r.from_interval >= open.tick)?.created_at;
+    if (fresh.length && (fresh.length >= 6 || (oldest && Date.now() - Date.parse(oldest) >= TOWN_BATCH_MS))) {
+      const merged = new Map<string, Map<string, number>>();
+      for (const e of fresh) for (const [tk, legs] of this.townEntries(e)) for (const [acct, d] of legs) {
+        const m = merged.get(tk) ?? new Map<string, number>();
+        m.set(acct, (m.get(acct) ?? 0) + Number(d));
+        merged.set(tk, m);
+      }
+      const entries = [...merged.entries()].map(([tk, m]) => [tk, [...m.entries()].filter(([, d]) => d !== 0).sort(([a], [b]) => a.localeCompare(b)).map(([a, d]) => [a, String(d)])] as [string, [string, string][]]).filter(([, legs]) => legs.length);
+      const ids = fresh.map((e) => e.epochId);
+      const id = ids.length === 1 ? ids[0] : `${ids[0]}-${ids.at(-1)!.split(":").pop()}`;
+      if (entries.length) this.enqueue({ opId: `batch:${id}`, kind: "batch", subject: "town", signer: "operator", method: "settle_batch", args: { epoch_id: id, hash: region.sha256(fresh.map((e) => e.hash).join("")), entries, _epochs: ids } });
+      const upd = this.db.prepare("UPDATE settlement_epochs SET status = ?, updated_at = ? WHERE epoch_id = ?");
+      for (const e of ids) upd.run(entries.length ? "submitted" : "confirmed", nowIso(), e);
+    }
+    const lastRegion = this.getState<number>("region_batch_at") ?? 0;
+    if (Date.now() - lastRegion >= REGION_BATCH_MS) this.queueRegionEpochs();
   }
 
   /** A market epoch in NEAR accounts: merchants and companies their own, players their wallet (else grid), the rest the world. */
@@ -506,8 +603,9 @@ export class EconomyService {
         if (x.account === "world") acct = this.cfg.worldId!;
         else if (x.account.startsWith("player:")) {
           const w = this.wallet(x.account.slice(7));
-          // a player's money moves in their own wallet; the fuel they buy goes straight into their plants (grid custody)
-          acct = tk.token === CREDIT && w?.status === "active" && e.fromTick >= (w.opened_town_tick ?? Infinity) ? w.account_id : this.cfg.gridId!;
+          // a player's money moves in their own wallet. The items they trade are delivered into, or come out of, their
+          // plants inside their region: on chain they come from and return to the market's stock (the world's custody)
+          acct = tk.token !== CREDIT ? this.cfg.worldId! : w?.status === "active" && e.fromTick >= (w.opened_town_tick ?? Infinity) ? w.account_id : this.cfg.gridId!;
         } else acct = this.npcAccount(x.account) ?? this.cfg.worldId!;
         m.set(acct, (m.get(acct) ?? 0) + x.delta);
       }
@@ -546,6 +644,7 @@ export class EconomyService {
     }
     const n = (this.getState<number>("region_batch") ?? 0) + 1;
     this.setState("region_batch", n);
+    this.setState("region_batch_at", Date.now());
     legs.push([this.cfg.gridId!, -legs.reduce((a, [, d]) => a + d, 0)]);
     const entries = [[CREDIT, legs.map(([a, d]) => [a, String(d)])]];
     this.enqueue({ opId: `batch:regions:${n}`, kind: "batch", subject: "regions", signer: "operator", method: "settle_batch", args: { epoch_id: `regions:${n}`, hash: region.sha256(region.canonical({ ids, legs })), entries, _epochs: ids } });
@@ -731,6 +830,8 @@ function labelOf(r: OpRow, svc: EconomyService): string {
       return `Grid confirms ${Math.round(Number(a.delivered_kwh) / 1000)} MWh delivered (order ${String(a.order_id)})`;
     case "batch":
       return String(a.epoch_id).startsWith("open:") ? `Opening balances (${String(a.epoch_id)})` : `Settlement ${String(a.epoch_id)}`;
+    case "expire":
+      return `Escrow refunded to the buyer (order ${String(a.order_id)}): the game didn't use it`;
     case "plant":
       return r.method === "plant_mint" ? `${(a.metadata as { title: string }).title} minted to ${String(a.owner_id)}` : `Plant ${String(a.token_id)} sold: leaves ${String(a.owner_id)}`;
     default:

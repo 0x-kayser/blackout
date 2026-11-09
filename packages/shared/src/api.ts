@@ -281,6 +281,8 @@ export const PublicConfigSchema = z.object({
     supabaseUrl: z.string().nullable(),
     supabaseAnonKey: z.string().nullable(),
     google: z.boolean(),
+    /** Direct Google sign-in (Google Identity Services) when set; otherwise Google goes through Supabase. */
+    googleClientId: z.string().nullable().optional(),
     email: z.boolean(),
     /** Local email-code sign-in (development / self-hosted demo without Supabase). */
     local: z.boolean(),

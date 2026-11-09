@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { explainError } from '../api/client'
-import { inAppBrowser, sendEmailLink, signInWithGoogle, startLocalEmail, verifyEmailCode, verifyLocalEmail } from '../api/auth'
+import { inAppBrowser, loadGoogleIdentity, sendEmailLink, signInWithGoogle, signInWithGoogleCredential, startLocalEmail, verifyEmailCode, verifyLocalEmail } from '../api/auth'
 import type { Game } from '../game/useGame'
 
 const GoogleMark = () => (
@@ -11,6 +11,28 @@ const GoogleMark = () => (
     <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
   </svg>
 )
+
+/** Google's own "Sign in with Google" button (Google Identity Services); the ID token goes to our server. */
+function GoogleIdentityButton({ clientId, onCredential, onError }: { clientId: string; onCredential: (credential: string) => void; onError: (msg: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const cb = useRef(onCredential)
+  cb.current = onCredential
+  useEffect(() => {
+    let live = true
+    loadGoogleIdentity().then(
+      (g) => {
+        if (!live || !ref.current) return
+        g.accounts.id.initialize({ client_id: clientId, callback: (r: { credential: string }) => cb.current(r.credential), ux_mode: 'popup', auto_select: false, cancel_on_tap_outside: true })
+        g.accounts.id.renderButton(ref.current, { type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', logo_alignment: 'center', width: Math.min(400, Math.max(220, ref.current.offsetWidth || 320)) })
+      },
+      (e: Error) => live && onError(e.message),
+    )
+    return () => {
+      live = false
+    }
+  }, [clientId])
+  return <div ref={ref} className="gis-button" data-testid="google-button" />
+}
 
 /**
  * One sign-in block used on the welcome screen and in the profile panel.
@@ -36,7 +58,16 @@ export function SignInOptions({ g, compact = false, onSignedIn }: { g: Game; com
   }, [cooldown])
 
   if (!auth?.google && !auth?.email) return null
-  const googleReady = !!auth.google
+  const googleClientId = auth.googleClientId ?? null
+  const googleReady = !!auth.google && !googleClientId
+
+  const withGoogle = (credential: string) =>
+    run(async () => {
+      const r = await signInWithGoogleCredential(credential)
+      await g.boot()
+      if (r.upgradedGuest) g.toast('Signed in with Google. Your company is saved to your account.', 'good')
+      await onSignedIn?.()
+    })
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true)
@@ -84,7 +115,14 @@ export function SignInOptions({ g, compact = false, onSignedIn }: { g: Game; com
     <div className={`signin2 ${compact ? 'compact' : ''}`}>
       {stage === 'choose' && (
         <>
-          {(auth.google || local) &&
+          {googleClientId && !embedded && <GoogleIdentityButton clientId={googleClientId} onCredential={(c) => void withGoogle(c)} onError={(m) => setMsg({ text: m, tone: 'warn' })} />}
+          {googleClientId && embedded && (
+            <div className="inapp-note">
+              <p>Google sign-in doesn't work inside {embedded}'s built-in browser. Use your email below, or open BLACKOUT in Safari or Chrome.</p>
+              <button className="button mini" onClick={() => void copyLink()}>Copy link</button>
+            </div>
+          )}
+          {!googleClientId && (auth.google || local) &&
             (embedded && googleReady ? (
               <div className="inapp-note">
                 <p>Google sign-in doesn't work inside {embedded}'s built-in browser. Use your email below, or open BLACKOUT in Safari or Chrome.</p>

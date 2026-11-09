@@ -208,6 +208,26 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return { ok: true, upgradedGuest: out.upgradedGuest, player: { playerId: p.player_id, displayName: p.display_name, kind: p.kind, activeRunId: p.active_run_id } };
   });
 
+  /** Direct Google sign-in: the browser sends the ID token Google gave it; we verify it with Google's keys. */
+  const googleLimiter = new RateLimiter(1 / 5, 10);
+  app.post("/api/auth/google", async (req, reply) => {
+    if (!auth.supabase.googleClientId) throw new ApiError("AUTH_PROVIDER_UNAVAILABLE", "Google sign-in isn't switched on for this server.");
+    const body = parse(z.object({ credential: z.string().min(100).max(4096) }), req.body);
+    if (!googleLimiter.take(`ip:${req.ip}`)) throw new ApiError("RATE_LIMITED", "Too many sign-in attempts. Wait a moment and try again.");
+    const current = await auth.authenticate(req);
+    let out;
+    try {
+      out = await auth.signInWithGoogle(body.credential, current);
+    } catch (e) {
+      if ((e as Error).message === "GOOGLE_EMAIL_UNVERIFIED") throw new ApiError("VALIDATION_FAILED", "That Google account's email isn't verified yet.");
+      req.log.warn({ err: (e as Error).message }, "google sign-in refused");
+      throw new ApiError("UNAUTHORIZED", "Google couldn't confirm that sign-in. Try again.");
+    }
+    if (out.token) setSessionCookie(reply, out.token, deps.secureCookies);
+    const p = auth.player(out.playerId)!;
+    return { ok: true, upgradedGuest: out.upgradedGuest, player: { playerId: p.player_id, displayName: p.display_name, kind: p.kind, activeRunId: p.active_run_id } };
+  });
+
   app.patch("/api/me", async (req) => {
     const u = await requireUser(req);
     writeGuard(req, u.sessionId);
@@ -608,7 +628,8 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       guest: true as const,
       supabaseUrl: auth.supabase.enabled ? auth.supabase.url : null,
       supabaseAnonKey: auth.supabase.enabled ? auth.supabase.anonKey : null,
-      google: auth.supabase.providers.google,
+      google: auth.supabase.providers.google || !!auth.supabase.googleClientId,
+      googleClientId: auth.supabase.googleClientId,
       email: auth.supabase.providers.email || auth.supabase.local.enabled,
       local: auth.supabase.local.enabled,
       localShowsCode: auth.supabase.local.showCode,

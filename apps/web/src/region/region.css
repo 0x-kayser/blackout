@@ -421,3 +421,5 @@
 .ff-company.closed { border-color: rgba(239, 68, 68, 0.5); }
 .ff-company em { font-style: normal; font-size: 11px; }
 @media (max-width: 700px) { .ff-companies { grid-template-columns: 1fr 1fr; } }
+.gis-button { display: flex; justify-content: center; min-height: 44px; }
+.gis-button iframe { margin: 0 auto !important; }

@@ -6,7 +6,7 @@
  */
 import type { SupabaseClient, Session } from '@supabase/supabase-js'
 import type { PublicConfig } from './client'
-import { setBearer } from './client'
+import { bearerHeader, setBearer } from './client'
 
 let client: SupabaseClient | null = null
 
@@ -76,6 +76,34 @@ export async function verifyEmailCode(email: string, code: string): Promise<void
 export async function signOutProvider(): Promise<void> {
   if (client) await client.auth.signOut()
   setBearer(null)
+}
+
+/** Direct Google sign-in: hands the ID token Google issued in the browser to our server, which verifies it. */
+export async function signInWithGoogleCredential(credential: string): Promise<{ upgradedGuest: boolean }> {
+  const res = await fetch('/api/auth/google', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', ...bearerHeader() }, body: JSON.stringify({ credential }) })
+  const json = await res.json().catch(() => null)
+  if (!json?.ok) throw new Error(json?.error?.message ?? 'Google sign-in failed.')
+  return { upgradedGuest: !!json.upgradedGuest }
+}
+
+type Gis = { accounts: { id: { initialize: (o: Record<string, unknown>) => void; renderButton: (el: HTMLElement, o: Record<string, unknown>) => void } } }
+let gis: Promise<Gis> | null = null
+/** Loads Google Identity Services once (the official script that draws Google's own button). */
+export function loadGoogleIdentity(): Promise<Gis> {
+  gis ??= new Promise((resolve, reject) => {
+    const w = window as unknown as { google?: Gis }
+    if (w.google?.accounts?.id) return resolve(w.google)
+    const s = document.createElement('script')
+    s.src = 'https://accounts.google.com/gsi/client'
+    s.async = true
+    s.onload = () => (w.google?.accounts?.id ? resolve(w.google) : reject(new Error('Google sign-in did not load.')))
+    s.onerror = () => {
+      gis = null
+      reject(new Error('Could not reach Google. Check your connection or use email.'))
+    }
+    document.head.appendChild(s)
+  })
+  return gis
 }
 
 /** Local email-code sign-in (servers without Supabase, e.g. localhost). Returns the code only in local test mode. */

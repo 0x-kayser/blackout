@@ -53,6 +53,21 @@ public by design and served at runtime). Session renewal: supabase-js refresh to
 * **No dead ends.** If the server has no Supabase project, the sign-in buttons are simply not shown; players can
   still play and their city saves on this device.
 
+## Google sign-in without Supabase (simplest)
+The game can sign players in with Google directly. The browser shows Google's own button (Google Identity
+Services); Google gives the browser a signed ID token; the API checks it against Google's published keys (issuer
+Google, audience our client id, unexpired, verified email) and signs the player in. A guest keeps their company. We
+store Google's account id only as a hash, and never the email address. Code: `AuthService.signInWithGoogle`,
+`POST /api/auth/google`, `ui/SignIn.tsx` (`GoogleIdentityButton`). Tests: `tests/integration/google.test.ts`.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), pick or create a project.
+2. **APIs & Services → OAuth consent screen**: user type *External*, app name *BLACKOUT*, your support email. While the
+   app is in *Testing*, add the Google accounts that may sign in as test users (or publish it).
+3. **Credentials → Create credentials → OAuth client ID → Web application.** Under *Authorized JavaScript origins*
+   add `http://localhost`, `http://localhost:5173` and your production origin. No redirect URI is needed.
+4. Put the client id (`…apps.googleusercontent.com`) in the API's env as `GOOGLE_CLIENT_ID` and restart. The API logs
+   `google sign-in: on`, and `GET /api/config/public` shows `googleClientId`.
+
 ## Turning it on (operator checklist)
 1. Create a Supabase project. Copy the project URL and the anon (public) key into `SUPABASE_URL` and
    `SUPABASE_ANON_KEY`.

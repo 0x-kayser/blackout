@@ -42,6 +42,11 @@ export interface SupabaseConfig {
    * logged by the server and, only when `showCode` is on, returned to the page for testing.
    */
   local: { enabled: boolean; showCode: boolean };
+  /**
+   * Direct Google sign-in (Google Identity Services): the OAuth Web client id. Public by design; no secret is needed,
+   * because the server only verifies the ID token Google signs for this client.
+   */
+  googleClientId: string | null;
 }
 
 export function loadSupabaseConfig(env: NodeJS.ProcessEnv = process.env): SupabaseConfig {
@@ -61,19 +66,58 @@ export function loadSupabaseConfig(env: NodeJS.ProcessEnv = process.env): Supaba
       // never hand codes to the page on a production server
       showCode: !enabled && env.AUTH_LOCAL_EMAIL === "true" && env.AUTH_LOCAL_EMAIL_SHOW_CODE === "true" && env.NODE_ENV !== "production",
     },
+    googleClientId: /^[\w-]+\.apps\.googleusercontent\.com$/.test(env.GOOGLE_CLIENT_ID?.trim() ?? "") ? env.GOOGLE_CLIENT_ID!.trim() : null,
   };
 }
 
 export class AuthService {
   private jwks: JWTVerifyGetKey | null;
+  private googleJwks: JWTVerifyGetKey | null;
 
   constructor(
     private readonly db: Db,
     readonly supabase: SupabaseConfig,
     jwks?: JWTVerifyGetKey,
+    googleJwks?: JWTVerifyGetKey,
   ) {
     // jose caches keys and refetches on unknown `kid` (cooldown 30 s, max age 10 min), matching Supabase guidance.
     this.jwks = jwks ?? (supabase.enabled ? createRemoteJWKSet(new URL(`${supabase.issuer}/.well-known/jwks.json`), { cacheMaxAge: 600_000 }) : null);
+    // Google's published signing keys for ID tokens
+    this.googleJwks = googleJwks ?? (supabase.googleClientId ? createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"), { cacheMaxAge: 600_000 }) : null);
+  }
+
+  // ------------------------------------------------------------ Google (direct)
+
+  /**
+   * Verifies a Google ID token and signs the caller in. The token must be signed by Google, issued for this app's
+   * client id, unexpired, and for a verified email. Like email sign-in: a guest keeps their company (it becomes a
+   * registered player), a returning Google account gets its own player back, a new one gets a new player.
+   * We keep Google's stable account id (hashed) and a first name for the player's private label; never the email.
+   */
+  async signInWithGoogle(idToken: string, guest: AuthedUser | null): Promise<{ token: string | null; playerId: string; upgradedGuest: boolean }> {
+    if (!this.googleJwks || !this.supabase.googleClientId) throw new Error("AUTH_PROVIDER_UNAVAILABLE");
+    const { payload } = await jwtVerify(idToken, this.googleJwks, { issuer: ["https://accounts.google.com", "accounts.google.com"], audience: this.supabase.googleClientId, algorithms: ["RS256"], clockTolerance: 5 });
+    const p = payload as JWTPayload & { email_verified?: boolean | string; given_name?: string; name?: string };
+    if (!p.sub) throw new Error("token has no subject");
+    if (p.email_verified !== true && p.email_verified !== "true") throw new Error("GOOGLE_EMAIL_UNVERIFIED");
+    const subject = hash(`google:${p.sub}`);
+    const displayName = ((p.given_name || p.name || "Operator").replace(/[^\p{L}\p{N} ._'-]/gu, "").slice(0, 24) || "Operator").trim();
+    const now = nowIso();
+    return tx(this.db, () => {
+      const existing = this.db.prepare("SELECT player_id FROM auth_identities WHERE provider = 'google' AND subject = ?").get(subject) as { player_id: string } | undefined;
+      if (existing) {
+        this.db.prepare("UPDATE auth_identities SET last_login_at = ? WHERE provider = 'google' AND subject = ?").run(now, subject);
+        return { token: this.newSession(existing.player_id), playerId: existing.player_id, upgradedGuest: false };
+      }
+      if (guest && guest.kind === "guest") {
+        this.db.prepare("INSERT INTO auth_identities (provider, subject, player_id, login_method, created_at, last_login_at) VALUES ('google', ?, ?, 'google', ?, ?)").run(subject, guest.userId, now, now);
+        this.db.prepare("UPDATE players SET kind = 'registered', display_name = CASE WHEN company_named = 1 THEN display_name ELSE ? END, updated_at = ? WHERE player_id = ?").run(displayName, now, guest.userId);
+        return { token: null, playerId: guest.userId, upgradedGuest: true };
+      }
+      const pid = this.createPlayer("registered", displayName);
+      this.db.prepare("INSERT INTO auth_identities (provider, subject, player_id, login_method, created_at, last_login_at) VALUES ('google', ?, ?, 'google', ?, ?)").run(subject, pid, now, now);
+      return { token: this.newSession(pid), playerId: pid, upgradedGuest: false };
+    });
   }
 
   // ------------------------------------------------------------ players

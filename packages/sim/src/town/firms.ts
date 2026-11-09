@@ -57,7 +57,7 @@ const GAS = "fuel:natural-gas" as const;
 /** Player offers are capped so one company can't swamp the desk. */
 export const MAX_PLAYER_OFFER_KW = 30_000;
 /** Orders that wait longer than this for confirmation expire (in ticks after their window). */
-export const CONFIRM_DEADLINE_TICKS = 120;
+export const CONFIRM_DEADLINE_TICKS = 900;
 
 export interface FirmState {
   open: boolean;

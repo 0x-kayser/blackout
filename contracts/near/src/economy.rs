@@ -122,6 +122,12 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= MAX_ID
 }
 
+/// A settled epoch is remembered by a bare storage marker (about 70 bytes) instead of a full record: enough to make the
+/// id single-use, while its hash and accounts live in the `settle_batch` event, which costs no storage.
+pub(crate) fn settled_key(epoch_id: &str) -> Vec<u8> {
+    [b"\x00se:".as_slice(), epoch_id.as_bytes()].concat()
+}
+
 #[near]
 impl Contract {
     // ------------------------------------------------------------------ treasury
@@ -303,6 +309,7 @@ impl Contract {
         require!(o.status == "open", "Order already closed");
         require!(delivered_kwh <= o.kwh, "Delivered more than ordered");
         let pay = ((delivered_kwh as u128) * o.price_per_mwh.0 / 1000).min(o.escrow.0);
+        // a closed order is deleted (its storage released); the event below is its permanent record
         let refund = o.escrow.0 - pay;
         let credit: TokenId = CREDIT.to_string();
         let pool = env::current_account_id();
@@ -317,7 +324,7 @@ impl Contract {
         o.paid = U128(pay);
         o.refunded = U128(refund);
         o.closed_at_block = env::block_height();
-        self.power_orders.insert(order_id.clone(), o.clone());
+        self.power_orders.remove(&order_id);
         emit("mt_transfer", serde_json::json!({ "old_owner_id": o.buyer_id, "new_owner_id": o.seller_id, "token_ids": [CREDIT], "amounts": [U128(pay)], "memo": format!("power {} kWh, order {}", delivered_kwh, order_id) }));
         blackout_event("power_order_settled", serde_json::json!({ "order_id": order_id, "delivered_kwh": delivered_kwh, "paid": U128(pay), "refunded": U128(refund) }));
     }
@@ -331,10 +338,24 @@ impl Contract {
         let pool = env::current_account_id();
         self.internal_settle_move(&pool, &o.buyer_id, &credit, o.escrow.0);
         o.status = "expired".into();
-        o.refunded = o.escrow;
-        o.closed_at_block = env::block_height();
-        self.power_orders.insert(order_id.clone(), o);
-        blackout_event("power_order_expired", serde_json::json!({ "order_id": order_id }));
+        self.power_orders.remove(&order_id);
+        blackout_event("power_order_expired", serde_json::json!({ "order_id": order_id, "refunded": o.escrow }));
+    }
+
+    /// Deletes orders that are already closed (settled or expired) to release their storage. Open orders are never
+    /// touched. Owner or operator; returns how many were deleted.
+    pub fn prune_closed_orders(&mut self, order_ids: Vec<String>) -> u32 {
+        let caller = env::predecessor_account_id();
+        require!(caller == self.owner_id || caller == self.operator_id, "Only the owner or operator");
+        require!(order_ids.len() <= 200, "At most 200 at a time");
+        let mut n = 0;
+        for id in order_ids {
+            if self.power_orders.get(&id).map(|o| o.status != "open").unwrap_or(false) {
+                self.power_orders.remove(&id);
+                n += 1;
+            }
+        }
+        n
     }
 
     pub fn power_order(&self, order_id: String) -> Option<PowerOrder> {
@@ -348,14 +369,14 @@ impl Contract {
         self.assert_operator();
         require!(!epoch_id.is_empty() && epoch_id.len() <= 160, "Bad epoch id");
         require!(hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()), "Hash must be 64 hex characters");
-        require!(self.epochs.get(&epoch_id).is_none(), "Epoch already settled");
+        require!(self.epochs.get(&epoch_id).is_none() && !env::storage_has_key(&settled_key(&epoch_id)), "Epoch already settled");
         require!(!entries.is_empty() && entries.len() <= 10, "1 to 10 tokens per batch");
         let mut accounts = 0u32;
         for (token, deltas) in entries.iter() {
             self.apply_deltas(token, deltas);
             accounts += deltas.len() as u32;
         }
-        self.epochs.insert(epoch_id.clone(), plants::EpochRecord { epoch_id: epoch_id.clone(), hash: hash.clone(), accounts, block_height: env::block_height() });
+        env::storage_write(&settled_key(&epoch_id), &[1]);
         blackout_event("settle_batch", serde_json::json!({ "epoch_id": epoch_id, "hash": hash, "tokens": entries.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>(), "accounts": accounts }));
     }
 
