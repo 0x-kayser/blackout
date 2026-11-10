@@ -94,7 +94,8 @@ export const RunSchema = z.object({
   mode: RunModeSchema,
   /** Increments on every accepted player/system action and phase change; ticks do not bump it. */
   stateVersion: nonNeg(),
-  chainMode: ChainModeSchema,
+  /** Player-facing capability flag; server keeps the settlement implementation private. */
+  playerListingsEnabled: z.boolean(),
   /** ISO week id (e.g. "2026-W45") when this run is the weekly challenge. */
   challengeWeek: z.string().nullable(),
 });
@@ -299,8 +300,6 @@ export const MerchantSchema = z.object({
   name: z.string(),
   style: z.string(),
   policyId: z.string(),
-  /** Real NEAR testnet account id when chain mode is configured; otherwise null. */
-  accountId: z.string().nullable(),
   status: z.enum(["open", "closed"]),
   stockMl: nonNeg(),
   reservedMl: nonNeg(),
@@ -341,13 +340,6 @@ export const TradeSchema = z.object({
   unitPriceCc: nonNeg(),
   totalCc: nonNeg(),
   status: TradeStatusSchema,
-  chainStatus: TradeChainStatusSchema,
-  /** NEP-245 token id and U128 string amount when there is a chain leg. */
-  tokenId: z.string().nullable(),
-  tokenAmount: z.string().nullable(),
-  /** Only ever set from a verified RPC response. */
-  txHash: z.string().nullable(),
-  explorerUrl: z.string().nullable(),
   error: z.string().nullable(),
   createdTick: nonNeg(),
   settledTick: nonNeg().nullable(),
@@ -355,7 +347,6 @@ export const TradeSchema = z.object({
 
 export const MarketListingSchema = z.object({
   listingId: id(),
-  tokenId: z.literal("DIESEL_100ML"),
   quantityMl: nonNeg(),
   unitPriceCcPerL: nonNeg(),
   totalCc: nonNeg(),
@@ -370,7 +361,6 @@ export const MarketListingSchema = z.object({
 export const RivalSchema = z.object({
   rivalId: id(),
   name: z.string(),
-  accountId: z.string().nullable(),
   ratedW: nonNeg(),
   assignedW: nonNeg(),
   fuelMl: nonNeg(),
@@ -598,7 +588,6 @@ export const GameStatePublicSchema = z.object({
   story: StorySchema,
   goals: GoalsSchema,
   company: CompanySchema,
-  chain: ChainInfoSchema,
   upgradesCatalog: z.array(
     z.object({ upgradeId: UpgradeIdSchema, name: z.string(), costCc: nonNeg(), baseCostCc: nonNeg(), description: z.string(), owned: z.boolean(), requiredStage: nonNeg() }),
   ),

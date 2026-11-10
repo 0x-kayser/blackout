@@ -170,7 +170,7 @@
 .pad-chip { background: rgba(251, 191, 36, 0.9); color: #1b1200; border: 0; font-size: 12px; padding: 4px 9px; }
 
 /* story */
-.toasts { position: absolute; left: 14px; top: 108px; z-index: 23; display: grid; gap: 8px; width: 360px; pointer-events: none; }
+.toasts { position: absolute; left: 14px; top: 158px; z-index: 23; display: grid; gap: 8px; width: 360px; pointer-events: none; }
 .toast { pointer-events: auto; display: flex; background: var(--glass-hi); border: 1px solid var(--edge); border-left: 4px solid var(--info); border-radius: 12px; overflow: hidden; animation: slidein 0.35s ease-out; }
 .toast.crisis { border-left-color: var(--crisis); }
 .toast.warn { border-left-color: var(--warn); }
@@ -234,12 +234,17 @@
   .inspector { z-index: 22; }
   .dock { left: 8px; right: 8px; transform: none; justify-content: space-between; bottom: 8px; }
   .dock button { padding: 6px 4px; font-size: 9.5px; letter-spacing: 0.04em; flex: 1; }
-  .feed-btn { bottom: auto; top: 150px; left: 8px; padding: 6px 9px; font-size: 12px; }
-  .toasts { top: 150px; left: 8px; right: 8px; width: auto; }
+  .feed-btn { bottom: auto; top: 202px; left: 8px; padding: 6px 9px; font-size: 12px; }
+  .toasts { top: 212px; left: 8px; right: 8px; width: auto; }
   .toasts .toast:nth-child(n + 3) { display: none; }
   .coach { bottom: 82px; }
   .lab { grid-template-columns: 1fr; }
   .stat-grid { grid-template-columns: 1fr; }
+  .loop-goals { top: 148px; width: calc(100% - 16px); gap: 5px; }
+  .loop-goal { padding: 5px 7px 6px; border-radius: 8px; }
+  .loop-kicker { font-size: 7px; }
+  .loop-goal strong { font-size: 10px; }
+  .loop-detail { font-size: 8px; }
 }
 
 /* first minute & next move (§55–56) */
@@ -262,6 +267,14 @@
 .next-move.info { border-left-color: var(--info); }
 .next-move .btn { white-space: nowrap; }
 .pulse-metrics.simple { justify-content: flex-end; }
+.loop-goals { position: absolute; z-index: 20; top: 100px; left: 50%; transform: translateX(-50%); display: flex; gap: 7px; width: min(840px, calc(100% - 28px)); pointer-events: none; }
+.loop-goal { position: relative; display: grid; gap: 2px; min-width: 0; flex: 1; overflow: hidden; text-align: left; padding: 6px 10px 7px; border: 1px solid var(--edge); border-radius: 10px; background: rgba(7, 12, 23, 0.86); color: var(--ink); cursor: pointer; pointer-events: auto; backdrop-filter: blur(8px); }
+.loop-goal:hover, .loop-goal:focus-visible { border-color: rgba(255, 191, 105, 0.55); background: rgba(12, 20, 36, 0.96); }
+.loop-kicker { overflow: hidden; color: var(--gold); font: 700 8px 'DM Mono', monospace; letter-spacing: .08em; text-overflow: ellipsis; white-space: nowrap; }
+.loop-goal strong { overflow: hidden; font-size: 11px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.loop-detail { overflow: hidden; color: var(--mute); font-size: 9px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.loop-meter { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: rgba(255, 255, 255, 0.08); }
+.loop-meter b { display: block; height: 100%; background: var(--gold); }
 .node-chip .nc-alarm { background: #ef4444; color: #fff; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; border-radius: 6px; padding: 1px 6px; margin-bottom: 2px; }
 @media (max-width: 760px) {
   .mission { top: 56px; padding: 10px 14px; }
@@ -373,7 +386,7 @@
 @media (prefers-reduced-motion: reduce) { .tb i.on, .title-logo span, .title-card { animation: none !important; } }
 
 /* ------------------------------------------------------------------ market news */
-.news-ticker { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); z-index: 21; display: flex; gap: 8px; max-width: calc(100% - 32px); pointer-events: none; }
+.news-ticker { position: absolute; top: 156px; left: 50%; transform: translateX(-50%); z-index: 21; display: flex; gap: 8px; max-width: calc(100% - 32px); pointer-events: none; }
 .news-item { pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 10px 5px 5px; border: 1px solid var(--edge); border-radius: 999px; background: rgba(9, 14, 26, 0.88); color: var(--ink); font-size: 12px; cursor: pointer; animation: news-in 0.5s ease-out both; }
 .news-item:hover { border-color: rgba(255, 255, 255, 0.35); }
 .news-tag { flex: none; padding: 2px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; background: var(--crisis); color: #fff; animation: news-pulse 2s infinite; }
@@ -387,10 +400,15 @@
 .news-card { display: grid; gap: 3px; width: 100%; text-align: left; padding: 10px 12px; margin: 0 0 8px; border: 1px solid var(--edge); border-left: 3px solid var(--crisis); border-radius: 10px; background: rgba(239, 68, 68, 0.06); color: var(--ink); cursor: pointer; }
 .news-card.good { border-left-color: var(--ok); background: rgba(45, 212, 191, 0.06); }
 .news-card .fine { margin: 0; }
-@media (max-width: 700px) { .news-ticker { top: 128px; flex-direction: column; align-items: center; } .news-head { max-width: 190px; } .news-item:nth-child(2) { display: none; } }
+@media (max-width: 700px) { .news-ticker { top: 202px; flex-direction: column; align-items: center; } .news-head { max-width: 190px; } .news-item:nth-child(2) { display: none; } }
 @media (prefers-reduced-motion: reduce) { .news-item, .news-tag { animation: none; } }
-.region-app:has(.news-ticker) .toasts { top: 148px; }
-@media (max-width: 700px) { .region-app:has(.news-ticker) .toasts { top: 168px; } }
+.region-app:has(.news-ticker) .toasts { top: 204px; }
+@media (max-width: 700px) { .region-app:has(.news-ticker) .toasts { top: 252px; } }
+@media (max-width: 760px) {
+  .news-ticker { top: 202px; right: 8px; left: auto; transform: none; max-width: calc(100% - 128px); }
+  .news-item { max-width: 100%; }
+  .toasts, .region-app:has(.news-ticker) .toasts { top: 252px; }
+}
 
 /* ------------------------------------------------------------------ power companies and money */
 .company { border: 1px solid var(--edge); border-radius: 12px; padding: 8px 10px; margin: 6px 0; background: rgba(255, 255, 255, 0.03); display: grid; gap: 3px; font-size: 13px; }

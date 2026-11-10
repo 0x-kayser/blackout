@@ -37,7 +37,7 @@ export function PulseBar({ v, simple, company, onCompany, conn, zoom, onSettings
           <button className="icon-btn" onClick={onSound} aria-label={sound ? 'Mute sound' : 'Turn sound on'} title={sound ? 'Sound on' : 'Sound off'}>
             {sound ? '🔊' : '🔈'}
           </button>
-          <button className="icon-btn" onClick={onSettings} aria-label="Settings, account and Verify" title="Settings · Verify · About">
+          <button className="icon-btn" onClick={onSettings} aria-label="Settings and account" title="Settings · Account · Career">
             ⚙︎
           </button>
         </div>

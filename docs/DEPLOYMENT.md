@@ -33,9 +33,15 @@ The production service has these runtime settings:
 
 The Testnet economy variables are stored as Railway runtime variables from the ignored local `.env.economy` file. Their values must never be committed, copied into the Docker image, or printed in logs. Do not add mainnet keys.
 
-The server should report that the economy is enabled on NEAR Testnet. Confirm that status and verify account balances before presenting the on-chain demo. No transaction hash is recorded here unless a real transaction has been observed and independently verified.
+The separate power-economy module and the legacy resource-market adapter are different integrations. Check the actual
+runtime state before describing a gameplay flow as on-chain. The public game UI does not expose chain status or
+transaction hashes. For judge/operator review, set `ECONOMY_ADMIN_TOKEN` as a Railway secret and send it only from a
+trusted operator environment as the `x-admin-token` header to `GET /api/admin/chain-audit`. The endpoint returns
+recorded operations and real hashes where present; it reports disabled mode and empty evidence honestly.
 
-The separate NEP-245 resource adapter currently reports `chainMode: disabled`: its legacy `NEAR_CHAIN_ENABLED`, resource-contract, vault, and three merchant-signer settings are not configured. Resource listings and transfers that depend on that adapter are unavailable. The NEAR economy module above is enabled independently; do not treat that as evidence that the legacy resource-market flow is live.
+A public Railway check on 2026-11-10 found the separate NEP-245 resource adapter disabled. Its legacy
+`NEAR_CHAIN_ENABLED`, resource-contract, vault, and merchant-signer settings were not configured in that deployment.
+The NEAR power-economy module is separate; do not treat it as evidence that resource-market transfers are live.
 
 ## Login providers
 
@@ -47,9 +53,9 @@ Email magic links are not configured. They require Supabase settings (`SUPABASE_
 
 1. Open <https://blackout-production-c7fc.up.railway.app/api/health> and confirm HTTP 200.
 2. Start a guest session and complete the tutorial.
-3. Confirm Railway logs report NEAR Testnet mode and show no missing economy settings.
-4. Open **Money** and verify the contract, wallet, and transaction evidence load.
-5. Confirm a genuine test transaction in the NEAR Testnet explorer before claiming on-chain settlement.
+3. Sign in or start as a guest and complete the tutorial; confirm the Career and Weekly challenge cards appear after onboarding.
+4. From a trusted operator environment, query `/api/admin/chain-audit` with `x-admin-token`; verify the reported mode before presenting any transaction as live evidence.
+5. Confirm a genuine transaction independently in the NEAR Testnet explorer before claiming on-chain settlement.
 6. Restart the service and verify the same player and city state persist from `/data`.
 
 Railway healthchecks run at deployment time; they are not continuous health monitoring. Volumes prevent overlapping live deployments and can cause brief downtime during redeploys. See Railway's [healthcheck guide](https://docs.railway.com/deployments/healthchecks), [volume guide](https://docs.railway.com/volumes), and [region guide](https://docs.railway.com/deployments/regions).

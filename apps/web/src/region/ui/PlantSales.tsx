@@ -1,6 +1,5 @@
 /**
- * Plants for sale between companies. A sale on NEAR is one transaction: the buyer's credits go to the seller and the
- * plant's NFT to the buyer, both or neither; then the plant leaves the seller's grid and joins the buyer's.
+ * Companies sell whole plants to each other. Completed purchases move the plant from one company to another.
  */
 import { useEffect, useState } from 'react'
 import type { RegionView } from '@blackout/shared'
@@ -8,7 +7,7 @@ import { regionApi, type PlantSale } from '../api'
 import { credits, mw } from '../format'
 import { Section } from './Bits'
 
-const STATUS: Record<PlantSale['status'], string> = { listing: 'listing on NEAR…', listed: 'for sale', buying: 'being bought…', sold: 'sold', cancelled: 'withdrawn', failed: "didn't list" }
+const STATUS: Record<PlantSale['status'], string> = { listing: 'preparing listing…', listed: 'for sale', buying: 'purchase processing…', sold: 'sold', cancelled: 'withdrawn', failed: "couldn't list" }
 
 export function PlantSales({ v }: { v: RegionView }) {
   const [sales, setSales] = useState<PlantSale[] | null>(null)
@@ -43,7 +42,7 @@ export function PlantSales({ v }: { v: RegionView }) {
   const listed = new Set(open.filter((s) => s.mine).map((s) => s.name))
   return (
     <Section title="Plants for sale">
-      <p className="fine">Companies sell whole plants to each other. Buying one moves your credits to the seller and the plant's NFT to you in one transaction, then the plant joins your grid where it stands.</p>
+      <p className="fine">Companies sell whole plants to each other. When a purchase completes, the plant leaves the seller’s grid and joins yours where it stands.</p>
       {open.length === 0 && <p className="fine">Nothing for sale right now.</p>}
       {open.map((s) => (
         <div key={s.saleId} className={`deal ${s.mine ? 'mine' : ''}`}>
@@ -61,18 +60,12 @@ export function PlantSales({ v }: { v: RegionView }) {
               )
             ) : (
               s.status === 'listed' && (
-                <button className="btn primary small" disabled={busy || v.pulse.cashCc < s.priceCc} onClick={() => void run(() => regionApi.buyPlant(s.saleId), `Buying ${s.name}: it joins your grid once the sale is confirmed.`)}>
+                <button className="btn primary small" disabled={busy || v.pulse.cashCc < s.priceCc} onClick={() => void run(() => regionApi.buyPlant(s.saleId), `Buying ${s.name}: it joins your grid when the sale completes.`)}>
                   Buy
                 </button>
               )
             )}
-            {s.tokenUrl && (
-              <a className="tx-link" href={s.tokenUrl} target="_blank" rel="noreferrer">
-                its NFT ↗
-              </a>
-            )}
           </div>
-          {s.detail && <small className="fine">{s.detail}</small>}
         </div>
       ))}
       {mine.length > 0 && (

@@ -105,7 +105,7 @@ export function EconomyLab({ onClose }: { onClose: () => void }) {
   const B = res?.b
   return (
     <Drawer title="Economy Lab" eyebrow="SEPARATE 7-DAY SIMULATION · YOUR CITY IS UNCHANGED" onClose={onClose} wide>
-      <p className="fine">Run seven game days through the same engine as your city. The policy bot and every NPC follow their own rules. The same seed and policy produce the same trace hash every time. This replay has no blockchain settlement.</p>
+      <p className="fine">Run seven game days through the same engine as your city. The policy bot and every NPC follow their own rules. The same seed and policy produce the same trace hash every time. This separate replay does not change your live company.</p>
       <div className="lab-controls">
         <label>Seed<input type="number" value={seed} onChange={(e) => setSeed(Math.max(0, Math.floor(Number(e.target.value) || 0)))} /></label>
         <label>World condition<select value={condition} onChange={(e) => setCondition(e.target.value)}>{CONDITIONS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>

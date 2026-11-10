@@ -4,7 +4,7 @@ import { CityCanvas } from './city/CityCanvas'
 import { useGame } from './game/useGame'
 import { EconomyLab } from './ui/EconomyLab'
 import { Objectives, PowerDock, RequestDock, TopHud } from './ui/Hud'
-import { BusinessPanel, EquipmentPanel, ExpansionPanel, HelpPanel, Inspector, MarketPanel, ProfilePanel, VerifyPanel } from './ui/Panels'
+import { BusinessPanel, EquipmentPanel, ExpansionPanel, HelpPanel, Inspector, MarketPanel, ProfilePanel } from './ui/Panels'
 import { Welcome } from './ui/Welcome'
 import { WorldChip, WorldPanel } from './ui/World'
 import { ChapterBanner, IntroOverlay, JournalPanel, NewsTicker } from './ui/Story'
@@ -14,7 +14,7 @@ import { Coach } from './ui/Coach'
 import { PeoplePanel } from './ui/People'
 import { bindAudioToPage, enableSound, playCue, startMusic, stopMusic, unlockAudio, unlockOnFirstGesture, type Cue } from './audio'
 
-type Panel = 'people' | 'exchange' | 'market' | 'equipment' | 'expansion' | 'business' | 'lab' | 'verify' | 'profile' | 'help' | 'world' | 'journal' | null
+type Panel = 'people' | 'exchange' | 'market' | 'equipment' | 'expansion' | 'business' | 'lab' | 'profile' | 'help' | 'world' | 'journal' | null
 
 const introSeen = () => {
   try {
@@ -215,7 +215,6 @@ export default function App() {
         <button onClick={() => setPanel('world')} className={s.world.activeEvents.length ? 'alert' : ''}><i>🌍</i>World</button>
         <button onClick={() => setPanel('journal')}><i>📖</i>Journal</button>
         <button onClick={() => setPanel('lab')}><i>🧪</i>Economy Lab</button>
-        <button onClick={() => setPanel('verify')}><i>◇</i>Verify</button>
         <span className="city-count">{powered}/{total} lit</span>
       </nav>
       <NewsTicker events={g.events} />
@@ -229,7 +228,6 @@ export default function App() {
       {panel === 'expansion' && <ExpansionPanel g={g} onClose={() => setPanel(null)} />}
       {panel === 'business' && <BusinessPanel g={g} onClose={() => setPanel(null)} />}
       {panel === 'lab' && <EconomyLab onClose={() => setPanel(null)} />}
-      {panel === 'verify' && <VerifyPanel g={g} onClose={() => setPanel(null)} />}
       {panel === 'profile' && g.player && <ProfilePanel g={g} onClose={() => setPanel(null)} prefs={prefs} setPrefs={setPrefs} />}
       {panel === 'help' && <HelpPanel onClose={() => setPanel(null)} />}
       {panel === 'world' && <WorldPanel s={s} events={g.events} onClose={() => setPanel(null)} />}

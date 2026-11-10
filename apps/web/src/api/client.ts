@@ -10,8 +10,6 @@
 import {
   ActionResultSchema,
   BlackoutApiError,
-  ChainStatusResponseSchema,
-  MarketListingEvidenceResponseSchema,
   CompareResponseSchema,
   GameStateResponseSchema,
   LeaderboardResponseSchema,
@@ -20,7 +18,6 @@ import {
   PublicConfigSchema,
   ReplayResponseSchema,
   type ActionResult,
-  type ChainStatusResponse,
   type CompareResponse,
   type EconomyEvent,
   type ErrorCode,
@@ -79,8 +76,6 @@ export const api = {
   act: (action: PlayerAction, idempotencyKey: string) => call('POST', `${gameBase}/actions`, ActionResultSchema, { action, idempotencyKey }),
   startChallenge: () => call('POST', '/api/challenge/start', GameStateResponseSchema, {}),
   leaderboard: () => call('GET', '/api/challenge/leaderboard', LeaderboardResponseSchema),
-  chain: () => call('GET', '/api/chain/status', ChainStatusResponseSchema),
-  marketListingEvidence: () => call('GET', '/api/chain/market-listings', MarketListingEvidenceResponseSchema),
   compare: (seed: number, scenarioId: string, a: string, b: string, condition = 'calm') =>
     call('POST', '/api/replays/compare', CompareResponseSchema, { seed, scenarioId, policies: [a, b], days: 7, condition }),
   replay: (seed: number, scenarioId: string, policyId: string) => call('POST', '/api/replays', ReplayResponseSchema, { seed, scenarioId, policyId, days: 7 }),
@@ -193,5 +188,5 @@ export class GameStream {
   }
 }
 
-export type { ActionResult, ChainStatusResponse, CompareResponse, ReplaySummary }
+export type { ActionResult, CompareResponse, ReplaySummary }
 export { BlackoutApiError }

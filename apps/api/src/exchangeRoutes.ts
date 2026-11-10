@@ -46,7 +46,7 @@ export function registerExchangeRoutes(app: FastifyInstance, d: ExchangeRouteDep
     if (blocked) throw new ApiError("FORBIDDEN", blocked);
     const run = d.activeRun(u);
     if (run.state.mode !== "play") throw new ApiError("FORBIDDEN", "Only your continuous city can trade on the shared exchange.");
-    if (xsvc.isSelfCustodied(u.userId)) throw new ApiError("FORBIDDEN", "Your exchange warehouse is in your own NEAR account now. Manage it from your wallet; the game no longer acts for it.");
+    if (xsvc.isSelfCustodied(u.userId)) throw new ApiError("FORBIDDEN", "This company’s exchange holdings are no longer managed in the game. They cannot be traded here.");
     xsvc.chainIdFor(u.userId);
     return { u, run };
   };

@@ -240,13 +240,11 @@ export class ExchangeService {
 
   view(playerId: string | null) {
     const book = X.exchangeBook(this.state);
+    const player = playerId ? X.playerExchangeView(this.state, playerId) : null;
+    const me = player ? { ...player, fills: player.fills.map(({ txHash: _txHash, ...fill }) => fill) } : null;
     return {
-      mode: this.sandbox ? ("sandbox" as const) : ("testnet" as const),
-      note: this.sandbox
-        ? "Sandbox: the exchange runs on this server's ledger; NEAR Testnet is not configured for it, so there are no transaction hashes."
-        : "Fuel on the exchange is held on NEAR Testnet; credits stay in the game.",
       book,
-      me: playerId ? { ...X.playerExchangeView(this.state, playerId), chainId: this.sandbox ? null : playerChainId(this.chain, playerId), recent: this.recentFor(playerId, 15) } : null,
+      me,
     };
   }
 

@@ -28,11 +28,11 @@ funded relayer/sponsor); the account model is honestly "custodial vault".
    warehouse per merchant, registers NPCs, adds function-call keys, writes `.env.chain` (git-ignored). Full-access keys
    go to `.near-credentials/blackout/` (git-ignored) and never to the server.
 3. Add the generated `NEAR_VAULT_OPERATOR_PRIVATE_KEY` as well as account and merchant fields to the API secret store,
-   restart, and check `GET /api/chain/status`
-   (`rpcReachable: true`, `contractDeployed: true`).
+   set `ECONOMY_ADMIN_TOKEN`, restart, and query `GET /api/admin/chain-audit` from a trusted operator environment.
+   Chain status is not part of player-facing health or public configuration.
 4. Smoke test: sign in, start a city, and buy diesel in Marketplace. The normal game says delivery is being confirmed
-   while the city keeps running. After final RPC confirmation, inspect the transaction in the optional Verify panel;
-   re-verify with `GET /api/chain/transfers/<hash>` and the contract views `mt_balance_of`, `trade_status`.
+   while the city keeps running. After final RPC confirmation, inspect the transaction through the protected operator
+   audit, re-verify with `GET /api/chain/transfers/<hash>`, and compare contract views `mt_balance_of`, `trade_status`.
 
 ## Purchase lifecycle (as implemented)
 `REQUESTED → VALIDATED → RESERVED` (credits + stock into escrow, one DB transaction) `→ SUBMITTED` (signed; hash

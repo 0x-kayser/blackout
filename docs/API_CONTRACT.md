@@ -64,7 +64,7 @@ The `/api/runs/*` routes remain for tools and tests; the game UI uses `/api/game
 | Method | Path | Auth | Purpose | Schema |
 |---|---|---|---|---|
 | POST | `/api/session/start` | – | guest session (no PII, no wallet); rate limited per IP | `StartSessionResponseSchema` |
-| GET | `/api/me` | ✓ | player profile, identities, NEAR account model | `MeResponseSchema` |
+| GET | `/api/me` | ✓ | player profile and identities; no external wallet is required | `MeResponseSchema` |
 | PATCH | `/api/me` | ✓ | `{displayName}` | `MeResponseSchema` |
 | POST | `/api/auth/link-guest` | Supabase JWT | `{guestToken}` → move guest city to the account; `409 ACCOUNT_EXISTS` if it already has one | `MeResponseSchema` |
 | POST | `/api/auth/logout` | – | revokes guest session, clears cookie | `{ok}` |
@@ -72,10 +72,9 @@ The `/api/runs/*` routes remain for tools and tests; the game UI uses `/api/game
 | GET | `/api/game/state`, `/api/me/game` | ✓ | the player's city + `awayMs` | `GameStateResponseSchema` |
 | POST | `/api/game/actions` | ✓ | `{action, idempotencyKey, expectedStateVersion?}` on the player's city | `ActionResultSchema` |
 | GET | `/api/game/events` | ✓ | SSE for the player's city (`?token=` allowed) | — |
-| GET | `/api/transactions`, `/api/transactions/:id` | ✓ | the city's trades and chain status | — |
+| GET | `/api/transactions`, `/api/transactions/:id` | ✓ | player-facing trade summaries without chain identifiers or transaction hashes | — |
 | GET | `/api/economy/history` | ✓ | daily reports + merchant price history | — |
 | POST | `/api/economy/sandbox` | – | alias of `/api/replays` (Economy Lab; never touches saves) | `ReplayResponseSchema` |
-| GET | `/api/account/near` | ✓ | custodial vault model / not configured | — |
 | POST | `/api/runs` | ✓ | create run `{scenarioId, seed?, mode}` | `RunStateResponseSchema` |
 | GET | `/api/runs` | ✓ | my runs (history) | `{ runs: [...] }` |
 | GET | `/api/runs/:id/state` | owner | canonical snapshot | `RunStateResponseSchema` |
@@ -88,13 +87,16 @@ The `/api/runs/*` routes remain for tools and tests; the game UI uses `/api/game
 | GET | `/api/replays/:id` | – | replay summary | `ReplayResponseSchema` |
 | GET | `/api/replays/:id/events` | – | SSE paced over ~60 s (`?seconds=N`), or `?format=json` full trace | — |
 | POST | `/api/replays/compare` | – | same seed, two policies | `CompareResponseSchema` |
-| GET | `/api/chain/status` | – | contract/accounts/network, trust boundary | `ChainStatusResponseSchema` |
-| GET | `/api/chain/transfers/:hash` | – | RPC-verified tx status | `TransferStatusResponseSchema` |
-| GET | `/api/chain/market-listings` | ✓ | current player's listing-operation status and verified explorer links for judges | `MarketListingEvidenceResponseSchema` |
-| GET | `/api/health` | – | DB + chain health | `HealthResponseSchema` |
+| GET | `/api/admin/chain-audit?limit&offset` | operator token | paginated resource/economy operation log, actual transaction evidence and runtime status | — |
+| GET | `/api/chain/status` | operator token | configured contract/accounts/network and trust boundary | `ChainStatusResponseSchema` |
+| GET | `/api/chain/transfers/:hash` | operator token | RPC-verified transaction status | `TransferStatusResponseSchema` |
+| GET | `/api/chain/market-listings` | operator token | resource-market listing operations and explorer links | `MarketListingEvidenceResponseSchema` |
+| GET | `/api/economy/admin/audit?limit&offset` | operator token | paginated economy-service balances and recorded operations | — |
+| GET | `/api/health` | – | DB and process health; no chain status | `HealthResponseSchema` |
 | GET | `/api/config/public` | – | timing, scenarios, pause policy, disclaimer | `PublicConfigSchema` |
 
-Runs are scoped to their owner (`403 FORBIDDEN` otherwise). Write routes are rate limited (20/s, burst 40 per session)
+Operator routes require the server-side `ECONOMY_ADMIN_TOKEN` supplied as `x-admin-token`; never expose this secret to
+the browser. Runs are scoped to their owner (`403 FORBIDDEN` otherwise). Write routes are rate limited (20/s, burst 40 per session)
 and reject disallowed `Origin` headers. Default allowed origin: `http://localhost:5173` (`WEB_ORIGINS`).
 
 ## 4. PlayerAction (discriminated union on `type`)
@@ -162,8 +164,8 @@ active ──cancel / seven in-game days──▶ cancel_pending ──confirmed
 Only registered players in a Testnet-enabled city can list. The NPC rule reads current stockroom space, recent demand,
 replacement cost and spendable cash above its operating reserve; the reason map is sent in the game state. Listing
 prices and settlement credits remain fictional, off-chain credits. A definitive failed transaction compensates once;
-unknown outcomes keep resources and credits reserved until reconciliation. Detailed hashes are only in the optional
-Verify panel and `/api/chain/market-listings`.
+unknown outcomes keep resources and credits reserved until reconciliation. Transaction hashes are available only to
+operators through `/api/admin/chain-audit` and the operator-protected `/api/chain/*` endpoints.
 
 ## 5. Server-Sent Events: `GET /api/runs/:id/events`
 
@@ -218,8 +220,9 @@ as `data` — show it verbatim in "Why did this happen?".
 so the UI can explain "why not" without guessing.
 
 ## 7. What the UI must never compute itself
-Merchant prices and reasons, customer acceptance, capacity validity, fuel/CO₂/cash, NPC choices, inventory, chain status.
-All of these arrive in `GameStatePublic`, `ActionResult.events` or SSE. Request cards already include server-computed
+Merchant prices and reasons, customer acceptance, capacity validity, fuel/CO₂/cash, NPC choices and inventory.
+These arrive in `GameStatePublic`, `ActionResult.events` or SSE. Chain status and transaction evidence belong to the
+operator-only audit endpoints. Request cards already include server-computed
 `expectedPaymentCc`, `estimatedFuelMl`, `estimatedCo2Mg`, `estimatedFuelCostCc`, `estimatedMarginCc` and
 `customerProfitPerHourCc`.
 

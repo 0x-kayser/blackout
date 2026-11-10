@@ -50,15 +50,6 @@ export interface FillView {
   unitPriceCcPerL: number
   totalCc: number
   status: 'pending' | 'settled' | 'failed'
-  txHash: string | null
-}
-export interface ExchangeEventView {
-  seq: number
-  tick: number
-  type: string
-  actors: string[]
-  explanation: string
-  data: Record<string, unknown>
 }
 export interface MeView {
   warehouseMl: number
@@ -68,13 +59,9 @@ export interface MeView {
   estimatedDailyFeeCc: number
   orders: OrderView[]
   fills: FillView[]
-  chainId: string | null
-  recent: ExchangeEventView[]
 }
 export interface ExchangeView {
   ok: true
-  mode: 'sandbox' | 'testnet'
-  note: string
   canTrade: boolean
   blockedReason: string | null
   depositableFuelMl: number

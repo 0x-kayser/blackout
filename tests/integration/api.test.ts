@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ActionResultSchema,
-  ChainStatusResponseSchema,
   CompareResponseSchema,
   GameStatePublicSchema,
   HealthResponseSchema,
@@ -180,8 +179,8 @@ describe("market over HTTP", () => {
     const bought = buy.body;
     if (!bought.ok) return;
     const trade = bought.state.trades.find((x) => x.tradeId === bought.result.tradeId)!;
-    expect(trade.chainStatus).toBe("simulation_only");
-    expect(trade.txHash).toBeNull();
+    expect(trade).not.toHaveProperty("chainStatus");
+    expect(trade).not.toHaveProperty("txHash");
     const lantern1 = bought.state.merchants.find((m) => m.merchantId === "lantern")!;
     expect(lantern1.stockMl).toBe(lantern0.stockMl - 20_000);
     expect(lantern1.quoteCcPerL).toBeGreaterThan(lantern0.quoteCcPerL);
@@ -231,17 +230,15 @@ describe("observatory", () => {
   });
 });
 
-describe("chain transparency, health, config", () => {
-  it("reports disabled chain honestly with no invented ids", async () => {
-    const cs = ChainStatusResponseSchema.parse((await built.app.inject({ method: "GET", url: "/api/chain/status" })).json());
-    expect(cs.mode).toBe("disabled");
-    expect(cs.resourceContractId).toBeNull();
-    expect(cs.merchantAccounts.every((m) => m.accountId === null)).toBe(true);
-    const tr = (await built.app.inject({ method: "GET", url: "/api/chain/transfers/4ZbV4k1Tcv1oWy1hoxUo4o9b2cUqGgYyU6wF7pK2ZWwz" })).json();
-    expect(tr.status).toBe("not_configured");
+describe("operator chain evidence, health, config", () => {
+  it("keeps chain status and transaction evidence behind operator access", async () => {
+    const cs = await built.app.inject({ method: "GET", url: "/api/chain/status" });
+    expect(cs.statusCode).toBe(403);
+    const tr = await built.app.inject({ method: "GET", url: "/api/chain/transfers/4ZbV4k1Tcv1oWy1hoxUo4o9b2cUqGgYyU6wF7pK2ZWwz" });
+    expect(tr.statusCode).toBe(403);
     const h = HealthResponseSchema.parse((await built.app.inject({ method: "GET", url: "/api/health" })).json());
     expect(h.db).toBe("ok");
-    expect(h.chain).toBe("disabled");
+    expect(h).not.toHaveProperty("chain");
     const c = PublicConfigSchema.parse((await built.app.inject({ method: "GET", url: "/api/config/public" })).json());
     expect(c.timing.operatingTicks).toBe(240);
     expect(c.auth).not.toHaveProperty("x");

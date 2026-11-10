@@ -611,7 +611,7 @@ function firmsView(t: TownState, viewer: string | null): TownView["companies"] {
       return { firmId: f.firmId, name: f.name, person: f.person, face: f.face, kind: f.kind, blurb: f.blurb, open: st.open, cashCc: tbal(t, "cc", FACC(f.firmId)), escrowedCc: st.escrowedCc, spendableCc: spendable(t, f.firmId), profitCcToday: tbal(t, "cc", FACC(f.firmId)) - st.cashAtDayStart, revenueCcToday: st.revenueCcToday, boughtKwh: st.boughtKwh, soldKwh: st.soldKwh, productionBps: st.productionBps, lastWhy: st.lastWhy, chainAccount: null };
     }),
     offers: t.power.offers.map((o) => ({ ...o, mine: o.sellerKey === me })),
-    orders: t.power.orders.slice(-24).map((o) => ({ orderId: o.orderId, buyerId: o.buyerId, buyerName: o.buyerName, sellerName: me && o.sellerKey === me ? "You" : o.sellerName, mine: o.sellerKey === me, kw: o.kw, kwh: o.kwh, priceCcPerMWh: o.priceCcPerMWh, escrowCc: o.escrowCc, status: o.status, deliveredKwh: o.deliveredKwh, paidCc: o.paidCc, refundCc: o.refundCc, why: o.why, startTick: o.startTick, endTick: o.endTick, failReason: o.failReason, txHash: null, confirmTxHash: null })),
+    orders: t.power.orders.slice(-24).map((o) => ({ orderId: o.orderId, buyerId: o.buyerId, buyerName: o.buyerName, sellerName: me && o.sellerKey === me ? "You" : o.sellerName, mine: o.sellerKey === me, kw: o.kw, kwh: o.kwh, priceCcPerMWh: o.priceCcPerMWh, escrowCc: o.escrowCc, status: o.status, deliveredKwh: o.deliveredKwh, paidCc: o.paidCc, refundCc: o.refundCc, why: o.why, startTick: o.startTick, endTick: o.endTick, failReason: o.failReason })),
   };
 }
 
@@ -621,7 +621,7 @@ export function townClock(tick: number): string {
   return `Market day ${day} · ${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 
-export function toTownView(t: TownState, viewer: string | null, chainAccounts: Record<string, string | null> = {}): TownView {
+export function toTownView(t: TownState, viewer: string | null): TownView {
   const merchants: MerchantView[] = MERCHANTS.map((m) => {
     const st = t.merchants[m.merchantId];
     const acct = MACC(m.merchantId);
@@ -654,7 +654,6 @@ export function toTownView(t: TownState, viewer: string | null, chainAccounts: R
       }),
       investors: st.investors.map((x) => ({ playerId: x.playerId, name: x.name, investedCc: x.investedCc, shareBps: Math.round((x.investedCc * 10_000) / Math.max(1, total)), mine: x.playerId === viewer })),
       closedReason: st.closedReason,
-      chainAccount: chainAccounts[m.chainName] ?? null,
       lastTradeAt: st.lastTradeAt,
     };
   });

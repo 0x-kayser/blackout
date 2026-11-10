@@ -1,8 +1,7 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { GameStatePublic, MerchantPublic } from '@blackout/shared'
-import { api, explainError, type ChainStatusResponse } from '../api/client'
+import { api, explainError } from '../api/client'
 import { SignInOptions } from './SignIn'
-import { exchangeApi, type ExchangeView } from '../api/exchange'
 import type { Game } from '../game/useGame'
 import { VOICES, voiceLine } from './Story'
 import { MOOD_ICON, bizName, fmtCredits, fmtKg, fmtKw, fmtKwh, fmtLitres, fmtPct, fmtRate, secondsLeft, sparkPath } from './format'
@@ -58,7 +57,7 @@ export function MarketPanel({ g, onClose, onOpenExchange }: { g: Game; onClose: 
 function PlayerListings({ g, onOpenExchange }: { g: Game; onOpenExchange?: () => void }) {
   const s = g.state!
   const p = g.player
-  const chainReady = s.run.chainMode === 'testnet'
+  const chainReady = s.run.playerListingsEnabled
   const registered = !!p && p.kind === 'registered'
   const canList = registered && chainReady
   const [quantityMl, setQuantityMl] = useState(5_000)
@@ -413,73 +412,6 @@ const Metric = ({ label, value }: { label: string; value: string }) => (
   <div className="metric-card"><small>{label}</small><b>{value}</b></div>
 )
 
-// ------------------------------------------------------------------ verify on NEAR
-export function VerifyPanel({ g, onClose }: { g: Game; onClose: () => void }) {
-  const s = g.state!
-  const [cs, setCs] = useState<ChainStatusResponse | null>(null)
-  const [marketEvidence, setMarketEvidence] = useState<Awaited<ReturnType<typeof api.marketListingEvidence>> | null>(null)
-  const [xv, setXv] = useState<ExchangeView | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-  useEffect(() => {
-    api.chain().then(setCs, (e) => setErr(explainError(e)))
-    api.marketListingEvidence().then(setMarketEvidence, () => undefined)
-    exchangeApi.view().then(setXv, () => undefined)
-  }, [])
-  const chainTrades = s.trades.filter((t) => t.chainStatus !== 'simulation_only')
-  const live = cs?.mode === 'testnet'
-  const tx = (h: string | null | undefined) => (h && live && cs?.explorerBaseUrl ? <a href={`${cs.explorerBaseUrl}${h}`} target="_blank" rel="noreferrer">{h.slice(0, 10)}…</a> : <span className="fine">no hash</span>)
-  const acct = (id: string | null | undefined) => (id ? (live ? <a href={`https://testnet.nearblocks.io/address/${id}`} target="_blank" rel="noreferrer">{id}</a> : id) : '—')
-  const x = cs?.exchange
-  const myTx = (xv?.me?.recent ?? []).filter((e) => typeof e.data.txHash === 'string')
-  return (
-    <Drawer title="Verify on NEAR" eyebrow="OPTIONAL · FOR THE CURIOUS AND THE JUDGES" onClose={onClose}>
-      {err && <p className="warn">{err}</p>}
-      <p className="eyebrow">THE SHARED FUEL EXCHANGE</p>
-      <p className="fine">{x?.note ?? 'Loading…'}</p>
-      {cs && x && (
-        <dl className="verify">
-          <dt>Settlement</dt><dd>{x.mode === 'testnet' ? 'NEAR testnet' : 'Server ledger (sandbox)'}</dd>
-          <dt>Resource contract (NEP-245)</dt><dd>{acct(cs.resourceContractId)}{cs.contractDeployed === false ? ' (no code)' : ''}</dd>
-          <dt>Vault (operates player ids)</dt><dd>{acct(cs.vaultAccountId)}</dd>
-          {xv?.me?.chainId && <><dt>Your exchange id</dt><dd>{acct(xv.me.chainId)}</dd></>}
-          {x.traderAccounts.map((t) => (<Fragment key={t.traderId}><dt>{t.name}</dt><dd>{acct(t.accountId)}</dd></Fragment>))}
-          <dt>Exchange vs contract</dt>
-          <dd>{x.reconcile ? (x.reconcile.inBalance === true ? `✓ in balance (${x.reconcile.accountsChecked} accounts, ${new Date(x.reconcile.checkedAt).toLocaleTimeString()})` : x.reconcile.inBalance === false ? `✗ ${x.reconcile.note}` : x.reconcile.note) : x.mode === 'testnet' ? 'first check pending' : 'nothing on-chain to compare'}</dd>
-        </dl>
-      )}
-      {myTx.length > 0 && (
-        <>
-          <p className="eyebrow">YOUR EXCHANGE TRANSACTIONS</p>
-          {myTx.slice(0, 10).map((e) => (
-            <div key={e.seq} className="trade-row"><span>{e.explanation}</span>{tx(e.data.txHash as string)}</div>
-          ))}
-        </>
-      )}
-      {live && cs?.issues.length ? <ul className="fine">{cs.issues.map((i) => <li key={i}>{i}</li>)}</ul> : null}
-      {(chainTrades.length > 0 || (marketEvidence?.listings.length ?? 0) > 0) && (
-        <>
-          <p className="eyebrow">CITY PURCHASES ON-CHAIN (LEGACY)</p>
-          {chainTrades.map((t) => (
-            <div key={t.tradeId} className="trade-row">
-              <span>{fmtLitres(t.quantity)} · {t.tokenAmount} × {t.tokenId}</span>
-              <span className="pill">{t.chainStatus}</span>
-              {t.explorerUrl ? <a href={t.explorerUrl} target="_blank" rel="noreferrer">{t.txHash?.slice(0, 10)}…</a> : <span className="fine">Transaction hash appears after submission.</span>}
-            </div>
-          ))}
-          {marketEvidence?.listings.map((item, i) => (
-            <div key={`${item.listingId}:${item.operation}:${i}`} className="trade-row">
-              <span>{item.listingId} · {item.operation}{item.merchantId ? ` · ${item.merchantId}` : ''}</span>
-              <span className="pill">{item.status}</span>
-              {item.explorerUrl ? <a href={item.explorerUrl} target="_blank" rel="noreferrer">{item.txHash?.slice(0, 10)}…</a> : <span className="fine">{item.lastError ?? 'Transaction hash appears after submission.'}</span>}
-            </div>
-          ))}
-        </>
-      )}
-      <p className="fine" style={{ marginTop: 16 }}>{cs?.trustBoundary}</p>
-    </Drawer>
-  )
-}
-
 // ------------------------------------------------------------------ profile & settings
 export function ProfilePanel({ g, onClose, prefs, setPrefs }: { g: Game; onClose: () => void; prefs: { sound: boolean; music: boolean; reducedMotion: boolean }; setPrefs: (p: { sound: boolean; music: boolean; reducedMotion: boolean }) => void }) {
   const p = g.player!
@@ -507,7 +439,6 @@ export function ProfilePanel({ g, onClose, prefs, setPrefs }: { g: Game; onClose
         <label className="setting-toggle"><span><b>Music</b><small>"Night Shift": a quiet generated synthwave loop.</small></span><input type="checkbox" checked={prefs.music} onChange={(e) => setPrefs({ ...prefs, music: e.target.checked })} /><i aria-hidden /></label>
         <label className="setting-toggle"><span><b>Reduced motion</b><small>Stops pulses, smoke and drifting.</small></span><input type="checkbox" checked={prefs.reducedMotion} onChange={(e) => setPrefs({ ...prefs, reducedMotion: e.target.checked })} /><i aria-hidden /></label>
       </div>
-      <p className="fine">{p.near.mode === 'custodial_vault' ? `Purchased resources are held in the game's shared vault (${p.near.accountId}). The game server manages it; withdrawals are not available.` : 'Resources in this city are tracked in its game save.'}</p>
       <div className="profile-actions">
         <button className="button" onClick={() => { if (window.confirm('Start a new city? Your current city stays in history, but you will not return to it.')) void g.enterGame(true).then(onClose) }}>Start a new city</button>
         <button className="button" onClick={() => void g.logout()}>Log out</button>

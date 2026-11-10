@@ -236,34 +236,10 @@ export class RunService {
 
   // ---------------------------------------------------------------- views
 
-  chainInfo(h: RunHandle): GameStatePublic["chain"] {
-    if (h.state.chainMode !== "testnet") {
-      return {
-        mode: "disabled",
-        network: null,
-        resourceContractId: null,
-        vaultAccountId: null,
-        note:
-          h.state.mode === "guest_demo"
-            ? "This guest city uses the game ledger and is not connected to NEAR."
-            : "NEAR mode is not configured on this server. Trades settle in the game ledger.",
-      };
-    }
-    return {
-      mode: "testnet",
-      network: "testnet",
-      resourceContractId: this.chain.resourceContractId,
-      vaultAccountId: this.chain.vaultAccountId,
-      note: "The server simulates electricity. Confirmed diesel purchases enter the game's shared custodial vault; player listings escrow those resources in the NEP-245 contract and NPC purchases transfer them to the merchant account. Credits remain in the game ledger.",
-    };
-  }
-
   publicState(h: RunHandle): GameStatePublic {
     return toPublic(h.state, {
       paused: !h.running,
       pauseReason: h.state.phase === "finished" ? "finished" : h.running ? "none" : h.pauseReason,
-      chain: this.chainInfo(h),
-      explorerTxBase: this.chain.explorerTxBase,
     });
   }
 

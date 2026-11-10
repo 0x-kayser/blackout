@@ -1,10 +1,11 @@
 # NEAR Games With Real Economies — compliance status
 
-**Audit date:** 2026-11-08  
-**Overall status:** the player-listing and autonomous-purchase path is now wired through the local simulation, API,
-durable worker, marketplace UI, and optional evidence panel. The live on-chain acceptance criteria remain unmet: no
-Testnet deployment, NPC accounts, or verified transaction evidence are available. Fake-RPC tests are local evidence,
-not proof of a live deployment.
+**Audit date:** 2026-11-10
+**Overall status:** BLACKOUT now keeps chain status and transaction verification out of the player interface and
+provides protected operator audit endpoints. A separate power-economy Testnet contract and standalone transactions
+are documented in [`TESTNET_DEMO.md`](TESTNET_DEMO.md). The distinct NEP-245 resource-market adapter was observed
+disabled in the public Railway deployment on 2026-11-10; no live resource-market trade is claimed. Local adapter code
+and fake-RPC results are not proof of a live resource-market deployment.
 
 ## Deployment preflight and hard blockers
 
@@ -28,7 +29,8 @@ before deployment, as required. Bootstrap code is not deployment evidence.
 | NPC to game vault trade | `apps/api/src/chain.ts`, `apps/api/src/workers.ts`, and `apps/api/src/services.ts` provide a real-transfer path when configured: merchant function-call key submits NEP-245 diesel into shared vault; final RPC outcome is reconciled with the game trade. | Resource transfer would be on-chain; credits and each player's game allocation remain off-chain. The server manages the vault key. | Code path exists; credentials are absent and no live transfer was verified. |
 | Player ownership and listings | `packages/sim/src/marketplace.ts`, `apps/api/src/routes.ts`, `apps/api/src/services.ts`, `apps/api/src/workers.ts`, and `apps/web/src/ui/Panels.tsx` implement registered-player listings, chain-backed fuel reservation, cancellable seven-day listings, autonomous merchant evaluation, and off-chain game-credit settlement. Migration `004_marketplace_jobs.sql` stores durable jobs. | The server maps the authenticated player ID to a shared custodial vault allocation. The contract moves the resource from that vault into listing escrow, then to a registered NPC account. The listing price and payment are off-chain fictional credits. | Local end-to-end path and fake-RPC behavior tested; live contract/account/transaction evidence unavailable. |
 | Social and email login | Guest sessions, Supabase JWT handling, Google/email provider integration points, and guest-to-account save migration are in `apps/api/src/auth.ts`, `apps/api/src/routes.ts`, and `apps/web/src/api/auth.ts`. | Authentication is off-chain. A registered identity currently maps to shared custodial vault allocation, not an individual NEAR account. | Local code exists; missing Supabase configuration prevents provider verification. |
-| Invisible custody | Normal purchases and listings read as deliveries, listings, and credits. Players do not connect a wallet or see seed phrase, gas, or chain prompts. `/api/account/near`, account settings, and the optional Verify panel explain custody and expose evidence. | Server holds merchant function-call keys and the vault operator function-call key; users cannot withdraw in this build. Gas comes from account allowances funded by bootstrap. | UX separation covered by browser tests; no live custody setup. |
+| Invisible custody and judge audit | The player interface has no wallet or transaction-verification screen. Chain status and evidence are exposed only through `/api/admin/chain-audit`, `/api/economy/admin/audit`, and operator-only `/api/chain/*` routes. | The operator audit requires `ECONOMY_ADMIN_TOKEN` in an `x-admin-token` header. Configured server keys remain on the server; the player interface does not show them. | Player UI separation implemented locally. Railway must run this build and have the operator token configured before the audit endpoint can be used there. |
+| Progressive challenge loop | After the three-step tutorial, a live Career HUD shows the next licence threshold and current energy/reliability progress. A second HUD card opens the rotating seeded weekly scenario and leaderboard. The settings Career view shows every licence and its build unlocks. | Goals use the same licence and weekly challenge rules as the simulation; the live company remains saved while a challenge run is played. | Implemented in `apps/web/src/region/ui/Progression.tsx`; production client build and TypeScript check passed on 2026-11-10. |
 | NEAR Intents | No integration. The present concrete chain leg is a same-network NEP-245 resource transfer; no supported cross-asset or cross-chain flow has been shown to improve it. | Not applicable. | Deliberately not used. |
 | Continuous economy and replay | `packages/sim` contains live continuous city play and deterministic economy rules. `packages/sim/src/replay.ts` reuses simulation rules for seven-day fast-forward; the Economy Lab shows replay data. | Simulation-only; replay does not submit chain transactions. | Implemented locally; deterministic behavior is covered by tests. |
 
@@ -80,35 +82,30 @@ Source locations:
   `apps/api/src/services.ts`
 - Listing economy, player-market policy and durable operations: `packages/sim/src/marketplace.ts`,
   `packages/sim/src/policies/playerMarket.ts`, `database/migrations/004_marketplace_jobs.sql`
-- Player market and judge-only chain evidence: `apps/web/src/ui/Panels.tsx`, `GET /api/chain/market-listings`
+- Player market: `apps/web/src/ui/Panels.tsx`; operator evidence: `GET /api/admin/chain-audit`, `GET /api/economy/admin/audit`
 - Auth and ownership description: `apps/api/src/auth.ts`, `apps/api/src/routes.ts`, `apps/web/src/api/auth.ts`
 - Bootstrap and key scopes: `scripts/near-bootstrap.ts`
 
 Verification run for this audit:
 
-- `pnpm typecheck` — passed.
-- `pnpm test` — 71/71 passed (7 files), including listing ownership, NPC policy decisions, settlement/refunds,
-  registered-player route enforcement, fake-RPC marketplace settlement, deterministic replay, and SSE. The sandbox
-  blocked loopback binding initially; rerunning with local-network permission passed.
-- `pnpm test:contract` — 19/19 Rust tests passed.
+- `pnpm typecheck` — passed on 2026-11-10.
 - `pnpm build:contract` — produced `contracts/near/res/blackout_resources.wasm` using the plain Cargo fallback. `cargo-near`
   was not installed, so NEAR-specific WASM compatibility and Testnet loading are unverified.
-- `pnpm build:web` — passed; Vite emitted upstream Zod comment-annotation warnings and completed the build.
-- `git diff --check` — passed.
-- `pnpm test:e2e` — 7/7 browser journeys passed (6 desktop and 1 mobile). The market journey verifies that normal
-  purchase copy contains no chain, wallet, or gas terms while the optional Verify panel retains NEAR evidence. This
-  validates UX separation, not live Testnet settlement.
+- `pnpm build:web` — passed on 2026-11-10; Vite emitted upstream Zod comment-annotation and large-chunk warnings and completed the build.
+- `git diff --check` — passed on 2026-11-10.
+- UI browser smoke check — not run: browser control is disabled in Work settings, and the local browser surface is unavailable. No production UI behavior is claimed from this check.
+- Automated test suites were not run during this audit.
 
 Local tests and fake RPC fixtures do not constitute live Testnet evidence. Do not infer a deployment from a successful
 build.
 
 ## Judge demo path and current availability
 
-The guest game, electricity loop, seven-day replay, and listing UI can be demonstrated locally. A configured Testnet
-demo would proceed through a registered city, confirmed diesel purchase, player listing, autonomous NPC evaluation,
-and final NEP-245 transfer; transaction hashes appear in the optional Verify panel. The live chain-dependent demo is
-currently blocked because no Testnet contract or accounts have been provisioned. Fake-RPC fixtures must never be shown
-as live settlement evidence.
+The guest game, electricity loop, career progression, weekly challenge, seven-day replay, and listing UI can be
+demonstrated locally. To inspect chain evidence, use the protected operator audit route from a trusted environment;
+the player UI intentionally does not show transaction hashes. The deployed resource-market adapter was observed
+disabled, so a live NEP-245 player listing or NPC fill is not currently claimed. Fake-RPC fixtures must never be
+shown as live settlement evidence.
 
 To complete the chain demo, obtain a funded Testnet parent account and configure Supabase for Google/email login.
 Then run the existing bootstrap, verify the deployed contract and account permissions, and exercise the implemented
@@ -125,4 +122,4 @@ after observing final RPC outcomes and independently re-querying them.
 6. Exactly-once listing payment reconciliation/refund: **local idempotent flow implemented and fake-RPC tested; live RPC outcomes unverified**.
 7. Economy evolves without a developer patch: **local deterministic simulation and durable Testnet job worker implemented; live operation unverified**.
 8. Wallet-free normal gameplay: **supported by local game code; provider and chain credentials absent**.
-9. Judge evidence: **optional panel and authenticated listing-evidence route implemented; no live evidence yet**.
+9. Judge evidence: **protected operator audit routes implemented locally; the public resource-market adapter was observed disabled and must be rechecked after deployment**.

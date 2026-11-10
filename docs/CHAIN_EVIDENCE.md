@@ -1,8 +1,11 @@
 # Chain evidence
 
-**Status (2026-11-08): no Testnet deployment exists.**
-There is no contract id, account id or transaction hash to show, and none is invented anywhere in this repository,
-its tests or its docs. `GET /api/chain/status` returns `mode: "disabled"` until the steps below are done.
+**Status (2026-11-10): the standalone power-economy Testnet demo is documented, but the separate NEP-245 resource
+market adapter is not enabled in the current Railway configuration.** Do not use the standalone demo transactions as
+proof that a live BLACKOUT resource-market trade settled on chain. The player interface has no chain or transaction
+screen. When the server is configured, operators can inspect its actual state at `GET /api/admin/chain-audit` with
+`ECONOMY_ADMIN_TOKEN` supplied as `x-admin-token` from a trusted environment. The endpoint accepts `limit` (1–200)
+and `offset` parameters and returns a total count per record stream so operators can page through the retained history.
 
 ## What is verified locally
 * `contracts/near` — NEP-245 resource contract and listing escrow primitives. Run `pnpm test:contract` for the current
@@ -20,13 +23,16 @@ its tests or its docs. `GET /api/chain/status` returns `mode: "disabled"` until 
 1. `pnpm build:contract` → `contracts/near/res/blackout_resources.wasm` (prefer `cargo near` if installed).
 2. With your own funded testnet account:
    `NEAR_PARENT_ACCOUNT_ID=you.testnet NEAR_PARENT_PRIVATE_KEY=ed25519:… pnpm chain:bootstrap`
-3. Copy `.env.chain` into `.env`, restart `pnpm dev`, check `GET /api/chain/status` → `rpcReachable: true`, `contractDeployed: true`.
+3. Copy `.env.chain` into `.env`, set `ECONOMY_ADMIN_TOKEN`, restart `pnpm dev`, then query the protected
+   `/api/admin/chain-audit?limit=100&offset=0` endpoint and confirm the adapter status before presenting evidence.
+   Advance `offset` by `limit` for each record stream until its page reaches its reported `total`.
 4. Configure Supabase Google/email login, register three NPC Testnet accounts, and create a registered `play` city.
-   Buy diesel and wait for final confirmation. The transaction hash is available in the Verify panel and
-   `GET /api/chain/transfers/<hash>` re-verifies it.
+   Buy diesel and wait for final confirmation. The protected operator audit reports recorded transaction hashes;
+   `GET /api/chain/transfers/<hash>` re-verifies a hash.
 5. In Marketplace, list only the displayed confirmed fuel. The player market worker escrows it, explains each merchant's
    decision, reserves fictional game credits when an NPC qualifies, and settles the resource transfer. Inspect final
-   list and fill hashes in Verify or `GET /api/chain/market-listings`; re-query each hash before presenting it as evidence.
+   list and fill hashes through the protected operator audit or `GET /api/chain/market-listings`; re-query each hash
+   before presenting it as evidence.
 6. No live listing transaction can be demonstrated until bootstrap succeeds with a funded Testnet parent account. The
    current fake-RPC integration path is for local verification only and must not be presented as a chain transaction.
 

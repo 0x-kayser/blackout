@@ -69,7 +69,6 @@ export interface MerchantView {
   items: MerchantItemView[];
   investors: { playerId: string; name: string; investedCc: number; shareBps: number; mine: boolean }[];
   closedReason: string | null;
-  chainAccount: string | null;
   lastTradeAt: number;
 }
 
@@ -147,8 +146,6 @@ export interface CompanyView {
   productionBps: number;
   /** The company's own reasoning for its latest decision, built from the numbers it used. */
   lastWhy: string;
-  /** Its NEAR account, when the server is connected to testnet. */
-  chainAccount: string | null;
 }
 
 export interface PowerOrderView {
@@ -169,9 +166,6 @@ export interface PowerOrderView {
   startTick: number;
   endTick: number;
   failReason: string | null;
-  /** The buyer's escrow transaction and the operator's confirmation, on NEAR testnet. */
-  txHash: string | null;
-  confirmTxHash: string | null;
 }
 
 export interface CompaniesView {

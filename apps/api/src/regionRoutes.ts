@@ -48,12 +48,14 @@ const labCache = new Map<string, unknown>();
 export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): void {
   const { rsvc } = d;
 
-  /* ---------------------------------------------------------------- money on NEAR */
+  /* ---------------------------------------------------------------- game-facing company settings */
 
-  app.get("/api/economy", async (req) => {
+  app.get("/api/economy/desk", async (req) => {
     const u = await d.requireUser(req);
     if (!d.economy) throw new ApiError("NOT_FOUND", "No economy on this server.");
-    return { ok: true, economy: await d.economy.view(u.userId) };
+    // Preserve server-side account setup while returning only the preference the game needs.
+    await d.economy.view(u.userId);
+    return { ok: true, desk: d.economy.desk(u.userId) };
   });
 
   app.post("/api/economy/desk", async (req) => {
@@ -61,27 +63,7 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
     d.writeGuard(req, u.sessionId);
     if (!d.economy) throw new ApiError("NOT_FOUND", "No economy on this server.");
     d.economy.setDesk(u.userId, d.parse(DeskSchema, req.body));
-    return { ok: true, economy: await d.economy.view(u.userId) };
-  });
-
-  // a player's own wallet key, for backup or to open the account in any NEAR wallet. Shown once, never logged or cached.
-  const exportsByUser = new Map<string, number[]>();
-  app.post("/api/economy/wallet/export", async (req, reply) => {
-    const u = await d.requireUser(req);
-    d.writeGuard(req, u.sessionId);
-    if (!d.economy?.live) throw new ApiError("AUTH_PROVIDER_UNAVAILABLE", "This server isn't connected to NEAR, so there's no wallet key to export.");
-    const body = d.parse(z.object({ confirm: z.literal("I understand") }), req.body);
-    void body;
-    const now = Date.now();
-    const recent = (exportsByUser.get(u.userId) ?? []).filter((t) => now - t < 3_600_000);
-    if (recent.length >= 3) throw new ApiError("RATE_LIMITED", "You've exported your key three times this hour. Try again later.");
-    const w = d.economy.wallet(u.userId);
-    const key = d.economy.walletKey(u.userId);
-    if (!w || (w.status !== "active" && w.status !== "released") || !key) throw new ApiError("NOT_FOUND", "Your wallet isn't open yet.");
-    exportsByUser.set(u.userId, [...recent, now]);
-    req.log.info({ userId: u.userId, accountId: w.account_id }, "wallet key exported by its owner");
-    reply.header("cache-control", "no-store");
-    return { ok: true, accountId: w.account_id, privateKey: key, network: "testnet" };
+    return { ok: true, desk: d.economy.desk(u.userId) };
   });
 
   /* ---------------------------------------------------------------- plants between companies */
@@ -115,19 +97,6 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
     return { ok: true, sales: d.plants!.view(u.userId) };
   });
 
-  // take the company's money to your own wallet and end the game's custody of it, for good
-  app.post("/api/economy/wallet/leave", async (req) => {
-    const u = await d.requireUser(req);
-    d.writeGuard(req, u.sessionId);
-    if (!d.economy?.live) throw new ApiError("AUTH_PROVIDER_UNAVAILABLE", "This server isn't connected to NEAR.");
-    d.parse(z.object({ confirm: z.literal("LEAVE") }), req.body);
-    try {
-      return { ok: true, ...(await d.economy.leaveCustody(u.userId)) };
-    } catch (e) {
-      throw new ApiError("INVALID_STATE", (e as Error).message);
-    }
-  });
-
   // emergency stop for NPC spending (contract switch + server switch); needs ECONOMY_ADMIN_TOKEN
   app.post("/api/economy/admin/npc-spending", async (req) => {
     const token = req.headers["x-admin-token"];
@@ -142,6 +111,16 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
     const token = req.headers["x-admin-token"];
     if (!d.economy?.cfg.adminToken || token !== d.economy.cfg.adminToken) throw new ApiError("FORBIDDEN", "Admin token required.");
     return { ok: true, ...(await d.economy.resync()) };
+  });
+
+  // Operator-only evidence for judges and incident review; never exposed through the player interface.
+  app.get<{ Querystring: { limit?: string; offset?: string } }>("/api/economy/admin/audit", async (req) => {
+    const token = req.headers["x-admin-token"];
+    if (!d.economy?.cfg.adminToken || token !== d.economy.cfg.adminToken) throw new ApiError("FORBIDDEN", "Admin token required.");
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 100) || 100));
+    const requestedOffset = Number(req.query.offset ?? 0);
+    const offset = Number.isFinite(requestedOffset) ? Math.max(0, Math.min(2_147_483_647, Math.trunc(requestedOffset))) : 0;
+    return { ok: true, audit: await d.economy.auditEvidence(limit, offset) };
   });
 
   app.get("/api/region", async (req) => {
@@ -189,12 +168,13 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
   });
 
   app.get<{ Params: { id: string } }>("/api/region/:id/epochs", async (req) => {
-    const u = await d.requireUser(req);
-    rsvc.requireOwner(req.params.id, u.userId);
+    const token = req.headers["x-admin-token"];
+    if (!d.economy?.cfg.adminToken || token !== d.economy.cfg.adminToken) throw new ApiError("FORBIDDEN", "Admin token required.");
     return { ok: true, epochs: rsvc.epochs(req.params.id) };
   });
 
   app.get<{ Querystring: { week?: string } }>("/api/region/leaderboard", async (req) => ({ ok: true, entries: rsvc.leaderboard(req.query.week) }));
+  app.get("/api/region/challenge", async () => ({ ok: true, challenge: rsvc.challengeInfo() }));
 
   app.get<{ Querystring: { seed?: string; days?: string } }>("/api/region/lab", async (req) => {
     const seed = Math.max(1, Math.min(2 ** 31 - 1, Number(req.query.seed ?? 42) || 42));
@@ -260,7 +240,10 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
   /** GameIdentity: who is playing, however they signed in (§25). */
   app.get("/api/identity", async (req) => {
     const u = await d.requireUser(req);
-    return { ok: true, identity: d.identity ? d.identity(u) : null };
+    const identity = d.identity?.(u) ?? null;
+    if (!identity) return { ok: true, identity: null };
+    const playerIdentity = { userId: identity.userId, displayName: identity.displayName, kind: identity.kind, providers: identity.providers };
+    return { ok: true, identity: playerIdentity };
   });
 
   /** Gasless meta-transactions (NEP-366): the game relayer pays, only for allowlisted BLACKOUT calls. */

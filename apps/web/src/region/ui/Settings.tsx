@@ -1,18 +1,17 @@
 /**
- * Settings · Verify · About (§62). Account and sign-in, the weekly challenge, the Economy Lab, and Verify: where every
- * world input came from, and each settlement epoch re-hashed here in your browser.
+ * Account, career progression, the rotating weekly challenge, the Economy Lab, and game information.
  */
 import { useEffect, useRef, useState } from 'react'
 import type { PublicConfig, RegionView } from '@blackout/shared'
 import { SignInOptions } from '../../ui/SignIn'
 import type { Game } from '../../game/useGame'
-import { regionApi, type EpochDetail, type LabResult, type LeaderboardRow } from '../api'
+import { regionApi, type ChallengeInfo, type LabResult, type LeaderboardRow } from '../api'
 import { credits, mw, pct, price } from '../format'
 import { Section, Spark, Stat } from './Bits'
 import { NameCompany } from './Company'
-import { Money } from './Money'
+import { Career } from './Progression'
 
-type Tab = 'account' | 'money' | 'challenge' | 'verify' | 'lab' | 'about'
+export type SettingsTab = 'account' | 'career' | 'challenge' | 'lab' | 'about'
 
 export interface SettingsProps {
   v: RegionView
@@ -31,11 +30,11 @@ export interface SettingsProps {
   onQuality: (q: 'high' | 'low') => void
   onChallenge: () => Promise<void>
   onLive: () => Promise<void>
-  initialTab?: Tab
+  initialTab?: SettingsTab
 }
 
 export function Settings(p: SettingsProps) {
-  const [tab, setTab] = useState<Tab>(p.initialTab ?? 'account')
+  const [tab, setTab] = useState<SettingsTab>(p.initialTab ?? 'account')
   return (
     <div className="modal-back" onClick={p.onClose}>
       <div className="modal" role="dialog" aria-label="Settings" onClick={(e) => e.stopPropagation()}>
@@ -43,17 +42,16 @@ export function Settings(p: SettingsProps) {
           ×
         </button>
         <nav className="tabs">
-          {(['account', 'money', 'challenge', 'verify', 'lab', 'about'] as Tab[]).map((t) => (
+          {(['account', 'career', 'challenge', 'lab', 'about'] as SettingsTab[]).map((t) => (
             <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-              {{ account: 'Account', money: 'Money', challenge: 'Weekly challenge', verify: 'Verify', lab: 'Economy Lab', about: 'About' }[t]}
+              {{ account: 'Account', career: 'Career', challenge: 'Weekly challenge', lab: 'Economy Lab', about: 'About' }[t]}
             </button>
           ))}
         </nav>
         <div className="modal-body">
           {tab === 'account' && <Account {...p} />}
-          {tab === 'money' && <Money />}
+          {tab === 'career' && <Career v={p.v} />}
           {tab === 'challenge' && <Challenge {...p} />}
-          {tab === 'verify' && <Verify v={p.v} />}
           {tab === 'lab' && <Lab />}
           {tab === 'about' && <About {...p} />}
         </div>
@@ -97,14 +95,19 @@ function Account(p: SettingsProps) {
 
 function Challenge(p: SettingsProps) {
   const [rows, setRows] = useState<LeaderboardRow[] | null>(null)
+  const [challenge, setChallenge] = useState<ChallengeInfo | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     regionApi.leaderboard().then((r) => setRows(r.entries), () => setRows([]))
+    regionApi.challenge().then((r) => setChallenge(r.challenge), () => setChallenge(null))
   }, [])
   return (
     <>
       <h3>Weekly challenge</h3>
-      <p className="fine">Same region, same seed, same world inputs for everyone this week. Three game days (about 15 minutes). Score = profit, minus every megawatt-hour left dark and every tonne of CO₂, plus how well the region’s businesses did.</p>
+      <Section title={`${challenge?.week.replace('-', ' · ') ?? 'This week'}${challenge ? ` · ${challenge.name}` : ''}`}>
+        <p className="fine">{challenge?.description ?? 'A shared three-day regional scenario.'} Everyone gets the same seed and starting conditions. Finish the three game days (about 15 minutes) to post a score on this week’s board.</p>
+        <p className="fine">Score rewards profit and regional business output, and accounts for power left unserved and CO₂ emissions. The scenario rotates weekly; your live region stays saved while you play it.</p>
+      </Section>
       <div className="row">
         {p.v.mode === 'challenge' ? (
           <button className="btn" disabled={busy} onClick={async () => { setBusy(true); await p.onLive(); setBusy(false) }}>
@@ -112,7 +115,7 @@ function Challenge(p: SettingsProps) {
           </button>
         ) : (
           <button className="btn primary" disabled={busy} onClick={async () => { setBusy(true); await p.onChallenge(); setBusy(false) }}>
-            Start this week’s challenge
+            Start this week’s run
           </button>
         )}
       </div>
@@ -145,88 +148,6 @@ function Challenge(p: SettingsProps) {
             </tbody>
           </table>
         )}
-      </Section>
-    </>
-  )
-}
-
-/** Same canonical JSON as the server: sorted keys, no whitespace. */
-function canonical(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`
-  if (v && typeof v === 'object') return `{${Object.keys(v as object).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(',')}}`
-  return JSON.stringify(v)
-}
-async function sha256(s: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-function Verify({ v }: { v: RegionView }) {
-  const [epochs, setEpochs] = useState<(EpochDetail & { local?: boolean })[] | null>(null)
-  const [chain, setChain] = useState<{ mode: string; resourceContractId?: string | null } | null>(null)
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    const t = setInterval(() => setTick((x) => x + 1), 5_000) // new epochs close while you look
-    return () => clearInterval(t)
-  }, [])
-  useEffect(() => {
-    regionApi.epochs(v.regionId).then(async (r) => {
-      const checked = await Promise.all(
-        r.epochs.map(async (e) => {
-          const body = { epochId: e.epochId, fromInterval: e.fromInterval, toInterval: e.toInterval, transfers: e.transfers, plants: e.plants, stateDigest: e.stateDigest }
-          const h = await sha256(canonical(body))
-          return { ...e, local: h === e.hash && e.transfers.reduce((a, t) => a + t.deltaCc, 0) === 0 }
-        }),
-      )
-      setEpochs(checked)
-    }, () => setEpochs((e) => e ?? []))
-    if (tick === 0) regionApi.chain().then((c) => setChain(c as any), () => setChain(null))
-  }, [v.regionId, tick])
-  const live = chain?.mode === 'testnet'
-  return (
-    <>
-      <h3>Verify</h3>
-      <p className="fine">The simulation runs fast on the server. What it can prove, it proves here.</p>
-      <Section title="Real-world inputs">
-        <Stat label="Snapshot" value={`${v.world.source} · ${new Date(v.world.capturedAt).toLocaleString()}`} />
-        <Stat label="Gas" value={`$${v.world.gasUsdPerMMBtu.toFixed(2)}/MMBtu`} />
-        <Stat label="Brent" value={`$${v.world.brentUsdPerBbl.toFixed(1)}/bbl`} />
-        <Stat label="Carbon" value={`$${v.world.carbonUsdPerT}/t`} />
-        <Stat label="Weather" value={`${Math.round(v.world.tempC)}°C, cloud ${Math.round(v.world.cloudPct)}%`} />
-        <ul className="sources">
-          {v.world.sources.map((s) => (
-            <li key={s.field}>
-              <b>{s.field}</b>: {s.url ? <a href={s.url} target="_blank" rel="noreferrer">{s.provider}</a> : s.provider} <small>({s.observedAt})</small>
-            </li>
-          ))}
-        </ul>
-        {v.mode === 'challenge' && <p className="fine">Challenge worlds always use the fixed weekly fixture, so every player faces the same inputs.</p>}
-      </Section>
-      <Section title="Settlement epochs">
-        <p className="fine">
-          Every 3 game hours the server closes an epoch: each account’s net credit movement (always summing to zero), every Plant Asset’s owner and record, and a SHA-256 over all of it. Your browser re-computes each hash below.
-          {live ? ' Epochs are submitted to NEAR testnet; the contract refuses any epoch id it has already seen.' : ' This server is not connected to NEAR testnet, so epochs are stored here (“local”) and not submitted.'}
-        </p>
-        {epochs === null && <p className="fine">Loading…</p>}
-        {epochs?.length === 0 && <p className="fine">The first epoch closes at interval {v.settlement.nextEpochAt}.</p>}
-        <ul className="epochs">
-          {epochs?.map((e) => (
-            <li key={e.epochId}>
-              <span className={e.local ? 'ok' : 'crisis'}>{e.local ? '✓' : '✗'}</span> <b>#{e.epochNo}</b> intervals {e.fromInterval}–{e.toInterval} · {e.transfers.length} accounts · {e.status}
-              <code title={e.hash}>{e.hash.slice(0, 16)}…</code>
-              {e.txHash && (
-                <a href={`https://testnet.nearblocks.io/txns/${e.txHash}`} target="_blank" rel="noreferrer">
-                  transaction ↗
-                </a>
-              )}
-            </li>
-          ))}
-        </ul>
-      </Section>
-      <Section title="Plant Assets">
-        <p className="fine">
-          Each plant is a numbered asset ({v.plants.slice(0, 3).map((p) => p.assetId).join(', ')}…). {live ? `The contract ${chain?.resourceContractId} can hold each one as an NEP-171 token with its own account (p00042.${chain?.resourceContractId}) that only the current owner can direct. The game doesn't mint them automatically yet; their records are in every settlement epoch above.` : 'The contract can hold each one as an NEP-171 token with its own plant account that only the current owner can direct. This server has no Testnet connection, and the game doesn’t mint plants automatically yet; their records are in every settlement epoch above.'}
-        </p>
       </Section>
     </>
   )

@@ -3,7 +3,7 @@
  * (guest cookie, or a bearer token which the stream sends as ?token=).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { EconomyView, FastForwardResult, ItemId, RegionAction, RegionView, TownView } from '@blackout/shared'
+import type { FastForwardResult, ItemId, RegionAction, RegionView, TownView } from '@blackout/shared'
 import { bearerHeader } from '../api/client'
 
 export class RegionError extends Error {
@@ -45,23 +45,23 @@ export const regionApi = {
   create: (mode: 'live' | 'challenge') => call<{ ok: true; view: RegionView }>('POST', '/api/region/new', { mode }),
   get: (id: string) => call<{ ok: true; view: RegionView }>('GET', `/api/region/${encodeURIComponent(id)}`),
   act: (id: string, action: RegionAction, idempotencyKey: string) => call<{ ok: boolean; message?: string; view: RegionView; replayed?: boolean }>('POST', `/api/region/${encodeURIComponent(id)}/actions`, { action, idempotencyKey }),
-  epochs: (id: string) => call<{ ok: true; epochs: EpochDetail[] }>('GET', `/api/region/${encodeURIComponent(id)}/epochs`),
+  challenge: () => call<{ ok: true; challenge: ChallengeInfo }>('GET', '/api/region/challenge'),
   leaderboard: () => call<{ ok: true; entries: LeaderboardRow[] }>('GET', '/api/region/leaderboard'),
   lab: (seed: number, days = 7) => call<{ ok: true; lab: { gasHeavy: LabResult; solarStorage: LabResult } }>('GET', `/api/region/lab?seed=${seed}&days=${days}`),
   town: () => call<{ ok: true; town: TownView }>('GET', '/api/town'),
   trade: (merchantId: string, item: ItemId, side: 'buy' | 'sell', quantity: number) => call<{ ok: true; message: string; view: RegionView; town: TownView }>('POST', '/api/town/trade', { merchantId, item, side, quantity, idempotencyKey: newKey() }),
   invest: (merchantId: string, amountCc: number) => call<{ ok: true; message: string; view: RegionView; town: TownView }>('POST', '/api/town/invest', { merchantId, amountCc, idempotencyKey: newKey() }),
   fastForward: (seed: number) => call<{ ok: true; week: FastForwardResult }>('GET', `/api/town/fastforward?seed=${seed}`),
-  chain: () => call<{ ok: true; mode: string; network?: string; resourceContractId?: string | null; missing?: string[] }>('GET', '/api/chain/status'),
-  economy: () => call<{ ok: true; economy: EconomyView }>('GET', '/api/economy'),
-  setDesk: (d: { sell: boolean; markupBps: number }) => call<{ ok: true; economy: EconomyView }>('POST', '/api/economy/desk', d),
+  desk: () => call<{ ok: true; desk: DeskView }>('GET', '/api/economy/desk'),
+  setDesk: (d: DeskView) => call<{ ok: true; desk: DeskView }>('POST', '/api/economy/desk', d),
   plantSales: () => call<{ ok: true; sales: PlantSale[] }>('GET', '/api/plants/market'),
   listPlant: (plantId: string, priceCc: number) => call<{ ok: true; sales: PlantSale[] }>('POST', '/api/plants/list', { plantId, priceCc }),
   cancelPlant: (saleId: string) => call<{ ok: true; sales: PlantSale[] }>('POST', '/api/plants/cancel', { saleId }),
   buyPlant: (saleId: string) => call<{ ok: true; sales: PlantSale[] }>('POST', '/api/plants/buy', { saleId }),
-  leaveCustody: () => call<{ ok: true; status: string; detail: string }>('POST', '/api/economy/wallet/leave', { confirm: 'LEAVE' }),
-  exportKey: () => call<{ ok: true; accountId: string; privateKey: string; network: string }>('POST', '/api/economy/wallet/export', { confirm: 'I understand' }),
 }
+
+export interface DeskView { sell: boolean; markupBps: number }
+export interface ChallengeInfo { week: string; name: string; description: string }
 
 export interface PlantSale {
   saleId: string
@@ -73,24 +73,8 @@ export interface PlantSale {
   capacityKw: number
   priceCc: number
   status: 'listing' | 'listed' | 'buying' | 'sold' | 'cancelled' | 'failed'
-  tokenId: string | null
-  tokenUrl: string | null
-  detail: string | null
 }
 
-export interface EpochDetail {
-  epochNo: number
-  epochId: string
-  fromInterval: number
-  toInterval: number
-  transfers: { account: string; deltaCc: number }[]
-  plants: { assetId: string; ownerId: string; lifetimeKwh: number; lifetimeRevenueCc: number; status: string }[]
-  stateDigest: string
-  hash: string
-  status: string
-  txHash: string | null
-  verified: boolean
-}
 export interface LeaderboardRow {
   rank: number
   name: string

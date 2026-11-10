@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react'
-import { api, type ChainStatusResponse } from '../api/client'
 import type { Game } from '../game/useGame'
 import { Drawer } from './Panels'
 import { useExchange } from './Exchange'
@@ -13,25 +11,19 @@ const STATUS: Record<string, { label: string; tone: string }> = {
 }
 
 /**
- * Everyone in Vesper City: the NPC traders with their own wallets, the town's fuel merchants, the rival, and the
+ * Everyone in Vesper City: the NPC traders, the town's fuel merchants, the rival, and the
  * people behind every building you can power.
  */
 export function PeoplePanel({ g, onClose }: { g: Game; onClose: () => void }) {
   const s = g.state!
   const { view } = useExchange()
-  const [cs, setCs] = useState<ChainStatusResponse | null>(null)
-  useEffect(() => {
-    api.chain().then(setCs, () => undefined)
-  }, [])
-  const live = cs?.exchange?.mode === 'testnet'
-  const accountOf = (traderId: string) => cs?.exchange?.traderAccounts.find((t) => t.traderId === traderId)?.accountId ?? null
   const connected = new Set(s.districts.filter((d) => d.unlocked).map((d) => d.districtId))
   return (
     <Drawer title="People of Vesper" eyebrow="WHO TRADES, WHO SELLS, WHO NEEDS YOUR POWER" onClose={onClose} wide>
       <section>
-        <p className="eyebrow amber">NPC WALLETS · THE FUEL TRADERS</p>
+        <p className="eyebrow amber">FUEL TRADERS</p>
         <p className="fine">
-          These traders own their fuel and their money. Each has its own wallet{live ? ' on NEAR testnet and signs its own trades' : ' (on this server: NEAR testnet is not connected, so the same balances live in the game ledger)'}. They supply every town's fuel merchants, buy cheap offers on the Exchange and import when they run low. When they run short, diesel gets dearer in every city.
+          Each trader manages its own stock, cash and buying policy. They supply the town’s fuel merchants, buy offers on the Exchange and import when reserves run low. When they run short, diesel gets dearer in every city.
         </p>
         <div className="people-grid">
           {(view?.book.traders ?? []).map((t) => (
@@ -46,7 +38,7 @@ export function PeoplePanel({ g, onClose }: { g: Game; onClose: () => void }) {
               </div>
               <p className="fine"><i>{t.blurb}</i></p>
               <div className="wallet-row">
-                <span>👛 Wallet</span>
+                <span>Stock & cash</span>
                 <b>{fmtLitres(t.stockMl)} diesel</b>
                 <b>{fmtCredits(t.cashCc)}</b>
               </div>
@@ -55,9 +47,6 @@ export function PeoplePanel({ g, onClose }: { g: Game; onClose: () => void }) {
                 <summary>Why these prices?</summary>
                 <p className="fine">{t.explanation}</p>
               </details>
-              {live && accountOf(t.traderId) && (
-                <a className="fine" href={`https://testnet.nearblocks.io/address/${accountOf(t.traderId)}`} target="_blank" rel="noreferrer">{accountOf(t.traderId)} ↗</a>
-              )}
             </article>
           ))}
           {!view && <p className="fine">Loading the traders…</p>}

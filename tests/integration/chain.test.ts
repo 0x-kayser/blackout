@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildServer } from "../../apps/api/src/server.ts";
 import { interpretTxResult, loadChainConfig, type ChainConfig, type SubmitResult } from "../../apps/api/src/chain.ts";
+import { loadEconomyConfig } from "../../apps/api/src/economy/config.ts";
 import { processChainJobs, processMarketplaceJobs, type ChainDeps, type MarketplaceDeps } from "../../apps/api/src/workers.ts";
 
 // A fully "configured" chain config pointing at a fake RPC: every RPC interaction
@@ -26,7 +27,8 @@ let cfg: ChainConfig;
 
 beforeEach(async () => {
   cfg = loadChainConfig(fakeEnv as NodeJS.ProcessEnv);
-  built = await buildServer({ dbPath: ":memory:", chain: cfg, allowedOrigins: [] });
+  const economyCfg = loadEconomyConfig({ ECONOMY_ADMIN_TOKEN: "test-operator-secret" } as NodeJS.ProcessEnv);
+  built = await buildServer({ dbPath: ":memory:", chain: cfg, allowedOrigins: [], economy: { cfg: economyCfg, gateway: null } });
 });
 afterEach(async () => {
   await built.app.close();
@@ -38,7 +40,8 @@ async function pendingTrade() {
   const token = s.json().token as string;
   const r = await built.app.inject({ method: "POST", url: "/api/runs", headers: { authorization: `Bearer ${token}` }, payload: { seed: 1, mode: "play", worldMode: "calm" } });
   const runId = r.json().state.run.runId as string;
-  expect(r.json().state.chain.mode).toBe("testnet");
+  expect(r.json().state.run.playerListingsEnabled).toBe(true);
+  expect(r.json().state).not.toHaveProperty("chain");
   const h = built.svc.get(runId);
   for (let i = 0; i < 255; i++) built.svc.advanceOne(h);
   const q = built.svc.act(h, { action: { type: "REQUEST_QUOTE", sellerId: "merchant:ember", item: "diesel", quantity: 5_000 }, idempotencyKey: "q-123456789" });
@@ -70,7 +73,10 @@ describe("chain worker", () => {
     expect(t.txHash).toBe(HASH);
     expect(h.state.balances.fuel_ml.player).toBe(fuelBefore + 5_000);
     const pub = built.svc.publicState(h);
-    expect(pub.trades.find((x) => x.tradeId === tradeId)!.explorerUrl).toBe(`https://testnet.nearblocks.io/txns/${HASH}`);
+    const publicTrade = pub.trades.find((x) => x.tradeId === tradeId)!;
+    expect(publicTrade).not.toHaveProperty("txHash");
+    expect(publicTrade).not.toHaveProperty("explorerUrl");
+    expect(JSON.stringify(pub)).not.toContain(HASH);
     // second pass: nothing left to do, no double settlement
     await processChainJobs(built.db, built.svc, cfg, deps);
     expect(deps.submit).toHaveBeenCalledTimes(1);
@@ -132,11 +138,11 @@ describe("chain worker", () => {
   it("guest_demo runs never create chain jobs even when chain mode is configured", async () => {
     const s = await built.app.inject({ method: "POST", url: "/api/session/start", payload: {} });
     const r = await built.app.inject({ method: "POST", url: "/api/runs", headers: { authorization: `Bearer ${s.json().token}` }, payload: { mode: "guest_demo" } });
-    expect(r.json().state.chain.mode).toBe("disabled");
-    expect(r.json().state.merchants.every((m: { accountId: string | null }) => m.accountId === null)).toBe(true);
+    expect(r.json().state.run.playerListingsEnabled).toBe(false);
+    expect(r.json().state).not.toHaveProperty("chain");
   });
 
-  it("requires a registered player for listings, then settles an autonomous purchase and exposes private judge evidence", async () => {
+  it("requires a registered player for listings and keeps judge evidence behind operator access", async () => {
     const { h, runId, token, tradeId } = await pendingTrade();
     const purchaseDeps: ChainDeps = {
       submit: vi.fn(async (_c, _m, _k, _t, _a, onSigned) => {
@@ -189,7 +195,9 @@ describe("chain worker", () => {
     expect(listingDeps.submitList).toHaveBeenCalledTimes(1);
     expect(listingDeps.submitFill).toHaveBeenCalledTimes(1);
 
-    const evidence = await built.app.inject({ method: "GET", url: "/api/chain/market-listings", headers: { authorization: `Bearer ${token}` } });
+    const hidden = await built.app.inject({ method: "GET", url: "/api/chain/market-listings", headers: { authorization: `Bearer ${token}` } });
+    expect(hidden.statusCode).toBe(403);
+    const evidence = await built.app.inject({ method: "GET", url: "/api/chain/market-listings", headers: { "x-admin-token": "test-operator-secret" } });
     expect(evidence.statusCode).toBe(200);
     expect(evidence.json().listings).toEqual(expect.arrayContaining([
       expect.objectContaining({ listingId: "registered-listing-1", operation: "list", status: "confirmed", txHash: listHash }),

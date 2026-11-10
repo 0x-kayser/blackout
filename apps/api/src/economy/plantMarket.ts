@@ -44,9 +44,6 @@ export interface PlantSaleView {
   capacityKw: number;
   priceCc: number;
   status: SaleRow["status"];
-  tokenId: string | null;
-  tokenUrl: string | null;
-  detail: string | null;
 }
 
 export class PlantMarket {
@@ -79,8 +76,8 @@ export class PlantMarket {
     if (this.db.prepare("SELECT 1 FROM plant_sales WHERE seller_id = ? AND plant_id = ? AND status IN ('listing', 'listed', 'buying')").get(userId, plantId)) throw new ApiError("INVALID_STATE", "It's already for sale.");
     const token = p.chainTokenId ?? this.eco.plantTokenId(h.regionId, p.assetNo);
     if (this.eco.live) {
-      if (!this.eco.activeAccount(userId)) throw new ApiError("INVALID_STATE", "Your wallet isn't open yet.");
-      if (this.eco.op(`plant:${token}`)?.status !== "settled") throw new ApiError("INVALID_STATE", "This plant is still being registered on NEAR. Try again in a minute.");
+      if (!this.eco.activeAccount(userId)) throw new ApiError("INVALID_STATE", "Your company setup is still in progress. Try again in a moment.");
+      if (this.eco.op(`plant:${token}`)?.status !== "settled") throw new ApiError("INVALID_STATE", "This plant’s setup is still in progress. Try again in a moment.");
     }
     const saleId = `s${randomUUID().slice(0, 12)}`;
     this.act(userId, { type: "PLANT_LOCK", plantId, locked: true }, `sale-lock:${saleId}`);
@@ -106,7 +103,7 @@ export class PlantMarket {
     if (!s || s.status !== "listed") throw new ApiError("INVALID_STATE", "It's no longer for sale.");
     if (s.seller_id === userId) throw new ApiError("INVALID_STATE", "That's your own plant.");
     const wallet = this.eco.live ? this.eco.activeAccount(userId) : null;
-    if (this.eco.live && !wallet) throw new ApiError("INVALID_STATE", "Your wallet isn't open yet.");
+    if (this.eco.live && !wallet) throw new ApiError("INVALID_STATE", "Your company setup is still in progress. Try again in a moment.");
     // the price is held at once, so it can't be spent twice while NEAR confirms the sale
     this.act(userId, { type: "PLANT_PAYMENT", saleId, cc: s.price_cc, hold: true, sellerName: this.rsvc.nameOf(s.seller_id) }, `sale-hold:${saleId}:${userId}`);
     this.setStatus(saleId, "buying", null, userId);
@@ -169,9 +166,6 @@ export class PlantMarket {
       capacityKw: r.capacity_kw,
       priceCc: r.price_cc,
       status: r.status,
-      tokenId: r.token_id,
-      tokenUrl: this.eco.live && r.token_id ? `${this.eco.cfg.explorerAccountBase}${r.token_id}.${this.eco.cfg.contractId}` : null,
-      detail: r.detail,
     }));
   }
 }

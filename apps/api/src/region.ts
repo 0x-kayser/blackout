@@ -4,7 +4,7 @@
  * system actions, settlement epochs and the weekly challenge leaderboard. The engine stays pure.
  */
 import { randomInt } from "node:crypto";
-import type { AnyRegionAction, RegionAction, RegionActionResult, RegionView, SettlementEpochView, WorldSnapshot } from "@blackout/shared";
+import type { AnyRegionAction, RegionAction, RegionActionResult, RegionView, WorldSnapshot } from "@blackout/shared";
 import { SimError, region } from "@blackout/sim";
 import { challengeFor, isoWeek } from "./challenge.ts";
 import { nowIso, tx, type Db } from "./db.ts";
@@ -59,6 +59,12 @@ export class RegionService {
     private readonly now: () => number = Date.now,
   ) {}
 
+  challengeInfo() {
+    const week = isoWeek(new Date(this.now()));
+    const challenge = challengeFor(week);
+    return { week, name: challenge.name, description: challenge.description };
+  }
+
   /* ---------------------------------------------------------------- lookup & creation */
 
   liveFor(userId: string): RegionHandle {
@@ -110,13 +116,10 @@ export class RegionService {
   }
 
   view(h: RegionHandle): RegionView {
-    const ids = h.state.epochs.slice(-8).map((e) => e.epochId);
-    const epochStatus: Record<string, { status: SettlementEpochView["status"]; txHash: string | null }> = {};
-    if (ids.length) {
-      const rows = this.db.prepare(`SELECT epoch_id, status, tx_hash FROM settlement_epochs WHERE epoch_id IN (${ids.map(() => "?").join(",")})`).all(...ids) as { epoch_id: string; status: SettlementEpochView["status"]; tx_hash: string | null }[];
-      for (const r of rows) epochStatus[r.epoch_id] = { status: r.status, txHash: r.tx_hash };
-    }
-    return region.toRegionView(h.state, { paused: !this.isRunning(h), epochStatus });
+    const view = region.toRegionView(h.state, { paused: !this.isRunning(h) });
+    // Settlement evidence belongs to the operator audit endpoint, not the player session payload.
+    view.settlement.epochs = [];
+    return view;
   }
 
   subscribe(h: RegionHandle, fn: (v: RegionView) => void): () => void {

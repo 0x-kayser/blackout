@@ -781,6 +781,63 @@ export class EconomyService {
     return { opId: r.op_id, kind: r.kind, label: labelOf(r, this), status: r.status, signer: r.signer, txHash: r.tx_hash, txUrl: r.tx_hash && this.live ? `${this.cfg.explorerTxBase}${r.tx_hash}` : null, detail: r.status === "failed" ? friendly(r.detail ?? "") : null, at: r.updated_at };
   }
 
+  /** Sanitized operator evidence: transaction outcomes and fee-account balances, never keys or raw call arguments. */
+  async auditEvidence(limit = 100, offset = 0) {
+    const take = Math.max(1, Math.min(200, Math.trunc(limit)));
+    const skip = Number.isFinite(offset) ? Math.max(0, Math.min(2_147_483_647, Math.trunc(offset))) : 0;
+    const operations = this.db.prepare(
+      "SELECT op_id, kind, signer, method, status, tx_hash, detail, created_at, updated_at FROM chain_ops ORDER BY rowid DESC LIMIT ? OFFSET ?",
+    ).all(take, skip) as { op_id: string; kind: string; signer: string; method: string; status: string; tx_hash: string | null; detail: string | null; created_at: string; updated_at: string }[];
+    const epochs = this.db.prepare(
+      "SELECT epoch_id, status, tx_hash, attempts, created_at, updated_at FROM settlement_epochs ORDER BY rowid DESC LIMIT ? OFFSET ?",
+    ).all(take, skip) as { epoch_id: string; status: string; tx_hash: string | null; attempts: number; created_at: string; updated_at: string }[];
+    const signers = [
+      ...(this.cfg.operator ? [{ role: "operator", accountId: this.cfg.operator.accountId }] : []),
+      ...(this.cfg.playerParent ? [{ role: "player account provisioner", accountId: this.cfg.playerParent.accountId }] : []),
+      ...Object.entries(this.cfg.npcs).filter(([, n]) => n.privateKey).map(([id, n]) => ({ role: `NPC ${id}`, accountId: n.accountId })),
+    ];
+    const accounts = await Promise.all(signers.map(async ({ role, accountId }) => {
+      let nearBalance: number | null = null;
+      if (this.live && this.gateway) {
+        try { nearBalance = await this.gateway.nearBalance(accountId); } catch { /* show unavailable rather than a guessed balance */ }
+      }
+      return { role, accountId, nearBalance };
+    }));
+    return {
+      generatedAt: nowIso(),
+      network: "testnet",
+      mode: this.live ? "connected" : "disabled",
+      contractId: this.live ? this.cfg.contractId : null,
+      pagination: {
+        operations: { offset: skip, limit: take, total: Number((this.db.prepare("SELECT COUNT(*) AS total FROM chain_ops").get() as { total: number }).total) },
+        settlements: { offset: skip, limit: take, total: Number((this.db.prepare("SELECT COUNT(*) AS total FROM settlement_epochs").get() as { total: number }).total) },
+      },
+      accounts,
+      operationCounts: this.db.prepare("SELECT status, COUNT(*) AS count FROM chain_ops GROUP BY status").all() as { status: string; count: number }[],
+      operations: operations.map((r) => ({
+        operationId: r.op_id,
+        kind: r.kind,
+        signer: r.signer,
+        method: r.method,
+        status: r.status,
+        txHash: r.tx_hash,
+        explorerUrl: r.tx_hash && this.live ? `${this.cfg.explorerTxBase}${r.tx_hash}` : null,
+        detail: r.status === "failed" && r.detail ? friendly(r.detail) : null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      })),
+      settlements: epochs.map((r) => ({
+        epochId: r.epoch_id,
+        status: r.status,
+        attempts: r.attempts,
+        txHash: r.tx_hash,
+        explorerUrl: r.tx_hash && this.live ? `${this.cfg.explorerTxBase}${r.tx_hash}` : null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      })),
+    };
+  }
+
   /** Transaction hashes for an order (the buyer's escrow, the operator's confirmation), for the desk view. */
   orderTx(orderId: string): { txHash: string | null; confirmTxHash: string | null } {
     return { txHash: this.op(`order:${orderId}`)?.tx_hash ?? null, confirmTxHash: this.op(`confirm:${orderId}`)?.tx_hash ?? null };

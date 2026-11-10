@@ -11,6 +11,7 @@ import {
   QuoteRequestSchema,
   ReplayRequestSchema,
   StartSessionRequestSchema,
+  type EconomyEvent,
   type ErrorCode,
   type PlayerProfile,
   type ReplaySummary,
@@ -51,6 +52,24 @@ const STATUS: Partial<Record<ErrorCode, number>> = {
   INTERNAL: 500,
 };
 export const httpStatus = (code: ErrorCode) => STATUS[code] ?? 422;
+
+/** Chain receipts stay in the database for operator audits, never in player API responses. */
+function playerValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(playerValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !/^(tx_?hash|explorer_?url|account_?id|contract_?id|resource_?contract_?id|chain_?(mode|status)?|network|token_?(id|amount))$/i.test(key))
+    .map(([key, nested]) => [key, playerValue(nested)]));
+}
+
+function playerEvent(event: EconomyEvent): EconomyEvent {
+  return {
+    ...event,
+    source: event.source === "testnet_transaction" ? "simulated_game" : event.source,
+    data: playerValue(event.data) as Record<string, unknown>,
+    txHash: null,
+  };
+}
 
 function fail(reply: FastifyReply, code: ErrorCode, message: string, details?: Record<string, unknown>) {
   return reply.status(httpStatus(code)).send({ ok: false, error: { code, message, ...(details ? { details } : {}) } });
@@ -101,7 +120,6 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   const { db, svc, chain, auth } = deps;
   const writeLimiter = new RateLimiter(20, 40);
   const sessionLimiter = new RateLimiter(0.5, 10); // guest creation per IP
-  let lastChainHealth: "disabled" | "ok" | "degraded" = chain.enabled ? "degraded" : "disabled";
 
   const originFor = (req: FastifyRequest) => {
     const o = req.headers.origin;
@@ -111,6 +129,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const u = await auth.authenticate(req);
     if (!u) throw new ApiError("UNAUTHORIZED", "Sign in or start a guest session first.");
     return u;
+  };
+  const requireOperator = (req: FastifyRequest) => {
+    const token = req.headers["x-admin-token"];
+    if (!deps.economy?.cfg.adminToken || token !== deps.economy.cfg.adminToken) throw new ApiError("FORBIDDEN", "Operator access required.");
   };
   /** Same-origin or allow-listed origin only (CSRF defence for cookie sessions) + rate limit. */
   const writeGuard = (req: FastifyRequest, key: string) => {
@@ -134,7 +156,6 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   const profile = (u: AuthedUser): PlayerProfile => {
     const p = auth.player(u.userId);
     if (!p) throw new ApiError("NOT_FOUND", "Player not found.");
-    const vault = chain.enabled ? chain.vaultAccountId : null;
     return {
       playerId: p.player_id,
       displayName: p.display_name,
@@ -143,20 +164,6 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       loginMethod: u.loginMethod,
       identities: auth.identities(p.player_id).map((i) => ({ provider: i.provider, loginMethod: i.login_method, lastLoginAt: i.last_login_at })),
       activeRunId: p.active_run_id,
-      near: vault
-        ? {
-            mode: "custodial_vault",
-            accountId: vault,
-            provisioning: "shared_custodial_vault",
-            explanation:
-              "Your purchased resources are held by the game's custodial vault account on NEAR testnet and tracked per player in the game database. You have no private key; the server signs. Withdrawal is not available in this build.",
-          }
-        : {
-            mode: "none",
-            accountId: null,
-            provisioning: "not_configured",
-            explanation: "NEAR testnet is not configured on this server. Your resources are tracked only in the game ledger.",
-          },
       createdAt: p.created_at,
     };
   };
@@ -324,7 +331,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const env = parse(ActionEnvelopeSchema, req.body);
     if (env.action.type === "CREATE_PLAYER_LISTING" || env.action.type === "CANCEL_PLAYER_LISTING") {
       if (u.kind !== "registered") throw new ApiError("FORBIDDEN", "Sign in to create or manage a player market listing.");
-      if (!chain.enabled || h.state.chainMode !== "testnet") throw new ApiError("CHAIN_UNAVAILABLE", "Player listings are unavailable until this server has verified Testnet resource custody.");
+      if (!chain.enabled || h.state.chainMode !== "testnet") throw new ApiError("CHAIN_UNAVAILABLE", "Player listings aren't available in this region yet.");
       if (h.ownerId !== u.userId) throw new ApiError("FORBIDDEN", "This listing must belong to the signed-in player's city.");
     }
     const r = svc.act(h, env);
@@ -332,7 +339,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       req.log.info({ runId: h.runId, action: env.action.type, code: r.error!.code }, "action rejected");
       return reply.status(httpStatus(r.error!.code)).send({ ok: false, error: r.error, stateVersion: r.stateVersion });
     }
-    return { ok: true, stateVersion: r.stateVersion, events: r.events ?? [], result: r.result ?? {}, replayed: r.replayed, state: svc.publicState(h) };
+    return { ok: true, stateVersion: r.stateVersion, events: (r.events ?? []).map(playerEvent), result: playerValue(r.result ?? {}), replayed: r.replayed, state: svc.publicState(h) };
   };
   app.post("/api/game/actions", async (req, reply) => {
     const u = await requireUser(req);
@@ -343,13 +350,13 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const send = openSse(req, reply, originFor(req));
     const from = lastEventId(req);
     const missed = db.prepare("SELECT seq, event_json FROM events WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT 2000").all(h.runId, from) as { seq: number; event_json: string }[];
-    for (const m of missed) send("economy", JSON.parse(m.event_json), m.seq);
+    for (const m of missed) send("economy", playerEvent(JSON.parse(m.event_json) as EconomyEvent), m.seq);
     let lastSent = missed.length ? missed[missed.length - 1].seq : from;
     const unsubscribe = svc.subscribe(h, (msg) => {
       if (msg.kind === "event") {
         if (msg.event.seq <= lastSent) return; // never deliver an event twice on one connection
         lastSent = msg.event.seq;
-        send("economy", msg.event, msg.event.seq);
+        send("economy", playerEvent(msg.event), msg.event.seq);
       } else if (msg.kind === "state") send("state", msg.state);
       else send("tick", msg.frame);
     });
@@ -361,26 +368,32 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   };
   app.get("/api/game/events", async (req, reply) => streamRun(req, reply, activeRun(await requireUser(req))));
 
+  const playerTransaction = (trade: ReturnType<typeof svc.publicState>["trades"][number]) => ({
+    tradeId: trade.tradeId,
+    item: trade.item,
+    quantity: trade.quantity,
+    unitPriceCc: trade.unitPriceCc,
+    totalCc: trade.totalCc,
+    status: trade.status,
+    error: trade.error,
+    createdTick: trade.createdTick,
+    settledTick: trade.settledTick,
+  });
   app.get("/api/transactions", async (req) => {
     const h = activeRun(await requireUser(req));
-    return { ok: true, transactions: svc.publicState(h).trades };
+    return { ok: true, transactions: svc.publicState(h).trades.map(playerTransaction) };
   });
   app.get<{ Params: { id: string } }>("/api/transactions/:id", async (req) => {
     const h = activeRun(await requireUser(req));
     const t = svc.publicState(h).trades.find((x) => x.tradeId === req.params.id);
     if (!t) throw new ApiError("NOT_FOUND", "Transaction not found.");
-    return { ok: true, transaction: t };
+    return { ok: true, transaction: playerTransaction(t) };
   });
   app.get("/api/economy/history", async (req) => {
     const h = activeRun(await requireUser(req));
     const st = svc.publicState(h);
     return { ok: true, dayReports: st.dayReports, merchants: st.merchants.map((m) => ({ merchantId: m.merchantId, name: m.name, priceHistory: m.priceHistory })) };
   });
-  app.get("/api/account/near", async (req) => {
-    const u = await requireUser(req);
-    return { ok: true, near: profile(u).near, network: chain.enabled ? "testnet" : null, resourceContractId: chain.resourceContractId };
-  });
-
   // ------------------------------------------------------------ legacy run-scoped routes (kept for tools/tests)
   app.post("/api/runs", async (req) => {
     const u = await requireUser(req);
@@ -391,7 +404,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   });
   app.get("/api/runs", async (req) => {
     const u = await requireUser(req);
-    const rows = db.prepare("SELECT run_id, seed, scenario_id, mode, chain_mode, created_at, finished, score FROM runs WHERE owner_id = ? ORDER BY created_at DESC LIMIT 20").all(u.userId);
+    const rows = db.prepare("SELECT run_id, seed, scenario_id, mode, created_at, finished, score FROM runs WHERE owner_id = ? ORDER BY created_at DESC LIMIT 20").all(u.userId);
     return { ok: true, runs: rows };
   });
   app.get<{ Params: { id: string } }>("/api/runs/:id/state", async (req) => {
@@ -411,7 +424,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!r.ok) return reply.status(httpStatus(r.error!.code)).send({ ok: false, error: r.error, stateVersion: r.stateVersion });
     const state = svc.publicState(h);
     const quote = state.quotes.find((x) => x.quoteId === r.result?.quoteId) ?? null;
-    return { ok: true, stateVersion: r.stateVersion, events: r.events ?? [], result: { ...(r.result ?? {}), quote }, replayed: r.replayed, state };
+    return { ok: true, stateVersion: r.stateVersion, events: (r.events ?? []).map(playerEvent), result: playerValue({ ...(r.result ?? {}), quote }), replayed: r.replayed, state };
   });
   app.get<{ Params: { id: string } }>("/api/runs/:id/market", async (req) => {
     const u = await requireUser(req);
@@ -426,9 +439,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const eventsAfter = Math.max(0, Number(req.query.eventsAfter ?? 0) || 0);
     const rows = db.prepare("SELECT seq, entry_json FROM ledger WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?").all(req.params.id, cursor, limit) as { seq: number; entry_json: string }[];
     const ev = db.prepare("SELECT event_json FROM events WHERE run_id = ? AND seq > ? ORDER BY seq LIMIT ?").all(req.params.id, eventsAfter, limit) as { event_json: string }[];
-    let entries = rows.map((r) => JSON.parse(r.entry_json));
+    let entries: Record<string, unknown>[] = rows.map((r) => {
+      const entry = JSON.parse(r.entry_json) as Record<string, unknown>;
+      return { ...entry, source: entry.source === "testnet_transaction" ? "simulated_game" : entry.source, txHash: null };
+    });
     if (req.query.asset) entries = entries.filter((e) => e.asset === req.query.asset);
-    return { ok: true, entries, events: ev.map((e) => JSON.parse(e.event_json)), nextCursor: rows.length === limit ? rows[rows.length - 1].seq : null };
+    return { ok: true, entries, events: ev.map((e) => playerEvent(JSON.parse(e.event_json) as EconomyEvent)), nextCursor: rows.length === limit ? rows[rows.length - 1].seq : null };
   });
   app.get<{ Params: { id: string } }>("/api/runs/:id/events", async (req, reply) => {
     const u = await requireUser(req);
@@ -531,10 +547,46 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return { ok: true, ...snap, weekly2026: BRENT_DATASET.weekly2026 };
   });
 
-  // ------------------------------------------------------------ chain transparency
-  app.get("/api/chain/status", async () => {
+  // ------------------------------------------------------------ operator-only chain evidence
+  app.get<{ Querystring: { limit?: string; offset?: string } }>("/api/admin/chain-audit", async (req) => {
+    requireOperator(req);
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 100) || 100));
+    const requestedOffset = Number(req.query.offset ?? 0);
+    const offset = Number.isFinite(requestedOffset) ? Math.max(0, Math.min(2_147_483_647, Math.trunc(requestedOffset))) : 0;
+    const tradeRows = db.prepare("SELECT trade_id, merchant_id, token_id, amount, status, attempts, tx_hash, signer_id, last_error, updated_at FROM chain_jobs ORDER BY updated_at DESC LIMIT ? OFFSET ?").all(limit, offset) as {
+      trade_id: string; merchant_id: string; token_id: string; amount: string; status: string; attempts: number; tx_hash: string | null; signer_id: string | null; last_error: string | null; updated_at: string;
+    }[];
+    const listingRows = db.prepare("SELECT listing_id, kind, merchant_id, token_id, amount, unit_price_cc, status, attempts, tx_hash, signer_id, last_error, updated_at FROM marketplace_jobs ORDER BY updated_at DESC LIMIT ? OFFSET ?").all(limit, offset) as {
+      listing_id: string; kind: string; merchant_id: string | null; token_id: string; amount: string; unit_price_cc: number; status: string; attempts: number; tx_hash: string | null; signer_id: string | null; last_error: string | null; updated_at: string;
+    }[];
+    const exchangeEvents = db.prepare("SELECT seq, event_json, created_at FROM exchange_events ORDER BY seq DESC LIMIT ? OFFSET ?").all(limit, offset) as { seq: number; event_json: string; created_at: string }[];
+    const total = (table: "chain_jobs" | "marketplace_jobs" | "exchange_events") => Number((db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get() as { total: number }).total);
     const st = await chainStatus(chain);
-    lastChainHealth = !chain.enabled ? "disabled" : st.rpcReachable && st.contractDeployed ? "ok" : "degraded";
+    return {
+      ok: true,
+      audit: {
+        generatedAt: new Date().toISOString(),
+        pagination: {
+          resourceTrades: { offset, limit, total: total("chain_jobs") },
+          resourceListings: { offset, limit, total: total("marketplace_jobs") },
+          exchangeEvents: { offset, limit, total: total("exchange_events") },
+        },
+        resourceChain: { mode: chain.enabled ? "testnet" : "disabled", contractId: chain.resourceContractId, rpcReachable: st.rpcReachable, contractDeployed: st.contractDeployed, issues: st.issues },
+        resourceTrades: tradeRows.map((r) => ({ ...r, explorerUrl: r.tx_hash && chain.enabled ? `${chain.explorerTxBase}${r.tx_hash}` : null })),
+        resourceListings: listingRows.map((r) => ({ ...r, explorerUrl: r.tx_hash && chain.enabled ? `${chain.explorerTxBase}${r.tx_hash}` : null })),
+        exchangeEvents: exchangeEvents.map((r) => {
+          const event = JSON.parse(r.event_json) as { tick?: number; type?: string; explanation?: string; data?: Record<string, unknown> };
+          const txHash = typeof event.data?.txHash === "string" ? event.data.txHash : null;
+          return { seq: r.seq, tick: event.tick ?? null, type: event.type ?? "unknown", explanation: event.explanation ?? "", createdAt: r.created_at, txHash, explorerUrl: txHash && chain.enabled ? `${chain.explorerTxBase}${txHash}` : null };
+        }),
+        economy: deps.economy ? await deps.economy.auditEvidence(limit, offset) : null,
+      },
+    };
+  });
+
+  app.get("/api/chain/status", async (req) => {
+    requireOperator(req);
+    const st = await chainStatus(chain);
     return {
       ok: true,
       mode: chain.enabled ? "testnet" : "disabled",
@@ -562,9 +614,8 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     };
   });
   app.get("/api/chain/market-listings", async (req) => {
-    const u = await requireUser(req);
-    const h = activeRun(u);
-    const rows = db.prepare("SELECT listing_id, kind, merchant_id, status, tx_hash, signer_id, last_error FROM marketplace_jobs WHERE run_id = ? ORDER BY updated_at DESC").all(h.runId) as {
+    requireOperator(req);
+    const rows = db.prepare("SELECT listing_id, kind, merchant_id, status, tx_hash, signer_id, last_error FROM marketplace_jobs ORDER BY updated_at DESC LIMIT 200").all() as {
       listing_id: string; kind: string; merchant_id: string | null; status: string; tx_hash: string | null; signer_id: string | null; last_error: string | null;
     }[];
     return {
@@ -582,6 +633,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     };
   });
   app.get<{ Params: { hash: string }; Querystring: { sender?: string } }>("/api/chain/transfers/:hash", async (req) => {
+    requireOperator(req);
     const hash = req.params.hash;
     if (!/^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(hash)) throw new ApiError("VALIDATION_FAILED", "Not a base58 transaction hash.");
     if (!chain.enabled) return { ok: true, txHash: hash, status: "not_configured", explorerUrl: null, receiverId: null, signerId: null, detail: "Chain mode is disabled on this server." };
@@ -601,7 +653,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       dbOk = false;
     }
     if (!dbOk) reply.status(503);
-    return { ok: dbOk, db: dbOk ? "ok" : "error", chain: lastChainHealth, activeRuns: [...svc.runs.values()].filter((h) => h.running).length, version: API_VERSION };
+    return { ok: dbOk, db: dbOk ? "ok" : "error", activeRuns: [...svc.runs.values()].filter((h) => h.running).length, version: API_VERSION };
   });
 
   app.get("/api/config/public", async () => ({
@@ -626,7 +678,6 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     pausePolicy: `The world advances 1 tick/second while you are connected. With no live connection for ${AUTO_PAUSE_MS / 1000}s the city pauses and resumes exactly where you left it. The server never fast-forwards more than 5 s of missed time.`,
     offlinePolicy:
       "Leaving pauses your city: no fuel burns, no customer bills, no rent and no bankruptcy while you are away. Contracts resume mid-delivery when you return. Economy Lab simulations never touch your save.",
-    chainMode: chain.enabled ? "testnet" : "disabled",
     authModes: ["guest", ...(auth.supabase.providers.google || auth.supabase.googleClientId ? ["google"] : []), ...(auth.supabase.providers.email || auth.supabase.local.enabled ? ["email"] : [])],
     auth: {
       guest: true as const,

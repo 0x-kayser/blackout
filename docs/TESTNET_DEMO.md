@@ -54,14 +54,14 @@ Lessons from running it live, each now handled in code:
 
 | Check | Where |
 |---|---|
-| The accounts | MARKET → Power companies (each company's account link); ⚙︎ → Money (wallet, treasury, grid, world, every NPC) |
-| Transaction hashes | ⚙︎ → Money → Transactions; MARKET → Recent deals (escrow and confirmation links) |
-| Balances | ⚙︎ → Money shows "on NEAR" next to "in the game"; or `mt_balance_of` on the contract |
-| The treasury | ⚙︎ → Money → The treasury (`economy_info`): supply, buckets, what each has granted |
+| The accounts | Use the account IDs and contract views in this document; the player UI intentionally has no wallet screen. |
+| Transaction hashes | Use the verified evidence table below or the protected `GET /api/admin/chain-audit` endpoint on a configured server. |
+| Balances | Query `mt_balance_of` on the deployed contract, then compare with the operator audit response where applicable. |
+| The treasury | Query `economy_info` on the deployed contract; the player UI intentionally has no chain treasury screen. |
 | Autonomous decisions | MARKET → Power companies: each company's own reasoning; What happened; toasts when one buys from you |
 | A real purchase | buy fuel in MARKET; it settles in the next market batch (≤ 72 s) |
 | Fast-forward | MARKET → ⏩ Watch a week: the same engine and rules, seven days, a storm on day 2, your company included |
-| Ownership | ⚙︎ → Money → Your plants on NEAR: each plant an NFT with its own account |
+| Ownership | Query `nft_tokens_for_owner` on the deployed contract; no chain ownership details are shown during play. |
 
 Contract calls to try from the NEAR CLI (view, free): `economy_info {}`, `mt_balance_of {"account_id": "...",
 "token_id": "credit:vesper"}`, `power_order {"order_id": "..."}`, `grant {"grant_id": "start:<player>"}`,

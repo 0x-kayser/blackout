@@ -11,7 +11,6 @@ import { SimError, region, town } from "@blackout/sim";
 import { nowIso, type Db } from "./db.ts";
 import type { RegionHandle, RegionService } from "./region.ts";
 import { ApiError } from "./services.ts";
-import { npcAccounts } from "./settlement.ts";
 import type { EconomyService } from "./economy/service.ts";
 
 const TOWN_SEED = 20_261_109;
@@ -46,14 +45,8 @@ export class TownService {
   /* ---------------------------------------------------------------- views */
 
   view(viewer: string | null): TownView {
-    const eco = this.economy;
-    const accounts = eco?.live ? Object.fromEntries(Object.entries(eco.cfg.npcs).map(([k, v]) => [k, v.accountId])) : npcAccounts();
-    const v = town.toTownView(this.state, viewer, accounts);
-    if (v.companies && eco) {
-      for (const f of v.companies.firms) f.chainAccount = eco.live ? (eco.cfg.npcs[town.FIRM(f.firmId).chainName]?.accountId ?? null) : null;
-      for (const o of v.companies.orders) Object.assign(o, eco.orderTx(o.orderId));
-    }
-    return v;
+    // Player views contain only game balances and decisions; operator chain evidence is served separately.
+    return town.toTownView(this.state, viewer);
   }
 
   subscribe(viewer: string | null, fn: (v: TownView) => void): () => void {

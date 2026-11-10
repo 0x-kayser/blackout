@@ -9,11 +9,10 @@ people off and close. You decide what runs, what gets built, where, and with who
 > **Live game:** [blackout-production-c7fc.up.railway.app](https://blackout-production-c7fc.up.railway.app). Production currently offers guest play and Google sign-in. Email sign-in is not configured.
 >
 > **Economy and chain status:** Credits are fictional, non-redeemable game currency, and the simulation is
-> server-authoritative. Railway has a separate NEAR Testnet economy service configured. A Testnet contract and a
-> standalone run with 40 successful transactions are documented in [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md).
-> The public config reports `chainMode: disabled` for the NEP-245 resource-market adapter, so player resource
-> listings and those transfers are not active in the deployed game. Testnet evidence applies to the documented demo
-> flow; it is not proof that every live game interaction settles on chain.
+> server-authoritative. A separate power-economy contract and 40-transaction Testnet demo are documented in
+> [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md). A public Railway check on 2026-11-10 found the NEP-245
+> resource-market adapter disabled, so player resource listings and those transfers were not active in that
+> deployment. The standalone demo is not proof that a live gameplay interaction settles on chain.
 
 ## Play in production
 
@@ -68,7 +67,7 @@ its price is what it is. **What happened** tells the region's story, cause by ca
 | Prices from stock and recent demand | `stock factor × demand factor × margin`, recalculated every tick |
 | Flood the market and it gets cheap | Sell certificates and Lena's price falls for every player; buy gas and it rises for everyone |
 | A broke merchant closes until someone invests | Shops close when cash runs out; **Invest** reopens them and pays you a share of profits daily |
-| Items are NEP-245, one contract | Contract code and a Testnet demo are available. The live Railway public config reports `chainMode: disabled`, so the deployed player resource-market flow is not active. |
+| Items are NEP-245, one contract | Contract code and a Testnet demo are available. The Railway deployment check on 2026-11-10 found the player resource-market adapter disabled. |
 | Social/email login, no seed phrases, popups or gas | Production offers guest and Google sign-in. Email is off. Normal play does not ask for a wallet, seed phrase or gas. |
 | Pricing rules in one readable file, reasoning in a tooltip | [`merchantPricing.ts`](packages/sim/src/town/merchantPricing.ts); hover any price. Outside events live in [`news.ts`](packages/sim/src/town/news.ts) and show up in the same tooltip |
 | Fast-forward a week in a minute | **⏩ Watch a week** in MARKET: seven market days, four bot companies, 60 seconds |
@@ -96,6 +95,12 @@ breakdown at a rival's plant (supply drops and prices jump), or a fuel supplier'
 through the same physics and appears in **What happened** with its causes. It is seeded, so every challenge player
 lives through the same story.
 
+**Progress has a next step after the tutorial.** In a live region, the Career card stays visible with the next licence,
+delivered-energy progress, and the reliability target when one applies. Opening it shows every licence and the plant
+options each one unlocks. A second card opens this week's shared, seeded challenge and leaderboard; its scenario
+rotates weekly while the live company stays saved. Progress comes from operating the grid, not login streaks or missed-
+day penalties.
+
 ## The game
 * **Market (§6–7).** Pure deterministic clearing (`packages/sim/src/region/market.ts`): `GenerationOffer`s and
   `LoadBid`s, welfare-maximising min-cost flow over a radial network (so flows are exact DC flows), nodal prices from
@@ -117,20 +122,27 @@ lives through the same story.
 
 NEAR Testnet has no monetary value, and BLACKOUT credits cannot be redeemed. Railway's separate economy service is
 configured for Testnet; its supported settlement flows are distinct from the legacy NEP-245 resource-market adapter.
-The public game config currently reports `chainMode: disabled` for that adapter, which disables on-chain player
-resource listings and transfers in the deployed game. A successful standalone Testnet run should not be presented
-as proof that a particular public-game interaction settled on chain.
+The public Railway deployment check on 2026-11-10 found that adapter disabled, which meant on-chain player resource
+listings and transfers were unavailable there. The player-facing configuration no longer advertises chain mode.
+A successful standalone Testnet run should not be presented as proof that a particular public-game interaction
+settled on chain.
 
 Full write-ups: [architecture](docs/NEAR_ARCHITECTURE.md) · [economy model](docs/ECONOMY_MODEL.md) ·
 [wallets and treasury](docs/WALLET_AND_TREASURY.md) · [transaction flows](docs/TRANSACTION_FLOWS.md) ·
 [testnet demo](docs/TESTNET_DEMO.md).
+
+The player interface has no wallet, chain status, or transaction-verification screen. Operators can inspect actual
+configured settlement status and recorded transaction evidence through the protected `GET /api/admin/chain-audit?limit=100&offset=0`
+endpoint. It requires the server-side `ECONOMY_ADMIN_TOKEN` in an `x-admin-token` header; never put that token in the
+web client or a public issue. Advance `offset` by `limit` to page through the retained history. A disabled adapter or
+empty transaction log is reported as such, not as a successful on-chain trade.
 
 | Piece | Status |
 |---|---|---|
 | Testnet contract | [`vesper-econ.blackout-kay.testnet`](https://testnet.nearblocks.io/address/vesper-econ.blackout-kay.testnet) is used by the separately documented demo. |
 | Testnet evidence | [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) records a run on 2026-11-09 with 40 final transactions and explorer links. |
 | Railway economy service | Configured separately for NEAR Testnet; check transaction evidence before attributing a specific gameplay event to chain settlement. |
-| Live game resource adapter | Disabled in the current Railway config (`chainMode: disabled`). On-chain player resource listings and transfers are unavailable in the deployed game. |
+| Live game resource adapter | A public deployment check on 2026-11-10 found it disabled. Treat live player resource listings and transfers as unavailable until the protected operator audit confirms otherwise. |
 | Game credits | Fictional, non-redeemable credits. They are not cash or a promise of a token payout. |
 | Wallet UX | Guest and Google onboarding do not require an external wallet, seed phrase or gas prompt. Do not describe an account as self-custodied unless that behavior is implemented and verified. |
 | NEAR Intents | Not integrated; the project has no demonstrated transaction path that needs it. |

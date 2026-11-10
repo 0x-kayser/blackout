@@ -4,21 +4,22 @@
  * starts on its own and the first minute teaches by doing (§55–56).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { EconomyView, NodeId, PublicConfig, RegionEvent, RegionView, TechId } from '@blackout/shared'
+import type { NodeId, PublicConfig, RegionEvent, RegionView, TechId } from '@blackout/shared'
 import { api, BlackoutApiError, clearGuestUpgradeToken, guestUpgradeToken, startGuestSession } from '../api/client'
 import { currentSession, initSupabase, signOutProvider } from '../api/auth'
 import { bindAudioToPage, enableSound, playCue, setMusicMood, startMusic, stopMusic, unlockAudio, unlockOnFirstGesture, type Cue } from '../audio'
-import { regionApi, useRegion } from './api'
+import { regionApi, useRegion, type ChallengeInfo, type DeskView } from './api'
 import { World3D, type FocusCmd, type Selection, type ZoomLevel } from './scene/World3D'
 import { Dock, ModeSheet, type DockMode } from './ui/Dock'
 import { Inspector } from './ui/Inspector'
 import { PulseBar } from './ui/Pulse'
-import { Settings } from './ui/Settings'
+import { Settings, type SettingsTab } from './ui/Settings'
 import { Feed, Toasts, useNewEvents } from './ui/Story'
 import { CELEBRATE, Celebration, MissionBanner, NextMoveBar, missionFor, nextMove } from './ui/Guide'
 import { MarketSheet, MerchantInspector, NewsTicker, WatchAWeek, type Trade, type Invest } from './ui/Market'
 import { NameCompany } from './ui/Company'
 import { Title } from './ui/Title'
+import { LoopGoals } from './ui/Progression'
 import type { TownEvent } from '@blackout/shared'
 import './region.css'
 
@@ -39,7 +40,8 @@ const TOAST_TYPES = new Set(['BLACKOUT', 'PLANT_TRIPPED', 'PRICE_SPIKE', 'HEATWA
 export default function RegionApp() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [player, setPlayer] = useState<{ playerId: string; displayName: string; kind: string; companyNamed: boolean } | null>(null)
-  const [economy, setEconomy] = useState<EconomyView | null>(null)
+  const [desk, setDesk] = useState<DeskView | null>(null)
+  const [challengeInfo, setChallengeInfo] = useState<ChallengeInfo | null>(null)
   const [nameLater, setNameLater] = useState(() => {
     try {
       return sessionStorage.getItem('bo_name_later') === '1'
@@ -64,6 +66,7 @@ export default function RegionApp() {
   const [focus, setFocus] = useState<FocusCmd | null>(null)
   const [zoom, setZoom] = useState<ZoomLevel>('REGION')
   const [settings, setSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
   const [feed, setFeed] = useState(false)
   const [toasts, setToasts] = useState<RegionEvent[]>([])
   const [flash, setFlash] = useState<{ text: string; ok: boolean } | null>(null)
@@ -134,8 +137,8 @@ export default function RegionApp() {
       }
       setPlayer({ playerId: me.player.playerId, displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
       const r = await regionApi.live()
-      // a signed-in player's wallet is created (once) as soon as the game opens
-      regionApi.economy().then((x) => setEconomy(x.economy), () => undefined)
+      // Keep player setup server-side; only the game's power desk preferences reach the browser.
+      regionApi.desk().then((x) => setDesk(x.desk), () => undefined)
       setView(r.view)
       setRegionId(r.view.regionId)
     } catch (e) {
@@ -161,11 +164,19 @@ export default function RegionApp() {
   }, [boot, setView])
 
   // the music follows the grid: tense while the region is short of power or dark
-  // a guest's wallet is created once they finish the first minute: ask again at that moment
+  // The same server-side player setup is rechecked after the first-minute tutorial is complete.
   const onboarded = !!view?.onboarding.done
   useEffect(() => {
-    if (onboarded && player) regionApi.economy().then((x) => setEconomy(x.economy), () => undefined)
+    if (onboarded && player) regionApi.desk().then((x) => setDesk(x.desk), () => undefined)
   }, [onboarded, player?.playerId])
+
+  useEffect(() => {
+    let active = true
+    const refresh = () => regionApi.challenge().then((r) => active && setChallengeInfo(r.challenge), () => undefined)
+    void refresh()
+    const timer = setInterval(refresh, 5 * 60_000)
+    return () => { active = false; clearInterval(timer) }
+  }, [])
 
   const gridStatus = view?.pulse.status
   useEffect(() => setMusicMood(gridStatus === 'shortfall' || gridStatus === 'blackout' ? 'tense' : 'calm'), [gridStatus])
@@ -363,7 +374,8 @@ export default function RegionApp() {
         town={town}
         zoom={zoom}
       />
-      <PulseBar v={view} simple={simple} company={player?.companyNamed ? player.displayName : null} onCompany={() => setRenaming(true)} conn={conn} zoom={zoom} onSettings={() => setSettings(true)} onHome={() => { setSelection(null); setFocus({ kind: 'home', id: '', nonce: Date.now() }) }} sound={prefs.sound} onSound={() => setPrefs({ ...prefs, sound: !prefs.sound })} />
+      <PulseBar v={view} simple={simple} company={player?.companyNamed ? player.displayName : null} onCompany={() => setRenaming(true)} conn={conn} zoom={zoom} onSettings={() => { setSettingsTab('account'); setSettings(true) }} onHome={() => { setSelection(null); setFocus({ kind: 'home', id: '', nonce: Date.now() }) }} sound={prefs.sound} onSound={() => setPrefs({ ...prefs, sound: !prefs.sound })} />
+      {!simple && <LoopGoals v={view} challenge={challengeInfo} onCareer={() => { setSettingsTab('career'); setSettings(true) }} onChallenge={() => { setSettingsTab('challenge'); setSettings(true) }} />}
       {mission && <MissionBanner m={mission} />}
       {!simple && !mode && <NewsTicker town={town} onMerchant={(id) => select({ kind: 'merchant', id })} />}
       {celebrate && <Celebration text={celebrate} />}
@@ -390,7 +402,7 @@ export default function RegionApp() {
           <button className="close" onClick={() => setMode(null)} aria-label="Close">
             ×
           </button>
-          <MarketSheet v={view} town={town} trade={trade} onMerchant={(id) => select({ kind: 'merchant', id })} onWatch={() => setWatching(true)} onAutoFuel={(fuel, enabled) => void doAct({ type: 'SET_AUTO_FUEL', fuel, enabled })} economy={economy} onEconomy={setEconomy} />
+          <MarketSheet v={view} town={town} trade={trade} onMerchant={(id) => select({ kind: 'merchant', id })} onWatch={() => setWatching(true)} onAutoFuel={(fuel, enabled) => void doAct({ type: 'SET_AUTO_FUEL', fuel, enabled })} desk={desk} onDesk={setDesk} />
         </div>
       )}
       {watching && <WatchAWeek onClose={() => setWatching(false)} />}
@@ -418,7 +430,7 @@ export default function RegionApp() {
       {view.ended && (
         <div className="ended">
           <b>Challenge complete · score {view.scores.score.toLocaleString('en-US')}</b>
-          <button className="btn primary small" onClick={() => setSettings(true)}>
+          <button className="btn primary small" onClick={() => { setSettingsTab('challenge'); setSettings(true) }}>
             See the leaderboard
           </button>
         </div>
@@ -426,6 +438,7 @@ export default function RegionApp() {
       {settings && (
         <Settings
           v={view}
+          initialTab={settingsTab}
           onClose={() => setSettings(false)}
           config={config}
           player={player}

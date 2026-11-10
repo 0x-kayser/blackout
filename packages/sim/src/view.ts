@@ -3,7 +3,7 @@
  * that would reveal the future (there is no pre-rolled schedule to leak: waves are
  * rolled when they start). Every number the UI shows comes from here.
  */
-import { CO2_MG_PER_ML, PERMIT_MG, ccForEnergy, type ChainInfo, type GameStatePublic } from "@blackout/shared";
+import { CO2_MG_PER_ML, PERMIT_MG, ccForEnergy, type GameStatePublic } from "@blackout/shared";
 import { BRENT_DATASET, GRID, OWNERS, OIL_PASS_THROUGH_BPS, SCENARIOS, SOLAR_PROFILE_BPS, TIMING, UPGRADES, brentWeekForDay } from "./config.ts";
 import { pressureLevel, upgradeCostCc } from "./engine.ts";
 import { describeEffects, worldModifiers } from "./world-events/engine.ts";
@@ -23,19 +23,9 @@ import type { SimState } from "./state.ts";
 export interface ViewOptions {
   paused?: boolean;
   pauseReason?: GameStatePublic["clock"]["pauseReason"];
-  chain?: ChainInfo;
-  explorerTxBase?: string | null;
   /** Limit history arrays to keep payloads small. */
   maxRequests?: number;
 }
-
-const DEFAULT_CHAIN: ChainInfo = {
-  mode: "disabled",
-  network: null,
-  resourceContractId: null,
-  vaultAccountId: null,
-  note: "This guest city uses the game ledger and is not connected to NEAR.",
-};
 
 const pubEvent = (s: SimState, e: WorldEventState) => ({
   eventId: e.eventId,
@@ -80,7 +70,7 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
       scenarioVersion: s.scenarioVersion,
       mode: s.mode,
       stateVersion: s.stateVersion,
-      chainMode: s.chainMode,
+      playerListingsEnabled: s.chainMode === "testnet",
       challengeWeek: s.challengeWeek ?? null,
     },
     clock: {
@@ -273,7 +263,6 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
       name: m.name,
       style: m.style,
       policyId: m.policyId,
-      accountId: m.accountId,
       status: m.status,
       stockMl: merchantStock(s, m),
       reservedMl: Object.values(s.trades)
@@ -292,7 +281,6 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
     rival: {
       rivalId: s.rival.rivalId,
       name: s.rival.name,
-      accountId: s.rival.accountId,
       ratedW: s.rival.ratedW,
       assignedW: Object.values(s.contracts).filter((c) => c.provider === "rival" && c.status === "active").reduce((a, c) => a + c.allottedW, 0),
       fuelMl: bal(s, "fuel_ml", ACC.rival),
@@ -368,18 +356,12 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
         unitPriceCc: t.unitPriceCc,
         totalCc: t.totalCc,
         status: t.status,
-        chainStatus: t.chainStatus,
-        tokenId: t.tokenId,
-        tokenAmount: t.tokenAmount,
-        txHash: t.txHash,
-        explorerUrl: t.txHash && opts.explorerTxBase ? `${opts.explorerTxBase}${t.txHash}` : null,
-        error: t.error,
+        error: t.error ? "The purchase could not be completed." : null,
         createdTick: t.createdTick,
         settledTick: t.settledTick,
       })),
     marketListings: (s.marketListings ?? []).map((listing) => ({
       listingId: listing.listingId,
-      tokenId: "DIESEL_100ML" as const,
       quantityMl: listing.quantityMl,
       unitPriceCcPerL: listing.unitPriceCcPerL,
       totalCc: listing.totalCc,
@@ -390,7 +372,7 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
       decisionReasons: listing.status === "purchase_pending" || listing.status === "filled"
         ? (listing.decisionReasons ?? playerListingDecisions(s, listing))
         : playerListingDecisions(s, listing),
-      error: listing.error,
+      error: listing.error ? "This listing couldn't be completed; the fuel has been returned." : null,
     })),
     dayReports: s.dayReports.map((r) => ({ ...r })),
     campaign: campaignSummary(s),
@@ -409,7 +391,6 @@ export function toPublic(s: SimState, opts: ViewOptions = {}): GameStatePublic {
     },
     goals: goalsForView(s),
     company: companyView(s),
-    chain: opts.chain ?? DEFAULT_CHAIN,
     upgradesCatalog: UPGRADES.map((u) => ({ ...u, baseCostCc: u.costCc, costCc: upgradeCostCc(s, u.upgradeId, u.costCc), owned: s.player.upgradesOwned.includes(u.upgradeId) })),
     lastEventSeq: s.eventSeq,
   };

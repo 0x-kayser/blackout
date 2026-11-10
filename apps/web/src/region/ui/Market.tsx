@@ -1,13 +1,13 @@
 /**
- * Vesper Market on screen: every merchant's wallet, stock and prices, why each price is what it is, every trade as it
+ * Vesper Market on screen: every merchant's finances, stock and prices, why each price is what it is, every trade as it
  * happens, and a week of trading you can watch in a minute. Nothing here happens out of sight.
  */
 import { useEffect, useRef, useState } from 'react'
-import type { EconomyView, FastForwardResult, ItemId, MerchantItemView, MerchantView, PriceWhy, RegionView, TownView } from '@blackout/shared'
+import type { FastForwardResult, ItemId, MerchantItemView, MerchantView, PriceWhy, RegionView, TownView } from '@blackout/shared'
 import { CompaniesSection } from './Companies'
 import { PlantSales } from './PlantSales'
 import { ITEMS, ITEM_IDS } from '@blackout/shared'
-import { regionApi } from '../api'
+import { regionApi, type DeskView } from '../api'
 import { credits } from '../format'
 import { Bar, Section, Spark, Stat } from './Bits'
 
@@ -152,15 +152,10 @@ export function MerchantInspector({ m, v, town, trade, invest }: { m: MerchantVi
       </p>
       <p className={`state-pill ${m.open ? 'ok' : 'crisis'}`}>{m.open ? 'open' : 'closed'}</p>
       {!m.open && <p className="warn-line">{m.closedReason}. Nobody can trade here until someone invests {credits(m.reopenCc)}.</p>}
-      <Section title="Wallet">
+      <Section title="Business finances">
         <Stat label="Cash" value={credits(m.cashCc)} tone={m.cashCc < m.fixedCcPerDay ? 'crisis' : undefined} />
         <Stat label="Costs a day" value={credits(m.fixedCcPerDay)} />
         <Stat label="Since the day began" value={credits(m.profitCcToday)} tone={m.profitCcToday >= 0 ? 'ok' : 'crisis'} />
-        {m.chainAccount && (
-          <a className="fine" href={`https://testnet.nearblocks.io/address/${m.chainAccount}`} target="_blank" rel="noreferrer">
-            {m.chainAccount} ↗
-          </a>
-        )}
       </Section>
       <Section title="Trade">
         {m.items.map((it) => (
@@ -239,7 +234,7 @@ export function NewsTicker({ town, onMerchant }: { town: TownView | null; onMerc
   )
 }
 
-export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, economy, onEconomy }: { v: RegionView; town: TownView | null; trade: Trade; onMerchant: (id: string) => void; onWatch: () => void; onAutoFuel: (fuel: 'gas' | 'diesel', on: boolean) => void; economy: EconomyView | null; onEconomy: (e: EconomyView) => void }) {
+export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, desk, onDesk }: { v: RegionView; town: TownView | null; trade: Trade; onMerchant: (id: string) => void; onWatch: () => void; onAutoFuel: (fuel: 'gas' | 'diesel', on: boolean) => void; desk: DeskView | null; onDesk: (d: DeskView) => void }) {
   const { busy, msg, run } = useBusy()
   if (!town) return <p className="fine">Opening the market…</p>
   return (
@@ -268,7 +263,7 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, e
       <button className="btn primary wide" onClick={onWatch}>
         ⏩ Watch a week of trading in a minute
       </button>
-      <CompaniesSection c={town.companies} economy={economy} onEconomy={onEconomy} />
+      <CompaniesSection c={town.companies} desk={desk} onDesk={onDesk} />
       <PlantSales v={v} />
       <Section title="What you hold">
         <Inventory v={v} />

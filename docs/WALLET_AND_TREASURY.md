@@ -1,5 +1,9 @@
 # Wallets and the treasury
 
+> **Operator reference:** This describes the separate Testnet economy service and its documented demo. BLACKOUT no
+> longer shows wallet keys, custody controls, or chain balances in the player interface. Former Money-screen
+> export/leave instructions are retired; transaction evidence is available only through protected operator routes.
+
 ## The treasury
 
 `init_economy` (contract, `economy.rs`) runs once. It mints the entire supply of `credit:vesper` to the treasury
@@ -24,12 +28,12 @@ life of the contract. Every grant and issue emits an event and is readable (`gra
 
 **Growth.** Player capital covers 500 companies; past that, the owner can `issue` into `players` within the lifetime
 cap (a deliberate, logged decision). The grid and world floats are released in tranches when they fall under 30% of a
-tranche (`EconomyService.topUpFloats`); if a bucket runs dry, settlement of player earnings waits and the Money tab
-says so, rather than credits appearing from nowhere.
+tranche (`EconomyService.topUpFloats`); if a bucket runs dry, settlement of player earnings waits rather than credits
+appearing from nowhere.
 
 ## Player wallets
 
-When a player opens the game (`GET /api/economy` → `EconomyService.ensureWallet`) — signed in, or a guest who has
+When a player opens the power desk (`GET /api/economy/desk` calls `EconomyService.view` server-side) — signed in, or a guest who has
 finished their first minute (a bare page load never creates an account):
 
 1. If they have a wallet, it is returned: refreshes, retries and second tabs never create another.
@@ -51,12 +55,11 @@ once per player in the database (`account:<player>` and `grant:start:<player>` a
 for that player's own actions. The contract also lets the operator settle for player wallets while they are in game
 custody, the same way a bank settles card payments; it cannot touch accounts outside that custody. Self-custody:
 `release_to_owner` (contract, callable by the wallet itself, relayable gas-free through `POST /api/relay`) removes
-the operator's power over that account forever. **Key export:** ⚙︎ → Money → *Back up my wallet key* shows the key once
-after a confirmation (owner only, never logged or cached, at most 3 times an hour), to keep as a backup or to open
-the account in any NEAR testnet wallet.
+the operator's power over that account forever. The former in-game key-export control and route have been removed;
+the documented Testnet demo used an operator-only procedure and should not be presented as a player feature.
 
-**Leaving game custody** (⚙︎ → Money → *Take my money and leave game custody*, type LEAVE): the company's cash is set
-aside at once; once nothing else is settling to the wallet, one batch brings it to exactly that amount; the
+**Leaving game custody** (operator/demo procedure only; no player-facing control): the company's cash is set aside at
+once; once nothing else is settling to the wallet, one batch brings it to exactly that amount; the
 player-parent sends it 0.05 NEAR for its own fee; then **the wallet itself** calls `release_to_owner`. From then on
 the contract refuses the operator any debit or plant move on that account, and the game settles nothing to it; the
 company plays on with game money. If the batch is refused, the cash goes back to the company. Live on testnet:

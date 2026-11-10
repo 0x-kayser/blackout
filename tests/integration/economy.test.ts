@@ -368,11 +368,13 @@ describe("NPC companies buying power from players on chain", () => {
     expect(paidActions.n).toBe(1);
     // an NPC also bought from another NPC (the gas plant), on chain
     expect(chain.calls.some((c) => c.method === "power_order_place" && c.args.seller_id === "northwind.game.testnet")).toBe(true);
-    // the explorer links in the desk are the real transaction hashes
+    // player trade views omit chain receipts; the operator audit retains them
     const v = built.tsvc.view(p.userId);
     const mine = v.companies!.orders.find((x) => x.orderId === o.orderId)!;
-    expect(mine.txHash).toMatch(/^FAKE/);
-    expect(mine.confirmTxHash).toMatch(/^FAKE/);
+    expect(mine).not.toHaveProperty("txHash");
+    expect(mine).not.toHaveProperty("confirmTxHash");
+    const audit = await built.economy.auditEvidence();
+    expect(audit.operations.some((op) => op.txHash?.startsWith("FAKE"))).toBe(true);
     expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
   });
 

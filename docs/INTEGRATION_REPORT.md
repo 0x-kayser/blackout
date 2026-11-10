@@ -2,13 +2,16 @@
 
 What changed in the end-to-end pass, what was verified, and what is still blocked.
 
+> This is a dated 2026-11-08 implementation snapshot. On 2026-11-10 the player-facing chain verification panel was
+> removed; current judge evidence is available only through the protected operator audit endpoints.
+
 ## Implemented
 | Area | Result |
 |---|---|
 | Continuous world | No mandatory days, morning market or settlement screen. 24-game-hour day/night is environmental (light, solar, evening peak). Background settlement at each rollover. Market, upgrades, servicing, tariffs always available. Contracts cross midnight. Difficulty from progress (tutorial waves → 2 requests → heat + rival → up to 3 requests with ≥10 kW). |
 | Auth | Guest sessions; Supabase Google/email via PKCE with local JWKS verification; one player per identity; guest → account upgrade without overwriting; logout; no X button (deferred with reason). |
 | Saves | Player → one active city (`/api/game/start` resumes). Checkpoints every 5 s + on every action/wave/day; deterministic recovery; offline = paused (no fuel/bills/bankruptcy), "welcome back" banner. |
-| Frontend | Mock transport deleted. Real client (`src/api/client.ts`), SSE with resume + dedupe, idempotent actions with per-control in-flight guard. Canvas isometric city: lit/dark windows, outage pings, animated cables (yours teal, rival red), generator smoke/heat, solar/battery/second diesel appear when bought, locked districts, day/night sky, street lamps, event effects (+credits, power bursts, failures), zoom/pan/pinch, tap targets. HUD, power plant dock, request/contract dock with counter slider, Market (quotes with expiry, reasons, sparklines, pending states), Equipment & tariffs, Expansion, Business (P&L, customers, rival, news), Economy Lab (seeded compare, 8 charts, 60 s playback, downloadable ledger), Verify on NEAR, Profile/settings (name, sound, reduced motion, upgrade, new city, logout), How to play. |
+| Frontend | Mock transport deleted. Real client (`src/api/client.ts`), SSE with resume + dedupe, idempotent actions with per-control in-flight guard. Canvas isometric city: lit/dark windows, outage pings, animated cables (yours teal, rival red), generator smoke/heat, solar/battery/second diesel appear when bought, locked districts, day/night sky, street lamps, event effects (+credits, power bursts, failures), zoom/pan/pinch, tap targets. HUD, power plant dock, request/contract dock with counter slider, Market (quotes with expiry, reasons, sparklines, pending states), Equipment & tariffs, Expansion, Business (P&L, customers, rival, news), Economy Lab (seeded compare, 8 charts, 60 s playback, downloadable ledger), operator-only chain audit API, Profile/settings (name, sound, reduced motion, upgrade, new city, logout), How to play. |
 | Oil data | Cached weekly Brent 2026 (EIA via FRED) with provenance; 50% pass-through formula; illustrative scenarios kept and labelled. |
 | Deployment | Single-origin container (Dockerfile), Render blueprint, health check, structured logs with request ids. |
 

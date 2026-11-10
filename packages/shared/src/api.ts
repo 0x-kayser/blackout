@@ -252,7 +252,6 @@ export const MarketListingEvidenceResponseSchema = z.object({
 export const HealthResponseSchema = z.object({
   ok: z.boolean(),
   db: z.enum(["ok", "error"]),
-  chain: z.enum(["disabled", "ok", "degraded"]),
   activeRuns: z.number().int(),
   version: z.string(),
 });
@@ -273,7 +272,6 @@ export const PublicConfigSchema = z.object({
     day1SkipsMorning: z.boolean(),
   }),
   pausePolicy: z.string(),
-  chainMode: ChainModeSchema,
   authModes: z.array(z.string()),
   /** Present only when the server has a Supabase project configured. The anon key is public by design. */
   auth: z.object({
@@ -304,12 +302,6 @@ export const PlayerProfileSchema = z.object({
   loginMethod: z.string(),
   identities: z.array(z.object({ provider: z.string(), loginMethod: z.string().nullable(), lastLoginAt: z.string() })),
   activeRunId: z.string().nullable(),
-  near: z.object({
-    mode: z.enum(["custodial_vault", "none"]),
-    accountId: z.string().nullable(),
-    provisioning: z.string(),
-    explanation: z.string(),
-  }),
   createdAt: z.string(),
 });
 export const MeResponseSchema = z.object({ ok: z.literal(true), player: PlayerProfileSchema });

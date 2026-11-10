@@ -1,7 +1,6 @@
 /**
  * The first page. A skyline at dusk whose districts black out and come back, the name, one line of what you do, and
- * two ways in: play now as a guest, or sign in (Google or email) so the company follows you to any device. Neither
- * needs a wallet, a seed phrase or a fee: NEAR runs underneath and never asks you anything.
+ * two ways in: play now as a guest, or sign in (Google or email) so the company follows you to any device.
  */
 import { useMemo, useState } from 'react'
 import type { PublicConfig } from '@blackout/shared'
@@ -76,7 +75,7 @@ export function Title(p: TitleProps) {
           BLACK<span>OUT</span>
         </h1>
         <p className="title-tag">Run a power company. Keep a region’s lights on. Trade in a market that remembers what everyone did.</p>
-        {!guestPlay && <p className="title-step">Sign in to start. Your company gets its own wallet and ₡300,000 to build with.</p>}
+        {!guestPlay && <p className="title-step">Sign in to start. Your company begins with ₡300,000 to build with.</p>}
 
         {mode === 'start' ? (
           <div className="title-actions">
@@ -103,9 +102,9 @@ export function Title(p: TitleProps) {
         {err && <p className="warn">{err}</p>}
 
         <ul className="title-promises">
-          <li>No wallet app</li>
-          <li>No seed phrase</li>
-          <li>No fees</li>
+          <li>Start as a guest</li>
+          <li>Save your company to your account</li>
+          <li>No fee to play</li>
         </ul>
         <label className="title-music">
           <input type="checkbox" checked={p.music} onChange={(e) => p.onMusic(e.target.checked)} /> ♪ Music
