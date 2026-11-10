@@ -627,7 +627,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     offlinePolicy:
       "Leaving pauses your city: no fuel burns, no customer bills, no rent and no bankruptcy while you are away. Contracts resume mid-delivery when you return. Economy Lab simulations never touch your save.",
     chainMode: chain.enabled ? "testnet" : "disabled",
-    authModes: ["guest", ...(auth.supabase.providers.google ? ["google"] : []), ...(auth.supabase.providers.email || auth.supabase.local.enabled ? ["email"] : [])],
+    authModes: ["guest", ...(auth.supabase.providers.google || auth.supabase.googleClientId ? ["google"] : []), ...(auth.supabase.providers.email || auth.supabase.local.enabled ? ["email"] : [])],
     auth: {
       guest: true as const,
       supabaseUrl: auth.supabase.enabled ? auth.supabase.url : null,
