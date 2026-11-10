@@ -1,8 +1,7 @@
 /**
- * Google / email sign-in via Supabase Auth (PKCE). Loaded only when the server advertises a
- * Supabase project in /api/config/public; otherwise those buttons are not rendered at all.
- * We never see or store passwords. Email sign-in sends a link AND a 6-digit code: the link works
- * in the same browser, the code works anywhere (another device, an in-app browser).
+ * Authentication helpers. Google can use direct Google Identity Services or Supabase Auth
+ * (PKCE); email uses Supabase magic links/codes or the local email-code provider. We never
+ * see or store passwords. The 6-digit email code works across devices and in-app browsers.
  */
 import type { SupabaseClient, Session } from '@supabase/supabase-js'
 import type { PublicConfig } from './client'

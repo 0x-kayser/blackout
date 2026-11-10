@@ -120,13 +120,17 @@ export default function RegionApp() {
       }
       setEntry(false)
       if (me.player.kind === 'registered' && guestUpgradeToken()) {
-        try {
-          me = await api.linkGuest(guestUpgradeToken())
-        } catch {
-          /* this account already had a save: the guest one stays put */
-        } finally {
-          clearGuestUpgradeToken()
+        // Supabase creates a separate registered identity and needs the guest save linked.
+        // Direct Google/local email upgrades the guest player in place, so linking it again
+        // would send an invalid request and is unnecessary.
+        if (me.player.identities.some((identity) => identity.provider === 'supabase')) {
+          try {
+            me = await api.linkGuest(guestUpgradeToken())
+          } catch {
+            /* this account already had a save: the guest one stays put */
+          }
         }
+        clearGuestUpgradeToken()
       }
       setPlayer({ playerId: me.player.playerId, displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
       const r = await regionApi.live()

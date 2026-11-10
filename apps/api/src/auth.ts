@@ -1,13 +1,14 @@
 /**
  * Authentication and player identity.
  *
- *  - Guest: POST /api/session/start creates a guest player + an opaque 256-bit token
- *    (only sha256(token) is stored), sent as HTTP-only cookie or bearer.
- *  - Google / email: handled by Supabase Auth in the browser (PKCE). The browser sends the
- *    Supabase access token as `Authorization: Bearer <jwt>`. We verify it locally against the
- *    project's JWKS (`<SUPABASE_URL>/auth/v1/.well-known/jwks.json`) with issuer and audience
- *    checks, then map (provider="supabase", subject=sub) to exactly one player.
- *    We never store passwords; email sign-in is Supabase magic link / OTP.
+ *  - Guest: POST /api/session/start creates a player + opaque 256-bit session token
+ *    (only sha256(token) is stored), sent as an HTTP-only cookie.
+ *  - Direct Google: Google Identity Services sends an ID token to this server, which verifies
+ *    it against Google's JWKS and maps the stable subject to exactly one player.
+ *  - Supabase: the browser sends its access token as `Authorization: Bearer <jwt>`. We verify it
+ *    against the project's JWKS and map (provider="supabase", subject=sub) to one player.
+ *    We never store passwords; email sign-in is handled by Supabase magic link / OTP or the
+ *    configured local email-code provider.
  *  - The frontend never supplies a player id; it is always derived from a verified credential.
  */
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
@@ -24,6 +25,7 @@ export interface AuthedUser {
   /** Internal player id (also the run owner id). */
   userId: string;
   sessionId: string;
+  /** Credential transport: cookie-backed session or a Supabase bearer token. */
   provider: "guest" | "supabase";
   kind: "guest" | "registered";
   loginMethod: string;
@@ -277,10 +279,10 @@ export class AuthService {
 
   guestFromToken(t: string): AuthedUser | null {
     const row = this.db
-      .prepare("SELECT s.session_id, s.user_id, s.expires_at, p.kind FROM sessions s JOIN players p ON p.player_id = s.user_id WHERE s.token_hash = ?")
-      .get(hash(t)) as { session_id: string; user_id: string; expires_at: string; kind: "guest" | "registered" } | undefined;
+      .prepare("SELECT s.session_id, s.user_id, s.expires_at, p.kind, COALESCE((SELECT ai.login_method FROM auth_identities ai WHERE ai.player_id = p.player_id ORDER BY ai.last_login_at DESC, ai.created_at DESC LIMIT 1), CASE WHEN p.kind = 'registered' THEN 'email' ELSE 'guest' END) AS login_method FROM sessions s JOIN players p ON p.player_id = s.user_id WHERE s.token_hash = ?")
+      .get(hash(t)) as { session_id: string; user_id: string; expires_at: string; kind: "guest" | "registered"; login_method: string } | undefined;
     if (!row || row.expires_at < nowIso()) return null;
-    return { userId: row.user_id, sessionId: row.session_id, provider: "guest", kind: row.kind, loginMethod: row.kind === "registered" ? "email" : "guest" };
+    return { userId: row.user_id, sessionId: row.session_id, provider: "guest", kind: row.kind, loginMethod: row.login_method };
   }
 
   /** Resolves the caller from a guest token or a Supabase JWT. Returns null if neither verifies. */

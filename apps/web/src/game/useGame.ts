@@ -116,19 +116,19 @@ export function useGame() {
       try {
         const me = await api.me()
         setPlayer(me.player)
-        // a guest who just signed in with Google/email: carry the guest city over automatically
-        // (the server finds it from this browser's guest cookie; the stored token is only a fallback)
-        if (me.player.kind === 'registered' && !me.player.activeRunId) {
+        // Supabase sign-in creates a separate player, so link the guest city to it. Direct Google
+        // and local email sign-in upgrade the guest player in place and need no second link call.
+        const guestToken = guestUpgradeToken()
+        if (me.player.kind === 'registered' && !me.player.activeRunId && guestToken && me.player.identities.some((identity) => identity.provider === 'supabase')) {
           try {
-            const linked = await api.linkGuest(guestUpgradeToken())
+            const linked = await api.linkGuest(guestToken)
             setPlayer(linked.player)
             if (linked.player.activeRunId) toast('Signed in. Your city is saved to your account.', 'good')
           } catch (e) {
             if (e instanceof BlackoutApiError && e.code === 'ACCOUNT_EXISTS') toast('This account already had a city; your guest city was left untouched.', 'info')
-          } finally {
-            clearGuestUpgradeToken()
           }
         }
+        if (me.player.kind === 'registered') clearGuestUpgradeToken()
       } catch (e) {
         if (!(e instanceof BlackoutApiError && e.code === 'UNAUTHORIZED')) throw e
         setPlayer(null)

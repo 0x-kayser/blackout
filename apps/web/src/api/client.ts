@@ -1,8 +1,8 @@
 /**
  * The single client boundary between the UI and the authoritative game server.
  * - Same-origin `/api` (Vite proxies it in dev; the API serves this app in prod).
- * - Auth: guest = HTTP-only cookie set by the server; Google/email = Supabase access token
- *   sent as a bearer header (and as ?token= for the SSE stream, which cannot set headers).
+ * - Auth: guests and direct Google/local email use HTTP-only server cookies; Supabase Google/email
+ *   uses an access token sent as a bearer header. SSE streams use ?token= when bearer auth applies.
  * - Every action carries a fresh idempotency key; retries of the same intent reuse it.
  * - The UI never computes prices, capacity, payments or outcomes: it renders GameStatePublic
  *   and animates EconomyEvents from the server.
