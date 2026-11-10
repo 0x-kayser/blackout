@@ -16,7 +16,8 @@ RUN useradd --create-home --uid 10001 blackout \
     && mkdir -p /data \
     && chown blackout /data
 COPY --from=build --chown=blackout /app /app
-USER blackout
+COPY docker-entrypoint.sh /usr/local/bin/blackout-entrypoint
+RUN chmod 0755 /usr/local/bin/blackout-entrypoint
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8787 \
@@ -26,4 +27,5 @@ ENV NODE_ENV=production \
     TRUST_PROXY=true
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+ENTRYPOINT ["/usr/local/bin/blackout-entrypoint"]
 CMD ["node_modules/.bin/tsx", "apps/api/src/server.ts"]
