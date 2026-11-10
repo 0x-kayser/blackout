@@ -3,7 +3,7 @@
  * happens, and a week of trading you can watch in a minute. Nothing here happens out of sight.
  */
 import { useEffect, useRef, useState } from 'react'
-import type { FastForwardResult, ItemId, MerchantItemView, MerchantView, PriceWhy, RegionView, TownView } from '@blackout/shared'
+import type { FastForwardResult, InvestQuote, ItemId, MerchantItemView, MerchantView, PriceWhy, RegionView, TownView, TradeQuote } from '@blackout/shared'
 import { CompaniesSection } from './Companies'
 import { PlantSales } from './PlantSales'
 import { ITEMS, ITEM_IDS } from '@blackout/shared'
@@ -88,17 +88,51 @@ function useBusy() {
     msg,
     run: async (p: Promise<{ ok: boolean; message: string }>) => {
       setBusy(true)
-      const r = await p
-      setMsg({ ok: r.ok, text: r.message })
-      setBusy(false)
+      try {
+        const r = await p
+        setMsg({ ok: r.ok, text: r.message })
+        return r.ok
+      } catch (e) {
+        setMsg({ ok: false, text: (e as Error).message || 'The action could not be completed. Try again.' })
+        return false
+      } finally {
+        setBusy(false)
+      }
     },
   }
 }
 
 /** One item at one merchant: stock, prices with reasons, buy and sell buttons. */
-function ItemRow({ m, it, v, trade, busy, run }: { m: MerchantView; it: MerchantItemView; v: RegionView; trade: Trade; busy: boolean; run: (p: Promise<{ ok: boolean; message: string }>) => void }) {
+function ItemRow({ m, it, v, trade, busy, run }: { m: MerchantView; it: MerchantItemView; v: RegionView; trade: Trade; busy: boolean; run: (p: Promise<{ ok: boolean; message: string }>) => Promise<boolean> }) {
   const mine = held(v, it.item)
   const lots = LOTS[it.item]
+  const [quantity, setQuantity] = useState(lots[0] ?? 1)
+  const [quote, setQuote] = useState<TradeQuote | null>(null)
+  const [side, setSide] = useState<'buy' | 'sell' | null>(null)
+  const [quoting, setQuoting] = useState(false)
+  const [quoteError, setQuoteError] = useState<string | null>(null)
+  const review = async (nextSide: 'buy' | 'sell', qty = quantity) => {
+    setQuoting(true)
+    setQuoteError(null)
+    setQuote(null)
+    setSide(nextSide)
+    try {
+      const result = await regionApi.tradeQuote(m.merchantId, it.item, nextSide, Math.max(1, Math.floor(qty)))
+      setQuote(result.quote)
+      setQuantity(Math.max(1, Math.floor(qty)))
+    } catch (e) {
+      setQuoteError((e as Error).message)
+    } finally {
+      setQuoting(false)
+    }
+  }
+  const confirm = async () => {
+    if (!side || !quote?.canTrade) return
+    if (await run(trade(m.merchantId, it.item, side, quote.quantity))) {
+      setQuote(null)
+      setSide(null)
+    }
+  }
   return (
     <div className="item-row">
       <div className="item-head">
@@ -120,19 +154,36 @@ function ItemRow({ m, it, v, trade, busy, run }: { m: MerchantView; it: Merchant
         Stock {it.stock.toLocaleString('en-US')} {ITEMS[it.item].units} · target {it.target.toLocaleString('en-US')} · you hold {mine.toLocaleString('en-US')}
       </small>
       {it.history.length > 2 && <Spark values={it.history} height={22} tone="amber" />}
-      <div className="row">
-        {it.askCc !== null &&
-          lots.map((q) => (
-            <button key={`b${q}`} className="btn small" disabled={busy || !m.open || it.stock < q} onClick={() => run(trade(m.merchantId, it.item, 'buy', q))}>
-              Buy {q.toLocaleString('en-US')}
-            </button>
-          ))}
-        {it.bidCc !== null && mine > 0 && (
-          <button className="btn small primary" disabled={busy || !m.open} onClick={() => run(trade(m.merchantId, it.item, 'sell', Math.min(mine, it.target * 4 - it.stock)))}>
-            Sell all {Math.min(mine, it.target * 4 - it.stock).toLocaleString('en-US')} · ~{credits(Math.min(mine, it.target * 4 - it.stock) * it.bidCc)}
-          </button>
-        )}
+      <div className="trade-controls">
+        <label className="trade-quantity">
+          Quantity ({ITEMS[it.item].units})
+          <input type="number" min={1} max={10_000_000} step={1} value={quantity} onChange={(e) => { setQuantity(Math.max(1, Math.floor(Number(e.target.value) || 1))); setQuote(null); setSide(null) }} />
+        </label>
+        <div className="row">
+          {it.askCc !== null && <button className="btn small" disabled={busy || quoting || !m.open} onClick={() => void review('buy')}>{quoting && side === 'buy' ? 'Pricing…' : 'Review buy'}</button>}
+          {it.bidCc !== null && mine > 0 && <button className="btn small" disabled={busy || quoting || !m.open} onClick={() => void review('sell')}>{quoting && side === 'sell' ? 'Pricing…' : 'Review sale'}</button>}
+          {it.bidCc !== null && mine > 0 && <button className="btn ghost small" disabled={busy || quoting || !m.open} onClick={() => void review('sell', mine)}>Sell all</button>}
+        </div>
       </div>
+      {quoteError && <p className="warn-line">{quoteError}</p>}
+      {quote && side && (
+        <div className="trade-ticket" aria-live="polite">
+          <b>Review {side === 'buy' ? 'purchase' : 'sale'}</b>
+          <p>{quote.quantity.toLocaleString('en-US')} {ITEMS[it.item].units} at an estimated average of {unitPrice(quote.unitCc)} per {ITEMS[it.item].unit} · {side === 'buy' ? 'total' : 'proceeds'} {credits(quote.totalCc)}</p>
+          <div className="trade-ticket-stats">
+            <span>Current quote <b>{unitPrice(quote.currentUnitCc)}/{ITEMS[it.item].unit}</b></span>
+            <span>Cash after <b>{quote.cashAfterCc >= 0 ? credits(quote.cashAfterCc) : `short ${credits(-quote.cashAfterCc)}`}</b></span>
+            <span>Inventory after <b>{quote.heldAfter.toLocaleString('en-US')} {ITEMS[it.item].units}</b></span>
+            <span>Separate fee <b>None</b></span>
+          </div>
+          <small className="fine">The merchant spread is reflected in its buy and sell prices. The final amount is checked again when you confirm.</small>
+          {quote.reason && <p className="warn-line">{quote.reason}</p>}
+          <div className="row">
+            <button className="btn primary small" disabled={busy || quoting || !quote.canTrade} onClick={() => void confirm()}>{quote.canTrade ? `Confirm ${side}` : 'Order unavailable'}</button>
+            <button className="btn ghost small" disabled={busy} onClick={() => { setQuote(null); setSide(null) }}>Change order</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -141,6 +192,24 @@ export function MerchantInspector({ m, v, town, trade, invest }: { m: MerchantVi
   const { busy, msg, run } = useBusy()
   const mine = m.investors.find((x) => x.mine)
   const recent = town.trades.filter((t) => t.merchantId === m.merchantId).slice(-6).reverse()
+  const [investment, setInvestment] = useState<InvestQuote | null>(null)
+  const [investmentAmount, setInvestmentAmount] = useState<number | null>(null)
+  const [investmentBusy, setInvestmentBusy] = useState(false)
+  const [investmentError, setInvestmentError] = useState<string | null>(null)
+  const reviewInvestment = async (amountCc: number) => {
+    setInvestmentAmount(amountCc)
+    setInvestment(null)
+    setInvestmentError(null)
+    setInvestmentBusy(true)
+    try {
+      const r = await regionApi.investQuote(m.merchantId, amountCc)
+      setInvestment(r.quote)
+    } catch (e) {
+      setInvestmentError((e as Error).message || 'Could not price the investment. Try again.')
+    } finally {
+      setInvestmentBusy(false)
+    }
+  }
   return (
     <>
       <p className="eyebrow">Vesper Market</p>
@@ -169,11 +238,32 @@ export function MerchantInspector({ m, v, town, trade, invest }: { m: MerchantVi
         </p>
         <div className="row">
           {(m.open ? [500_000, 2_000_000] : [m.reopenCc, m.reopenCc * 2]).map((amt) => (
-            <button key={amt} className={`btn small ${m.open ? '' : 'primary'}`} disabled={busy || v.player.cashCc < amt} onClick={() => run(invest(m.merchantId, amt))}>
-              {m.open ? `Invest ${credits(amt)}` : `Reopen · ${credits(amt)}`}
+            <button key={amt} className={`btn small ${m.open ? '' : 'primary'}`} disabled={busy || investmentBusy} onClick={() => void reviewInvestment(amt)}>
+              {m.open ? `Review ${credits(amt)}` : `Review reopen · ${credits(amt)}`}
             </button>
           ))}
         </div>
+        {investmentBusy && <p className="fine">Calculating current ownership share…</p>}
+        {investmentError && <p className="warn-line">{investmentError}</p>}
+        {investment && investmentAmount !== null && (
+          <div className="trade-ticket" aria-live="polite">
+            <b>Review shop investment</b>
+            <div className="trade-ticket-stats">
+              <span>Investment <b>{credits(investment.amountCc)}</b></span>
+              <span>Cash after <b>{credits(investment.cashAfterCc)}</b></span>
+              <span>Estimated profit share <b>{(investment.shareBps / 100).toFixed(1)}%</b></span>
+              <span>Separate fee <b>None</b></span>
+            </div>
+            <small className="fine">This is a share of future simulated shop profits, not a guaranteed return. Credits are fictional game money. The estimate is checked again when you confirm.</small>
+            {investment.reason && <p className="warn-line">{investment.reason}</p>}
+            <div className="row">
+              <button className="btn primary small" disabled={busy || !investment.canInvest} onClick={async () => { if (await run(invest(m.merchantId, investment.amountCc))) { setInvestment(null); setInvestmentAmount(null) } }}>
+                {investment.reopens ? 'Confirm reopen' : 'Confirm investment'} · {credits(investment.amountCc)}
+              </button>
+              <button className="btn ghost small" disabled={busy} onClick={() => { setInvestment(null); setInvestmentAmount(null) }}>Cancel</button>
+            </div>
+          </div>
+        )}
         {m.investors.length > 0 && (
           <ul className="investors">
             {m.investors.map((x) => (

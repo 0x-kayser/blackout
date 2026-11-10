@@ -406,7 +406,7 @@ export default function RegionApp() {
         </div>
       )}
       {watching && <WatchAWeek onClose={() => setWatching(false)} />}
-      {mode && mode !== 'market' && <ModeSheet mode={mode} v={view} act={doAct} onClose={() => { setMode(null); setBuildNode(null) }} onSelect={select} building={building} setBuilding={(b) => { setBuilding(b); if (!b) setBuildNode(null) }} buildNode={buildNode} />}
+      {mode && mode !== 'market' && <ModeSheet mode={mode} v={view} act={doAct} onClose={() => { setMode(null); setBuildNode(null) }} onSelect={select} onMode={setMode} building={building} setBuilding={(b) => { setBuilding(b); if (!b) setBuildNode(null) }} buildNode={buildNode} />}
       {feed && !mode && <Feed v={view} onSelect={select} onClose={() => setFeed(false)} />}
       {selection?.kind === 'merchant' && town ? (
         <aside className="inspector" aria-label="Merchant">

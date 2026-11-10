@@ -240,6 +240,9 @@
   .coach { bottom: 82px; }
   .lab { grid-template-columns: 1fr; }
   .stat-grid { grid-template-columns: 1fr; }
+  .trade-quantity { width: 100%; }
+  .trade-quantity input { width: 100%; }
+  .trade-ticket-stats { grid-template-columns: 1fr; }
   .loop-goals { top: 148px; width: calc(100% - 16px); gap: 5px; }
   .loop-goal { padding: 5px 7px 6px; border-radius: 8px; }
   .loop-kicker { font-size: 7px; }
@@ -275,6 +278,15 @@
 .loop-detail { overflow: hidden; color: var(--mute); font-size: 9px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .loop-meter { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: rgba(255, 255, 255, 0.08); }
 .loop-meter b { display: block; height: 100%; background: var(--gold); }
+.career-ladder { display: grid; gap: 7px; margin: 12px 0; }
+.career-stage { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; padding: 9px; border: 1px solid var(--edge); border-radius: 10px; background: rgba(255, 255, 255, 0.025); }
+.career-stage.current { border-color: rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.06); }
+.career-stage.next { border-color: rgba(96, 165, 250, 0.32); }
+.career-stage.future { opacity: 0.62; }
+.career-stage-mark { display: grid; width: 22px; height: 22px; place-items: center; color: var(--gold); border: 1px solid currentColor; border-radius: 50%; font-size: 12px; }
+.career-stage-title { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.career-stage-title small { color: var(--mute); white-space: nowrap; }
+.career-stage p { margin: 4px 0; color: var(--mute); font-size: 12px; }
 .node-chip .nc-alarm { background: #ef4444; color: #fff; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; border-radius: 6px; padding: 1px 6px; margin-bottom: 2px; }
 @media (max-width: 760px) {
   .mission { top: 56px; padding: 10px 14px; }
@@ -298,6 +310,14 @@
 .item-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
 .prices { display: flex; gap: 10px; align-items: baseline; }
 .bid-price { color: var(--mute); font-size: 12px; }
+.trade-controls { display: flex; align-items: end; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
+.trade-quantity { display: grid; gap: 3px; color: var(--mute); font-size: 11px; }
+.trade-quantity input { width: 138px; box-sizing: border-box; padding: 7px 8px; border: 1px solid var(--edge); border-radius: 8px; background: #0b1222; color: var(--ink); font: inherit; font-size: 13px; }
+.trade-ticket { display: grid; gap: 7px; margin-top: 6px; padding: 10px; border: 1px solid rgba(251, 191, 36, 0.45); border-radius: 10px; background: rgba(251, 191, 36, 0.06); font-size: 12px; }
+.trade-ticket p { margin: 0; }
+.trade-ticket-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; }
+.trade-ticket-stats span { display: flex; justify-content: space-between; gap: 8px; color: var(--mute); }
+.trade-ticket-stats b { color: var(--ink); text-align: right; }
 .merchant-card { cursor: pointer; box-sizing: border-box; width: 100%; text-align: left; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--edge); border-radius: 12px; padding: 8px 10px; margin: 6px 0; display: grid; gap: 4px; font-size: 13px; }
 .merchant-card:hover { border-color: rgba(255, 255, 255, 0.3); }
 .merchant-card.closed { opacity: 0.75; border-color: rgba(239, 68, 68, 0.5); }
@@ -372,7 +392,7 @@
 .title-tag { margin: 12px auto 20px; max-width: 34ch; color: var(--mute); font-size: 15px; line-height: 1.45; }
 .title-actions { display: grid; gap: 10px; }
 .title-actions .btn { width: 100%; padding: 13px 16px; font-size: 15px; }
-.title-signin { background: rgba(255, 255, 255, 0.06) !important; border: 1px solid rgba(255, 255, 255, 0.22) !important; color: var(--ink) !important; }
+.title-signin-label { color: var(--mute); font-size: 12px; margin: 4px 0 -4px; }
 .title-play { font-size: 16px !important; font-weight: 800; box-shadow: 0 10px 30px rgba(251, 191, 36, 0.25); }
 .title-actions .signin2 { display: grid; gap: 8px; text-align: left; }
 .title-actions .signin2 .button { width: 100%; padding: 12px 14px; font-size: 14px; margin: 0; }

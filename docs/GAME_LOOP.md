@@ -31,7 +31,7 @@ The bottom line of the screen always names the single most useful move, with a b
 | The market's mood | a shop closed? invest to reopen it and own a share; someone flooding certificates? sell before the price falls |
 
 ## Every session (15–30 minutes) — grow
-* Climb from Independent Generator to Grid Anchor (bigger plants unlock).
+* Earn operating permits by delivering power and maintaining regional reliability; each permit opens larger plants.
 * Own shares in merchants; they pay you every market day, even while you're away.
 * Finish this week's challenge (same seed and inputs for every player) and compare on the leaderboard.
 

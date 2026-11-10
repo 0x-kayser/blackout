@@ -17,8 +17,8 @@ people off and close. You decide what runs, what gets built, where, and with who
 ## Play in production
 
 Open the [live game](https://blackout-production-c7fc.up.railway.app/) and choose **Play as guest** to enter
-immediately. Your guest session is saved in that browser. To use your company on another device, choose **Sign in to
-save your company** and continue with Google. A first-time Google sign-in upgrades the current guest company; a
+immediately. Your guest session is saved in that browser. To use your company on another device, choose **Continue
+with Google**. A first-time Google sign-in upgrades the current guest company; a
 returning Google account opens its saved company. No external wallet, seed phrase, or gas setup is needed for normal
 play.
 
@@ -80,6 +80,13 @@ certificates), Ruth (carbon permits), Pavel (steel) and Nkechi (turbine kits). T
 and sell prices with the reasoning, recent trades, investors, and buttons to trade or invest. MARKET shows them all
 plus what you hold and a live feed of who's trading.
 
+**Every financial action is reviewable.** Before a market order, the game shows the estimated average price, total,
+cash and inventory after the order, and whether the merchant can fill it. Investments show the projected share of
+future shop profits; loans show interest and default consequences; plant purchases, offers and listings have a review
+step. Quotes are estimates rather than price reservations, so the server checks the order again when you confirm.
+When cash is low, the portfolio points to borrowing, asset sales, the power desk and fuel-spending controls. These
+balances and trades remain fictional game credits, not redeemable money.
+
 **The news moves the market.** About once a minute a story breaks outside Vesper: an LNG tanker stuck in fog, Henry
 Hub up 18%, a cold snap, a drivers' strike, a sunny week flooding Lena with certificates, a steel strike, a turbine
 recall. Each story multiplies a real flow (a merchant's imports, its outside customers, its outside suppliers or the
@@ -95,11 +102,11 @@ breakdown at a rival's plant (supply drops and prices jump), or a fuel supplier'
 through the same physics and appears in **What happened** with its causes. It is seeded, so every challenge player
 lives through the same story.
 
-**Progress has a next step after the tutorial.** In a live region, the Career card stays visible with the next licence,
-delivered-energy progress, and the reliability target when one applies. Opening it shows every licence and the plant
-options each one unlocks. A second card opens this week's shared, seeded challenge and leaderboard; its scenario
-rotates weekly while the live company stays saved. Progress comes from operating the grid, not login streaks or missed-
-day penalties.
+**Progress has a next step after the tutorial.** In a live region, the operating-permit card stays visible with the
+next permit, delivered-energy progress, and the reliability target when one applies. Opening it shows every permit
+and the plant options each one unlocks. A second card opens this week's shared, seeded challenge and leaderboard;
+its scenario rotates weekly while the live company stays saved. Progress comes from running the grid, not login
+streaks or missed-day penalties.
 
 ## The game
 * **Market (§6–7).** Pure deterministic clearing (`packages/sim/src/region/market.ts`): `GenerationOffer`s and

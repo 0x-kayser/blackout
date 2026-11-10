@@ -75,13 +75,71 @@ describe("region API", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it("quotes market orders with exact current totals and no reservation", async () => {
+    const t = await session();
+    const v = await live(t);
+    const townBefore = JSON.stringify(built.tsvc.state);
+    const cashBefore = region.rbal(built.rsvc.get(v.regionId).state, "cc", region.RACC.player);
+    const q = await built.app.inject({
+      method: "POST",
+      url: "/api/town/quote",
+      headers: auth(t),
+      payload: { merchantId: "pavel", item: "material:steel", side: "buy", quantity: 10 },
+    });
+    expect(q.statusCode).toBe(200);
+    expect(q.json().quote.canTrade).toBe(true);
+    expect(q.json().quote.feeCc).toBe(0);
+    expect(q.json().quote.totalCc).toBe(q.json().quote.unitCc * 10);
+    expect(q.json().quote.cashAfterCc).toBe(q.json().quote.cashCc - q.json().quote.totalCc);
+    expect(JSON.stringify(built.tsvc.state)).toBe(townBefore);
+    expect(region.rbal(built.rsvc.get(v.regionId).state, "cc", region.RACC.player)).toBe(cashBefore);
+  });
+
+  it("previews a shop investment without reserving cash and reports the settled share", async () => {
+    const t = await session();
+    const v = await live(t);
+    const amountCc = 500_000;
+    const stateBefore = JSON.stringify(built.tsvc.state);
+    const cashBefore = v.player.cashCc;
+    const q = await built.app.inject({
+      method: "POST",
+      url: "/api/town/invest-quote",
+      headers: auth(t),
+      payload: { merchantId: "lena", amountCc },
+    });
+    expect(q.statusCode).toBe(200);
+    expect(q.json().quote).toMatchObject({ canInvest: true, amountCc, cashCc: cashBefore, cashAfterCc: cashBefore - amountCc });
+    expect(q.json().quote.shareBps).toBeGreaterThan(0);
+    expect(JSON.stringify(built.tsvc.state)).toBe(stateBefore);
+    expect(region.rbal(built.rsvc.get(v.regionId).state, "cc", region.RACC.player)).toBe(cashBefore);
+
+    const result = await built.app.inject({
+      method: "POST",
+      url: "/api/town/invest",
+      headers: auth(t),
+      payload: { merchantId: "lena", amountCc, idempotencyKey: "invest-quote-check-1" },
+    });
+    expect(result.statusCode).toBe(200);
+    expect(result.json().shareBps).toBe(q.json().quote.shareBps);
+  });
+
+  it("requires a player session to quote a personal order", async () => {
+    const q = await built.app.inject({
+      method: "POST",
+      url: "/api/town/quote",
+      payload: { merchantId: "pavel", item: "material:steel", side: "buy", quantity: 10 },
+    });
+    expect(q.statusCode).toBe(401);
+  });
+
   it("stores each settlement epoch once with a verifiable hash", async () => {
     const t = await session();
     const v = await live(t);
     const h = built.rsvc.get(v.regionId);
     for (let i = 0; i < 80; i++) built.rsvc.advance(h);
     const r = await built.app.inject({ method: "GET", url: `/api/region/${v.regionId}/epochs`, headers: auth(t) });
-    const epochs = r.json().epochs as { epochId: string; verified: boolean; status: string; transfers: { deltaCc: number }[] }[];
+    expect(r.statusCode).toBe(403); // settlement hashes are for operators, not the player interface
+    const epochs = built.rsvc.epochs(v.regionId) as { epochId: string; verified: boolean; status: string; transfers: { deltaCc: number }[] }[];
     expect(epochs.length).toBe(2);
     for (const e of epochs) {
       expect(e.verified).toBe(true);

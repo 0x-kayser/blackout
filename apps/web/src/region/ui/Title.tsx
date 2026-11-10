@@ -35,8 +35,6 @@ function useSkyline() {
 export function Title(p: TitleProps) {
   const skyline = useSkyline()
   const guestPlay = !!p.config?.auth.guestPlay
-  // when everyone signs in first, the sign-in options are the first thing on the page
-  const [mode, setMode] = useState<'start' | 'signin'>(guestPlay ? 'start' : 'signin')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const auth = p.config?.auth
@@ -77,28 +75,20 @@ export function Title(p: TitleProps) {
         <p className="title-tag">Run a power company. Keep a region’s lights on. Trade in a market that remembers what everyone did.</p>
         {!guestPlay && <p className="title-step">Sign in to start. Your company begins with ₡300,000 to build with.</p>}
 
-        {mode === 'start' ? (
-          <div className="title-actions">
+        <div className="title-actions">
+          {guestPlay && (
             <button className="btn primary title-play" disabled={busy} onClick={() => void guest()}>
               {busy ? 'Opening the region…' : '▶ Play as guest'}
             </button>
-            {canSignIn && (
-              <button className="btn title-signin" disabled={busy} onClick={() => setMode('signin')}>
-                Sign in to save your company
-              </button>
-            )}
-            <p className="fine">Guests can sign in any time later and keep everything.</p>
-          </div>
-        ) : (
-          <div className="title-actions">
-            {canSignIn ? <SignInOptions g={host} onSignedIn={p.onSignedIn} /> : <p className="warn">Sign-in isn’t set up on this server yet.</p>}
-            {guestPlay && (
-              <button className="text-link" onClick={() => setMode('start')}>
-                ← Back
-              </button>
-            )}
-          </div>
-        )}
+          )}
+          {canSignIn ? (
+            <>
+              {guestPlay && <p className="title-signin-label">Save your company and return on any device</p>}
+              <SignInOptions g={host} compact />
+            </>
+          ) : !guestPlay ? <p className="warn">Sign-in isn’t set up on this server yet.</p> : null}
+          {guestPlay && <p className="fine">Start now as a guest. Link your company to Google whenever you’re ready.</p>}
+        </div>
         {err && <p className="warn">{err}</p>}
 
         <ul className="title-promises">

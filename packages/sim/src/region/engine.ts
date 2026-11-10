@@ -1039,7 +1039,7 @@ function licenceStep(s: RegionState, ctx: RCtx): void {
   const rel = reliabilityBps(s);
   if (s.player.deliveredKwh >= next.needMWh * 1000 && rel >= next.needReliabilityBps) {
     s.player.licence = next.level;
-    emit(s, ctx, { type: "LICENCE", severity: "good", title: `Licence upgraded: ${next.name}`, detail: next.level === 2 ? "Combined-cycle gas and bigger turbines are open to you." : next.level === 3 ? "The biggest plants and batteries are open to you." : "You are an anchor of the regional grid." });
+    emit(s, ctx, { type: "LICENCE", severity: "good", title: `Operating permit earned: ${next.name}`, detail: next.level === 2 ? "Combined-cycle gas and bigger turbines are open to you." : next.level === 3 ? "The biggest plants and batteries are open to you." : "You are an anchor of the regional grid." });
   }
 }
 

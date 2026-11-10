@@ -40,9 +40,13 @@ function useAct(act: Act) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const run = async (a: RegionAction) => {
     setBusy(true)
-    const r = await act(a)
-    setMsg({ ok: r.ok, text: r.message })
-    setBusy(false)
+    try {
+      const r = await act(a)
+      setMsg({ ok: r.ok, text: r.message })
+      return r.ok
+    } finally {
+      setBusy(false)
+    }
   }
   return { busy, msg, run }
 }
@@ -54,9 +58,13 @@ function Msg({ msg }: { msg: { ok: boolean; text: string } | null }) {
 function PlantInspector({ v, p, act }: { v: RegionView; p: PlantView; act: Act }) {
   const { busy, msg, run } = useAct(act)
   const [ask, setAsk] = useState(Math.round(p.bookValueCc / 100_000) * 100_000 || 1_000_000)
+  const [reviewPurchase, setReviewPurchase] = useState(false)
+  const [reviewListing, setReviewListing] = useState(false)
+  const [reviewBidId, setReviewBidId] = useState<string | null>(null)
   const node = v.nodes.find((n) => n.nodeId === p.nodeId)!
   const thermal = p.fuel !== null
-  const forSale = !p.mine && p.listing
+  const listing = p.listing
+  const forSale = !p.mine && listing
   const soc = p.energyKwh > 0 ? Math.round((p.socKwh * 100) / p.energyKwh) : 0
   return (
     <>
@@ -176,13 +184,13 @@ function PlantInspector({ v, p, act }: { v: RegionView; p: PlantView; act: Act }
                 Asking {credits(ask)}
                 <input type="range" min={Math.max(1_000_00, Math.round(p.bookValueCc * 0.5))} max={Math.max(2_000_00, Math.round(p.bookValueCc * 2))} step={100_000} value={ask} onChange={(e) => setAsk(Number(e.target.value))} />
               </label>
-              <button className="btn" disabled={busy} onClick={() => run({ type: 'LIST_PLANT', plantId: p.plantId, askCc: ask })}>
-                List
+              <button className="btn" disabled={busy} onClick={() => setReviewListing((x) => !x)}>
+                {reviewListing ? 'Close review' : 'Review listing'}
               </button>
             </div>
           ) : (
             <>
-              <p className="fine">Listed at {credits(p.listing.askCc)}. The plant, its record and its earnings go to the buyer.</p>
+              <p className="fine">Listed at {credits(p.listing.askCc)}. No fee; the plant remains yours until a purchase completes.</p>
               {p.listing.bids.length === 0 && <p className="fine">No offers yet — buyers look every three game hours.</p>}
               {p.listing.bids.map((b) => (
                 <div key={b.bidId} className="bid">
@@ -190,9 +198,25 @@ function PlantInspector({ v, p, act }: { v: RegionView; p: PlantView; act: Act }
                     <b>{b.bidderName}</b> offers {credits(b.amountCc)}
                     <small>{b.reason}</small>
                   </span>
-                  <button className="btn primary" disabled={busy} onClick={() => run({ type: 'ACCEPT_BID', plantId: p.plantId, bidId: b.bidId })}>
-                    Accept
+                  <button className="btn primary" disabled={busy} onClick={() => setReviewBidId(reviewBidId === b.bidId ? null : b.bidId)}>
+                    {reviewBidId === b.bidId ? 'Close review' : 'Review offer'}
                   </button>
+                  {reviewBidId === b.bidId && (
+                    <div className="trade-ticket">
+                      <b>Review plant offer</b>
+                      <div className="trade-ticket-stats">
+                        <span>Buyer offer <b>{credits(b.amountCc)}</b></span>
+                        <span>Your asking price <b>{credits(listing!.askCc)}</b></span>
+                        <span>Book value <b>{credits(p.bookValueCc)}</b></span>
+                        <span>Separate fee <b>None</b></span>
+                      </div>
+                      <small className="fine">Accepting transfers the plant and its future output to the buyer. The agreed game-credit proceeds are credited when the sale settles.</small>
+                      <div className="row">
+                        <button className="btn primary small" disabled={busy} onClick={async () => { if (await run({ type: 'ACCEPT_BID', plantId: p.plantId, bidId: b.bidId })) setReviewBidId(null) }}>Accept · {credits(b.amountCc)}</button>
+                        <button className="btn ghost small" disabled={busy} onClick={() => setReviewBidId(null)}>Keep listing</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               <button className="btn ghost" disabled={busy} onClick={() => run({ type: 'CANCEL_LISTING', plantId: p.plantId })}>
@@ -200,15 +224,48 @@ function PlantInspector({ v, p, act }: { v: RegionView; p: PlantView; act: Act }
               </button>
             </>
           )}
+          {reviewListing && !p.listing && (
+            <div className="trade-ticket">
+              <b>Review plant listing</b>
+              <div className="trade-ticket-stats">
+                <span>Plant <b>{p.assetId}</b></span>
+                <span>Book value <b>{credits(p.bookValueCc)}</b></span>
+                <span>Asking price <b>{credits(ask)}</b></span>
+                <span>Listing fee <b>None</b></span>
+              </div>
+              <small className="fine">Listing does not transfer the plant or pay you immediately. You keep ownership until another company completes a purchase.</small>
+              <div className="row">
+                <button className="btn primary small" disabled={busy} onClick={async () => { if (await run({ type: 'LIST_PLANT', plantId: p.plantId, askCc: ask })) setReviewListing(false) }}>Confirm listing</button>
+                <button className="btn ghost small" disabled={busy} onClick={() => setReviewListing(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
           <Msg msg={msg} />
         </Section>
       )}
       {forSale && (
         <Section title="For sale">
           <p className="fine">{p.ownerName} is selling {p.name} for {credits(p.listing!.askCc)} (book value {credits(p.bookValueCc)}).</p>
-          <button className="btn primary" disabled={busy} onClick={() => run({ type: 'BUY_LISTED_PLANT', plantId: p.plantId })}>
-            Buy for {credits(p.listing!.askCc)}
-          </button>
+          {!reviewPurchase ? (
+            <button className="btn primary" disabled={busy} onClick={() => setReviewPurchase(true)}>Review purchase</button>
+          ) : (
+            <div className="trade-ticket">
+              <b>Review plant purchase</b>
+              <div className="trade-ticket-stats">
+                <span>Price <b>{credits(p.listing!.askCc)}</b></span>
+                <span>Book value <b>{credits(p.bookValueCc)}</b></span>
+                <span>Cash after <b>{v.player.cashCc >= p.listing!.askCc ? credits(v.player.cashCc - p.listing!.askCc) : `short ${credits(p.listing!.askCc - v.player.cashCc)}`}</b></span>
+                <span>Separate fee <b>None</b></span>
+              </div>
+              <small className="fine">Game credits move when the purchase completes. The plant and its future output then move to your company.</small>
+              <div className="row">
+                <button className="btn primary small" disabled={busy || v.player.cashCc < p.listing!.askCc} onClick={async () => { const ok = await run({ type: 'BUY_LISTED_PLANT', plantId: p.plantId }); if (ok) setReviewPurchase(false) }}>
+                  {v.player.cashCc < p.listing!.askCc ? 'Not enough cash' : `Confirm · ${credits(p.listing!.askCc)}`}
+                </button>
+                <button className="btn ghost small" disabled={busy} onClick={() => setReviewPurchase(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
           <Msg msg={msg} />
         </Section>
       )}

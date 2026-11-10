@@ -28,11 +28,50 @@ export const TradeRequestSchema = z.object({
 });
 export type TradeRequest = z.infer<typeof TradeRequestSchema>;
 
+export const TradeQuoteRequestSchema = TradeRequestSchema.omit({ idempotencyKey: true });
+export type TradeQuoteRequest = z.infer<typeof TradeQuoteRequestSchema>;
+
+/** Current trade estimate in game credits; it never reserves inventory or locks a price. */
+export interface TradeQuote {
+  merchantId: string;
+  item: ItemId;
+  side: "buy" | "sell";
+  quantity: number;
+  /** Average execution price after the order's estimated effect on the merchant's quote. */
+  unitCc: number;
+  totalCc: number;
+  currentUnitCc: number;
+  feeCc: 0;
+  cashCc: number;
+  cashAfterCc: number;
+  held: number;
+  heldAfter: number;
+  merchantStock: number;
+  merchantStockAfter: number;
+  canTrade: boolean;
+  reason: string | null;
+}
+
+/** Current investment estimate in fictional game credits; it never reserves cash or guarantees a return. */
+export interface InvestQuote {
+  merchantId: string;
+  amountCc: number;
+  cashCc: number;
+  cashAfterCc: number;
+  shareBps: number;
+  minimumCc: number;
+  reopens: boolean;
+  canInvest: boolean;
+  reason: string | null;
+}
+
 export const InvestRequestSchema = z.object({
   merchantId: z.string().min(1).max(40),
   amountCc: z.number().int().min(1_000_00).max(100_000_000_00),
   idempotencyKey: z.string().min(8).max(80),
 });
+export const InvestQuoteRequestSchema = InvestRequestSchema.omit({ idempotencyKey: true });
+export type InvestQuoteRequest = z.infer<typeof InvestQuoteRequestSchema>;
 
 export interface PriceWhy {
   /** One line per factor, each with the multiplier it applied. */

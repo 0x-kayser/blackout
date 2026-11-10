@@ -77,6 +77,9 @@ export function nextMove(v: RegionView, town: TownView | null = null): Move {
   }
   const broken = mine.find((p) => p.status === 'tripped')
   if (broken) return { tone: 'warn', text: `${broken.name} tripped (${broken.tripReason}). Crews take hours; turbine kits fix it now.`, button: `🔧 Repair with ${broken.repairParts} kit${broken.repairParts > 1 ? 's' : ''}`, action: { type: 'REPAIR_PLANT', plantId: broken.plantId } }
+  if (v.player.cashCc < 3_000_000 || (v.player.cashCc < 8_000_000 && v.player.profitCcToday < 0)) {
+    return { tone: v.player.cashCc < 1_000_000 ? 'crisis' : 'warn', text: `Cash is tight at ${credits(v.player.cashCc)}. Check credit, fuel spending and assets before the next purchase.`, button: 'Review company finances' }
+  }
   const idleThermal = mine.find((p) => p.fuel && p.status === 'offline')
   if (idleThermal) {
     const at = v.nodes.find((n) => n.nodeId === idleThermal.nodeId)!

@@ -1,5 +1,5 @@
 /**
- * Account, career progression, the rotating weekly challenge, the Economy Lab, and game information.
+ * Account, operating permits, the rotating weekly challenge, the Economy Lab, and game information.
  */
 import { useEffect, useRef, useState } from 'react'
 import type { PublicConfig, RegionView } from '@blackout/shared'
@@ -44,7 +44,7 @@ export function Settings(p: SettingsProps) {
         <nav className="tabs">
           {(['account', 'career', 'challenge', 'lab', 'about'] as SettingsTab[]).map((t) => (
             <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-              {{ account: 'Account', career: 'Career', challenge: 'Weekly challenge', lab: 'Economy Lab', about: 'About' }[t]}
+              {{ account: 'Account', career: 'Permits', challenge: 'Weekly challenge', lab: 'Economy Lab', about: 'About' }[t]}
             </button>
           ))}
         </nav>

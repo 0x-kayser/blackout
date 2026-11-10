@@ -13,6 +13,8 @@ export function PlantSales({ v }: { v: RegionView }) {
   const [sales, setSales] = useState<PlantSale[] | null>(null)
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [reviewBuy, setReviewBuy] = useState<string | null>(null)
+  const [reviewList, setReviewList] = useState(false)
   const mine = v.plants.filter((p) => p.mine && p.status !== 'building')
   const [plantId, setPlantId] = useState('')
   const [price, setPrice] = useState(50_000)
@@ -32,8 +34,10 @@ export function PlantSales({ v }: { v: RegionView }) {
     try {
       setSales((await fn()).sales)
       setMsg({ text: ok, ok: true })
+      return true
     } catch (e) {
       setMsg({ text: (e as Error).message, ok: false })
+      return false
     } finally {
       setBusy(false)
     }
@@ -60,12 +64,31 @@ export function PlantSales({ v }: { v: RegionView }) {
               )
             ) : (
               s.status === 'listed' && (
-                <button className="btn primary small" disabled={busy || v.pulse.cashCc < s.priceCc} onClick={() => void run(() => regionApi.buyPlant(s.saleId), `Buying ${s.name}: it joins your grid when the sale completes.`)}>
-                  Buy
+                <button className="btn primary small" disabled={busy} onClick={() => setReviewBuy(reviewBuy === s.saleId ? null : s.saleId)}>
+                  {reviewBuy === s.saleId ? 'Close review' : 'Review purchase'}
                 </button>
               )
             )}
           </div>
+          {!s.mine && reviewBuy === s.saleId && s.status === 'listed' && (
+            <div className="trade-ticket" aria-live="polite">
+              <b>Review plant purchase</b>
+              <p>{s.name} · {mw(s.capacityKw)} {s.tech} · seller {s.sellerName}</p>
+              <div className="trade-ticket-stats">
+                <span>Price <b>{credits(s.priceCc)}</b></span>
+                <span>Cash now <b>{credits(v.pulse.cashCc)}</b></span>
+                <span>Cash after <b>{v.pulse.cashCc >= s.priceCc ? credits(v.pulse.cashCc - s.priceCc) : `short ${credits(s.priceCc - v.pulse.cashCc)}`}</b></span>
+                <span>Separate fee <b>None</b></span>
+              </div>
+              <small className="fine">Game credits move when the sale completes. The plant and its future output then move to your company.</small>
+              <div className="row">
+                <button className="btn primary small" disabled={busy || v.pulse.cashCc < s.priceCc} onClick={async () => { const ok = await run(() => regionApi.buyPlant(s.saleId), `Bought ${s.name}. It joins your grid when the sale completes.`); if (ok) setReviewBuy(null) }}>
+                  {v.pulse.cashCc < s.priceCc ? 'Not enough cash' : `Confirm · ${credits(s.priceCc)}`}
+                </button>
+                <button className="btn ghost small" disabled={busy} onClick={() => setReviewBuy(null)}>Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
       ))}
       {mine.length > 0 && (
@@ -82,12 +105,31 @@ export function PlantSales({ v }: { v: RegionView }) {
             </select>
           </label>
           <label className="slider">
-            Price ₡
-            <input type="number" min={100} step={1000} value={price} onChange={(e) => setPrice(Math.max(100, Number(e.target.value) || 100))} />
+            Listing price ₡
+            <input type="number" min={1_000} step={1_000} value={price} onChange={(e) => setPrice(Math.max(1_000, Number(e.target.value) || 1_000))} />
           </label>
-          <button className="btn small" disabled={busy || !plantId} onClick={() => void run(() => regionApi.listPlant(plantId, Math.round(price * 100)), 'Listed for other companies.')}>
-            List it
+          <button className="btn small" disabled={busy || !plantId} onClick={() => setReviewList((x) => !x)}>
+            {reviewList ? 'Close review' : 'Review listing'}
           </button>
+          {reviewList && (() => {
+            const selected = mine.find((p) => p.plantId === plantId)
+            return selected ? (
+              <div className="trade-ticket">
+                <b>Review plant listing</b>
+                <div className="trade-ticket-stats">
+                  <span>Asset <b>{selected.assetId}</b></span>
+                  <span>Book value <b>{credits(selected.bookValueCc)}</b></span>
+                  <span>Asking price <b>{credits(Math.round(price * 100))}</b></span>
+                  <span>Listing fee <b>None</b></span>
+                </div>
+                <small className="fine">Listing does not sell the plant or pay you immediately. You keep ownership until another company completes the purchase; then the agreed amount is credited.</small>
+                <div className="row">
+                  <button className="btn primary small" disabled={busy} onClick={async () => { if (await run(() => regionApi.listPlant(plantId, Math.round(price * 100)), 'Listed for other companies.')) setReviewList(false) }}>Confirm listing</button>
+                  <button className="btn ghost small" disabled={busy} onClick={() => setReviewList(false)}>Cancel</button>
+                </div>
+              </div>
+            ) : null
+          })()}
         </div>
       )}
       {msg && <p className={msg.ok ? 'ok-line' : 'warn-line'}>{msg.text}</p>}

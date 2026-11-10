@@ -132,7 +132,7 @@ export function SignInOptions({ g, compact = false, onSignedIn }: { g: Game; com
               <button
                 className="button wide google"
                 disabled={busy}
-                onClick={() => (googleReady ? void run(signInWithGoogle) : setMsg({ text: 'Google sign-in switches on once this server is connected to the account provider (Supabase). On this server, continue with email: it takes 20 seconds.', tone: 'warn' }))}
+                onClick={() => (googleReady ? void run(signInWithGoogle) : setMsg({ text: 'Google sign-in is not configured on this server. Try another sign-in option.', tone: 'warn' }))}
               >
                 <GoogleMark /> Continue with Google
               </button>

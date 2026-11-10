@@ -30,7 +30,7 @@ export function Dock({ mode, onMode, badges }: { mode: DockMode | null; onMode: 
   )
 }
 
-export function ModeSheet({ mode, v, act, onClose, onSelect, building, setBuilding, buildNode }: { mode: DockMode; v: RegionView; act: Act; onClose: () => void; onSelect: (s: Selection) => void; building: { tech: TechId; size: number } | null; setBuilding: (b: { tech: TechId; size: number } | null) => void; buildNode: NodeId | null }) {
+export function ModeSheet({ mode, v, act, onClose, onSelect, onMode, building, setBuilding, buildNode }: { mode: DockMode; v: RegionView; act: Act; onClose: () => void; onSelect: (s: Selection) => void; onMode: (m: DockMode | null) => void; building: { tech: TechId; size: number } | null; setBuilding: (b: { tech: TechId; size: number } | null) => void; buildNode: NodeId | null }) {
   return (
     <div className="sheet" role="dialog" aria-label={mode}>
       <button className="close" onClick={onClose} aria-label="Close">
@@ -40,7 +40,7 @@ export function ModeSheet({ mode, v, act, onClose, onSelect, building, setBuildi
       {mode === 'build' && <Build v={v} act={act} building={building} setBuilding={setBuilding} buildNode={buildNode} />}
       {mode === 'market' && <Market v={v} act={act} onSelect={onSelect} />}
       {mode === 'grid' && <Grid v={v} act={act} onSelect={onSelect} />}
-      {mode === 'portfolio' && <Portfolio v={v} act={act} onSelect={onSelect} />}
+      {mode === 'portfolio' && <Portfolio v={v} act={act} onSelect={onSelect} onClose={onClose} onMode={onMode} />}
     </div>
   )
 }
@@ -53,10 +53,16 @@ function useRun(act: Act) {
     msg,
     run: async (a: Parameters<Act>[0]) => {
       setBusy(true)
-      const r = await act(a)
-      setMsg({ ok: r.ok, text: r.message })
-      setBusy(false)
-      return r.ok
+      try {
+        const r = await act(a)
+        setMsg({ ok: r.ok, text: r.message })
+        return r.ok
+      } catch (e) {
+        setMsg({ ok: false, text: (e as Error).message || 'The action could not be completed. Try again.' })
+        return false
+      } finally {
+        setBusy(false)
+      }
     },
   }
 }
@@ -128,12 +134,14 @@ function Build({ v, act, building, setBuilding, buildNode }: { v: RegionView; ac
             <small>Runs at about {price(t.marginalCostCcPerMWh)}/MWh</small>
             <div className="sizes">
               {t.sizes.map((z, i) => {
-                const locked = (TECH_LICENCE[t.tech]?.[i] ?? 1) > v.player.licence
+                const requiredPermit = TECH_LICENCE[t.tech]?.[i] ?? 1
+                const locked = requiredPermit > v.player.licence
+                const permitName = PERMIT_NAMES[requiredPermit - 1] ?? 'a higher operating'
                 return (
-                  <button key={i} className={building?.tech === t.tech && building.size === i ? 'on' : ''} disabled={locked} title={locked ? `Needs licence ${TECH_LICENCE[t.tech]![i]}` : undefined} onClick={() => setBuilding({ tech: t.tech, size: i })}>
+                  <button key={i} className={building?.tech === t.tech && building.size === i ? 'on' : ''} disabled={locked} title={locked ? `Requires the ${permitName} permit` : undefined} onClick={() => setBuilding({ tech: t.tech, size: i })}>
                     {mw(z.capacityKw)}
                     {z.energyKwh > 0 && <small> / {mwh(z.energyKwh)}</small>}
-                    <small>{locked ? '🔒' : `${credits(z.costCc)} + ${z.steelT} t steel`}</small>
+                    <small>{locked ? `🔒 ${permitName} permit required` : `${credits(z.costCc)} + ${z.steelT} t steel`}</small>
                   </button>
                 )
               })}
@@ -165,8 +173,9 @@ function Build({ v, act, building, setBuilding, buildNode }: { v: RegionView; ac
   )
 }
 
-/** Mirrors the engine's licence per size (shown as locks; the server enforces it). */
+/** Mirrors the engine's permit per size (shown as locks; the server enforces it). */
 const TECH_LICENCE: Partial<Record<TechId, number[]>> = { diesel: [1, 1], ocgt: [1, 2], ccgt: [2, 3], solar: [1, 1, 2], battery: [1, 1, 3] }
+const PERMIT_NAMES = ['Independent Generator', 'Regional Producer', 'System Partner', 'Grid Anchor'] as const
 
 /* -------------------------------------------------------------------------------------------- MARKET */
 
@@ -270,11 +279,15 @@ function Grid({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s: Sel
 
 /* ----------------------------------------------------------------------------------------- PORTFOLIO */
 
-function Portfolio({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s: Selection) => void }) {
+function Portfolio({ v, act, onSelect, onClose, onMode }: { v: RegionView; act: Act; onSelect: (s: Selection) => void; onClose: () => void; onMode: (m: DockMode | null) => void }) {
   const { busy, msg, run } = useRun(act)
+  const [reviewPlantId, setReviewPlantId] = useState<string | null>(null)
   const pl = v.player
   const mine = v.plants.filter((p) => p.mine)
   const forSale = v.plants.filter((p) => !p.mine && p.listing)
+  const cashTight = pl.cashCc < 3_000_000 || (pl.cashCc < 8_000_000 && pl.profitCcToday < 0)
+  const autoFuelOn = (['gas', 'diesel'] as const).filter((fuel) => pl.autoFuel[fuel] && mine.some((p) => p.fuel === fuel && (p.status === 'online' || p.status === 'starting')))
+  const saleCandidate = mine.find((p) => p.status !== 'building' && !p.listing)
   return (
     <>
       <h3>Portfolio</h3>
@@ -288,16 +301,34 @@ function Portfolio({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s
         <Stat label="Your CO₂" value={`${pl.emissionsT.toLocaleString('en-US')} t`} />
         <Stat label="Score" value={v.scores.score.toLocaleString('en-US')} />
       </div>
-      <Section title={`Licence: ${pl.licenceName}`}>
+      {cashTight && (
+        <Section title={pl.cashCc < 1_000_000 ? 'Cash is nearly out' : 'Cash buffer is thin'}>
+          <p className="fine">You have {credits(pl.cashCc)} available. Today’s profit is {credits(pl.profitCcToday)}. Review these cash options before funding the next build or fuel order.</p>
+          <div className="row">
+            <button className="btn primary small" onClick={() => onMode('market')}>Open market and power desk</button>
+            {saleCandidate && <button className="btn small" onClick={() => { onClose(); onSelect({ kind: 'plant', id: saleCandidate.plantId }) }}>Review a plant sale</button>}
+          </div>
+          {autoFuelOn.length > 0 && (
+            <>
+              <p className="fine">Automatic fuel purchases can use cash each time stock is low. Pausing them protects the balance; a plant may slow or stop when its fuel runs out.</p>
+              <div className="row">
+                {autoFuelOn.map((fuel) => <button key={fuel} className="btn small" disabled={busy} onClick={() => void run({ type: 'SET_AUTO_FUEL', fuel, enabled: false })}>Pause auto-buy {fuel}</button>)}
+              </div>
+            </>
+          )}
+        </Section>
+      )}
+      <CreditSection v={v} busy={busy} run={run} />
+      <Section title={`Operating permit: ${pl.licenceName}`}>
         {pl.nextLicence ? (
           <>
             <p className="fine">
-              Next: <b>{pl.nextLicence.name}</b> at {pl.nextLicence.needMWh.toLocaleString('en-US')} MWh delivered{pl.nextLicence.needReliabilityBps ? ` and ${pct(pl.nextLicence.needReliabilityBps)} regional reliability` : ''}.
+              Next permit: <b>{pl.nextLicence.name}</b> at {pl.nextLicence.needMWh.toLocaleString('en-US')} MWh delivered{pl.nextLicence.needReliabilityBps ? ` and ${pct(pl.nextLicence.needReliabilityBps)} regional reliability` : ''}.
             </p>
             <Bar value={pl.nextLicence.haveMWh} max={pl.nextLicence.needMWh} tone="gold" />
           </>
         ) : (
-          <p className="fine">Top licence. The region leans on you.</p>
+          <p className="fine">Highest operating permit. The region leans on your company.</p>
         )}
       </Section>
       <Section title="Your Plant Assets">
@@ -323,9 +354,27 @@ function Portfolio({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s
                   {mw(p.capacityKw)} {p.tech.toUpperCase()} · book {credits(p.bookValueCc)}
                 </small>
               </span>
-              <button className="btn primary" disabled={busy} onClick={() => run({ type: 'BUY_LISTED_PLANT', plantId: p.plantId })}>
-                Buy {credits(p.listing!.askCc)}
+              <button className="btn primary" disabled={busy} onClick={() => setReviewPlantId(reviewPlantId === p.plantId ? null : p.plantId)}>
+                {reviewPlantId === p.plantId ? 'Close review' : 'Review purchase'}
               </button>
+              {reviewPlantId === p.plantId && (
+                <div className="trade-ticket">
+                  <b>Review plant purchase</b>
+                  <div className="trade-ticket-stats">
+                    <span>Price <b>{credits(p.listing!.askCc)}</b></span>
+                    <span>Cash now <b>{credits(pl.cashCc)}</b></span>
+                    <span>Cash after <b>{pl.cashCc >= p.listing!.askCc ? credits(pl.cashCc - p.listing!.askCc) : `short ${credits(p.listing!.askCc - pl.cashCc)}`}</b></span>
+                    <span>Separate fee <b>None</b></span>
+                  </div>
+                  <small className="fine">Game credits move when the purchase completes. The plant and its future output then move to your company.</small>
+                  <div className="row">
+                    <button className="btn primary small" disabled={busy || pl.cashCc < p.listing!.askCc} onClick={async () => { const ok = await run({ type: 'BUY_LISTED_PLANT', plantId: p.plantId }); if (ok) setReviewPlantId(null) }}>
+                      {pl.cashCc < p.listing!.askCc ? 'Not enough cash' : `Confirm · ${credits(p.listing!.askCc)}`}
+                    </button>
+                    <button className="btn ghost small" disabled={busy} onClick={() => setReviewPlantId(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </Section>
@@ -338,38 +387,6 @@ function Portfolio({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s
           </p>
         ))}
       </Section>
-      <Section title="Banks">
-        {v.banks.map((b) => (
-          <div key={b.bankId} className="supplier">
-            <div className="sup-head">
-              <span>
-                <b>{b.name}</b> <small>{b.person}</small>
-              </span>
-              <b>{(b.rateBps / 100).toFixed(2)}%/day</b>
-            </div>
-            <small className="fine">{b.stance} Will lend you up to {credits(b.offerToPlayerCc)}.</small>
-            <div className="row">
-              {[5_000_000, 10_000_000].filter((amt) => amt <= b.offerToPlayerCc).map((amt) => (
-                <button key={amt} className="btn small" disabled={busy} onClick={() => run({ type: 'TAKE_LOAN', bankId: b.bankId, amountCc: amt })}>
-                  Borrow {credits(amt)}
-                </button>
-              ))}
-              {b.offerToPlayerCc < 5_000_000 && <small className="fine">Not lending to you right now.</small>}
-            </div>
-          </div>
-        ))}
-        {v.loans.map((l) => (
-          <div key={l.loanId} className="bid">
-            <span>
-              {credits(l.principalCc)} from {v.banks.find((b) => b.bankId === l.bankId)?.name}
-              <small>{credits(l.interestCcPerDay)} interest a day</small>
-            </span>
-            <button className="btn" disabled={busy || pl.cashCc < Math.min(l.principalCc, 5_000_000)} onClick={() => run({ type: 'REPAY_LOAN', loanId: l.loanId, amountCc: Math.min(l.principalCc, pl.cashCc) })}>
-              Repay {credits(Math.min(l.principalCc, pl.cashCc))}
-            </button>
-          </div>
-        ))}
-      </Section>
       <Section title="The region's economy">
         <Stat label="Steel output index" value={pct(v.economy.steelIndexBps)} tone={v.economy.steelIndexBps > 10_500 ? 'warn' : undefined} />
         <Stat label="Construction costs" value={pct(v.economy.buildCostBps)} tone={v.economy.buildCostBps > 10_200 ? 'warn' : undefined} />
@@ -379,5 +396,67 @@ function Portfolio({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s
       </Section>
       <Msg msg={msg} />
     </>
+  )
+}
+
+function CreditSection({ v, busy, run }: { v: RegionView; busy: boolean; run: (a: Parameters<Act>[0]) => Promise<boolean> }) {
+  const [amounts, setAmounts] = useState<Record<string, number>>({})
+  const [reviewBank, setReviewBank] = useState<string | null>(null)
+  const { player: pl } = v
+  return (
+    <Section title="Bank credit lines">
+      <p className="fine">Banks lend against your cash and plant book value. Interest accrues each game day. If debt rises above 95% of company assets, a bank can force a plant sale.</p>
+      {v.banks.map((b) => {
+        const max = b.offerToPlayerCc
+        const minimum = 100_000
+        const eligible = max >= minimum
+        const amount = eligible ? Math.min(max, Math.max(minimum, amounts[b.bankId] ?? Math.min(5_000_000, max))) : 0
+        const dailyInterest = Math.round((amount * b.rateBps) / 10_000)
+        return (
+          <div key={b.bankId} className="supplier">
+            <div className="sup-head">
+              <span><b>{b.name}</b> <small>{b.person}</small></span>
+              <b>{(b.rateBps / 100).toFixed(2)}% / game day</b>
+            </div>
+            <small className="fine">{b.stance} Available now: {credits(max)}.</small>
+            {eligible ? (
+              <>
+                <label className="slider">
+                  Borrow {credits(amount)}
+                  <input type="range" min={100_000} max={max} step={100_000} value={amount} disabled={busy} onChange={(e) => setAmounts((x) => ({ ...x, [b.bankId]: Number(e.target.value) }))} />
+                </label>
+                <small className="fine">Estimated interest: {credits(dailyInterest)} per game day. No separate origination fee.</small>
+                <button className="btn small" disabled={busy} onClick={() => setReviewBank(reviewBank === b.bankId ? null : b.bankId)}>{reviewBank === b.bankId ? 'Close review' : `Review ${credits(amount)} loan`}</button>
+                {reviewBank === b.bankId && (
+                  <div className="trade-ticket">
+                    <b>Review loan</b>
+                    <div className="trade-ticket-stats">
+                      <span>Borrow <b>{credits(amount)}</b></span>
+                      <span>Cash after <b>{credits(pl.cashCc + amount)}</b></span>
+                      <span>Interest / game day <b>{credits(dailyInterest)}</b></span>
+                      <span>Separate fee <b>None</b></span>
+                    </div>
+                    <small className="fine">Interest is charged as time passes. If cash cannot cover it, the unpaid amount is added to principal. Partial repayments are allowed. Debt above 95% of company assets can trigger a forced plant sale. The offer is checked again when you confirm.</small>
+                    <div className="row">
+                      <button className="btn primary small" disabled={busy || amount > max} onClick={async () => { if (await run({ type: 'TAKE_LOAN', bankId: b.bankId, amountCc: amount })) setReviewBank(null) }}>Confirm borrow · {credits(amount)}</button>
+                      <button className="btn ghost small" disabled={busy} onClick={() => setReviewBank(null)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : <small className="fine">{max > 0 ? `The current offer (${credits(max)}) is below the minimum loan amount.` : 'No credit is available at your current asset and debt position.'}</small>}
+          </div>
+        )
+      })}
+      {v.loans.map((l) => {
+        const repay = Math.min(l.principalCc, pl.cashCc)
+        return (
+          <div key={l.loanId} className="bid">
+            <span>{credits(l.principalCc)} from {v.banks.find((b) => b.bankId === l.bankId)?.name}<small>{credits(l.interestCcPerDay)} interest each game day</small></span>
+            <button className="btn small" disabled={busy || repay <= 0} onClick={() => void run({ type: 'REPAY_LOAN', loanId: l.loanId, amountCc: repay })}>Repay {credits(repay)}</button>
+          </div>
+        )
+      })}
+    </Section>
   )
 }

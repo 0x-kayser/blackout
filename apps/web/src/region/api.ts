@@ -3,7 +3,7 @@
  * (guest cookie, or a bearer token which the stream sends as ?token=).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FastForwardResult, ItemId, RegionAction, RegionView, TownView } from '@blackout/shared'
+import type { FastForwardResult, InvestQuote, ItemId, RegionAction, RegionView, TownView, TradeQuote } from '@blackout/shared'
 import { bearerHeader } from '../api/client'
 
 export class RegionError extends Error {
@@ -49,6 +49,8 @@ export const regionApi = {
   leaderboard: () => call<{ ok: true; entries: LeaderboardRow[] }>('GET', '/api/region/leaderboard'),
   lab: (seed: number, days = 7) => call<{ ok: true; lab: { gasHeavy: LabResult; solarStorage: LabResult } }>('GET', `/api/region/lab?seed=${seed}&days=${days}`),
   town: () => call<{ ok: true; town: TownView }>('GET', '/api/town'),
+  tradeQuote: (merchantId: string, item: ItemId, side: 'buy' | 'sell', quantity: number) => call<{ ok: true; quote: TradeQuote }>('POST', '/api/town/quote', { merchantId, item, side, quantity }),
+  investQuote: (merchantId: string, amountCc: number) => call<{ ok: true; quote: InvestQuote }>('POST', '/api/town/invest-quote', { merchantId, amountCc }),
   trade: (merchantId: string, item: ItemId, side: 'buy' | 'sell', quantity: number) => call<{ ok: true; message: string; view: RegionView; town: TownView }>('POST', '/api/town/trade', { merchantId, item, side, quantity, idempotencyKey: newKey() }),
   invest: (merchantId: string, amountCc: number) => call<{ ok: true; message: string; view: RegionView; town: TownView }>('POST', '/api/town/invest', { merchantId, amountCc, idempotencyKey: newKey() }),
   fastForward: (seed: number) => call<{ ok: true; week: FastForwardResult }>('GET', `/api/town/fastforward?seed=${seed}`),

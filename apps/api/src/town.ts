@@ -5,7 +5,7 @@
  * Both are in-memory and updated in the same synchronous step, after the region side has been checked, so a trade
  * either lands everywhere or nowhere.
  */
-import type { FastForwardResult, ItemId, RegionAction, TownView, WorldSnapshot } from "@blackout/shared";
+import type { FastForwardResult, InvestQuoteRequest, ItemId, RegionAction, TradeQuote, TradeQuoteRequest, TownView, WorldSnapshot } from "@blackout/shared";
 import { ITEMS } from "@blackout/shared";
 import { SimError, region, town } from "@blackout/sim";
 import { nowIso, type Db } from "./db.ts";
@@ -16,6 +16,7 @@ import type { EconomyService } from "./economy/service.ts";
 const TOWN_SEED = 20_261_109;
 const CHECKPOINT_EVERY = 5;
 const U = region.regionConfig.TOWN_UNITS;
+const cr = (cc: number) => `₡${(cc / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
 export interface Trader {
   userId: string;
@@ -126,6 +127,84 @@ export class TownService {
   held(h: RegionHandle, item: ItemId): number {
     const u = U[item];
     return Math.floor(region.rbal(h.state, u.asset, region.RACC.player) / u.per);
+  }
+
+  /** Estimates a trade from current books without reserving cash or inventory. The write route rechecks it. */
+  tradeQuote(h: RegionHandle, req: TradeQuoteRequest): TradeQuote {
+    const m = town.merchantConfig(req.merchantId);
+    if (!m) throw new ApiError("NOT_FOUND", "No such merchant.");
+    const item = m.items.find((x) => x.item === req.item);
+    if (!item) throw new ApiError("VALIDATION_FAILED", `${m.person} doesn't trade ${ITEMS[req.item].name.toLowerCase()}.`);
+
+    const account = town.MACC(req.merchantId);
+    const merchantStock = town.tbal(this.state, req.item, account);
+    const merchantCash = town.tbal(this.state, "cc", account);
+    const held = this.held(h, req.item);
+    const cashCc = region.rbal(h.state, "cc", region.RACC.player);
+    const estimate = town.tradePrice(this.state, req.merchantId, req.item, req.side, req.quantity);
+    const now = town.quote(this.state, req.merchantId, req.item);
+    const currentUnitCc = (req.side === "buy" ? now.askCc : now.bidCc) ?? estimate.unitCc;
+    const room = Math.max(0, item.target * town.townConfig.WAREHOUSE_FULL_X - merchantStock);
+    const ration = town.rationLimit({ traits: m.traits, stock: merchantStock, target: item.target });
+
+    let reason: string | null = null;
+    if (!this.state.merchants[req.merchantId].open) reason = `${m.name} is closed.`;
+    else if (req.side === "buy" && !item.sells) reason = `${m.person} doesn't sell ${ITEMS[req.item].name.toLowerCase()}.`;
+    else if (req.side === "sell" && !item.buys) reason = `${m.person} doesn't buy ${ITEMS[req.item].name.toLowerCase()}.`;
+    else if (req.side === "buy" && req.quantity > merchantStock) reason = `${m.person} has only ${merchantStock.toLocaleString("en-US")} ${ITEMS[req.item].units} in stock.`;
+    else if (req.side === "buy" && ration !== null && req.quantity > ration) reason = `${m.person} is rationing and will sell at most ${ration.toLocaleString("en-US")} ${ITEMS[req.item].units} per order.`;
+    else if (req.side === "buy" && estimate.totalCc > cashCc) reason = `You need ${cr(estimate.totalCc)}; your cash is ${cr(cashCc)}.`;
+    else if (req.side === "sell" && req.quantity > held) reason = `You hold ${held.toLocaleString("en-US")} ${ITEMS[req.item].units}.`;
+    else if (req.side === "sell" && req.quantity > room) reason = `${m.person} has room for only ${room.toLocaleString("en-US")} more ${ITEMS[req.item].units}.`;
+    else if (req.side === "sell" && estimate.totalCc > merchantCash) reason = `${m.person} has ${cr(merchantCash)} available to buy this order.`;
+
+    return {
+      merchantId: req.merchantId,
+      item: req.item,
+      side: req.side,
+      quantity: req.quantity,
+      unitCc: estimate.unitCc,
+      totalCc: estimate.totalCc,
+      currentUnitCc,
+      feeCc: 0,
+      cashCc,
+      cashAfterCc: req.side === "buy" ? cashCc - estimate.totalCc : cashCc + estimate.totalCc,
+      held,
+      heldAfter: req.side === "buy" ? held + req.quantity : held - req.quantity,
+      merchantStock,
+      merchantStockAfter: req.side === "buy" ? merchantStock - req.quantity : merchantStock + req.quantity,
+      canTrade: reason === null,
+      reason,
+    };
+  }
+
+  /** Preview an investment against the current merchant ledger without moving cash. The write route rechecks it. */
+  investmentQuote(h: RegionHandle, req: InvestQuoteRequest) {
+    const config = town.merchantConfig(req.merchantId);
+    if (!config) throw new ApiError("NOT_FOUND", "No such merchant.");
+    const merchant = this.state.merchants[req.merchantId];
+    const investor = merchant.investors.find((x) => x.playerId === h.ownerId);
+    const invested = investor?.investedCc ?? 0;
+    const investedAfter = merchant.investors.reduce((sum, x) => sum + x.investedCc, 0) + req.amountCc;
+    const shareBps = Math.round(((invested + req.amountCc) * 10_000) / Math.max(1, investedAfter + config.cashCc));
+    const cashCc = region.rbal(h.state, "cc", region.RACC.player);
+    const minimumCc = merchant.open ? 100_000 : town.reopenCc(req.merchantId);
+    const reason = req.amountCc < minimumCc
+      ? `${config.name} needs at least ${cr(minimumCc)}${merchant.open ? " for an investment" : " to reopen"}.`
+      : req.amountCc > cashCc
+        ? `You need ${cr(req.amountCc)}; your cash is ${cr(cashCc)}.`
+        : null;
+    return {
+      merchantId: req.merchantId,
+      amountCc: req.amountCc,
+      cashCc,
+      cashAfterCc: cashCc - req.amountCc,
+      shareBps,
+      minimumCc,
+      reopens: !merchant.open && req.amountCc >= minimumCc,
+      canInvest: reason === null,
+      reason,
+    };
   }
 
   /** A player's trade. Checks the region side first, then moves the merchant and the player together. */

@@ -3,7 +3,7 @@
  * prices or outcomes, only decisions (RegionActionSchema).
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { CreateRegionRequestSchema, InvestRequestSchema, RegionActionEnvelopeSchema, TradeRequestSchema, type ErrorCode } from "@blackout/shared";
+import { CreateRegionRequestSchema, InvestQuoteRequestSchema, InvestRequestSchema, RegionActionEnvelopeSchema, TradeQuoteRequestSchema, TradeRequestSchema, type ErrorCode } from "@blackout/shared";
 import { region } from "@blackout/sim";
 import type { AuthedUser } from "./auth.ts";
 import { openSse } from "./events.ts";
@@ -203,6 +203,18 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
       /* anyone can look at the market */
     }
     return { ok: true, town: townOrFail().view(viewer) };
+  });
+  app.post("/api/town/quote", async (req) => {
+    const u = await d.requireUser(req);
+    const body = d.parse(TradeQuoteRequestSchema, req.body);
+    const h = rsvc.liveFor(u.userId);
+    return { ok: true, quote: townOrFail().tradeQuote(h, body) };
+  });
+  app.post("/api/town/invest-quote", async (req) => {
+    const u = await d.requireUser(req);
+    const body = d.parse(InvestQuoteRequestSchema, req.body);
+    const h = rsvc.liveFor(u.userId);
+    return { ok: true, quote: townOrFail().investmentQuote(h, body) };
   });
   app.post("/api/town/trade", async (req) => {
     const u = await d.requireUser(req);
