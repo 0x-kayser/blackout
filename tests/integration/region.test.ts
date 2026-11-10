@@ -196,6 +196,10 @@ describe("region API", () => {
     const ra = (await built.app.inject({ method: "POST", url: "/api/region/new", headers: auth(a), payload: { mode: "challenge" } })).json().view as RegionView;
     const rb = (await built.app.inject({ method: "POST", url: "/api/region/new", headers: auth(b), payload: { mode: "challenge" } })).json().view as RegionView;
     expect(built.rsvc.get(ra.regionId).state.seed).toBe(built.rsvc.get(rb.regionId).state.seed);
+    expect(built.rsvc.get(ra.regionId).state.input).toEqual(built.rsvc.get(rb.regionId).state.input);
+    expect(built.rsvc.get(ra.regionId).state.input.sources[0]?.provider).toContain(built.rsvc.challengeInfo().name);
+    expect(built.rsvc.get(ra.regionId).state.input).toEqual(built.rsvc.get(rb.regionId).state.input);
+    expect(built.rsvc.get(ra.regionId).state.input.sources[0]?.provider).toContain(built.rsvc.challengeInfo().name);
     const h = built.rsvc.get(ra.regionId);
     while (!h.state.ended) built.rsvc.advance(h);
     const lb = (await built.app.inject({ method: "GET", url: "/api/region/leaderboard" })).json().entries;

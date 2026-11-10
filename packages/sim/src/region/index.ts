@@ -6,3 +6,4 @@ export { regionPowerOffer } from "./powerOffer.ts";
 export { newRCtx, rsum, rbal, RACC, type RegionState, type RCtx, type REpoch } from "./state.ts";
 export * as regionConfig from "./config.ts";
 export { runRegionLab, type RegionLabResult, type RegionLabStrategy } from "./lab.ts";
+export { REGION_CHALLENGES, regionChallengeSnapshot, type RegionChallengeCondition } from "./challenge.ts";

@@ -62,7 +62,8 @@ export class RegionService {
   challengeInfo() {
     const week = isoWeek(new Date(this.now()));
     const challenge = challengeFor(week);
-    return { week, name: challenge.name, description: challenge.description };
+    const regional = region.REGION_CHALLENGES[challenge.condition];
+    return { week, name: regional.name, description: regional.description };
   }
 
   /* ---------------------------------------------------------------- lookup & creation */
@@ -76,9 +77,11 @@ export class RegionService {
 
   create(userId: string, mode: "live" | "challenge"): RegionHandle {
     const week = mode === "challenge" ? isoWeek(new Date(this.now())) : null;
-    const seed = mode === "challenge" ? challengeFor(week!).seed : randomInt(1, 2 ** 31 - 1);
+    const challenge = mode === "challenge" ? challengeFor(week!) : null;
+    const seed = challenge?.seed ?? randomInt(1, 2 ** 31 - 1);
     const regionId = `r_${randomInt(1, 2 ** 47).toString(36)}${randomInt(1, 2 ** 31).toString(36)}`;
-    const state = region.createRegion({ regionId, seed, mode, snapshot: this.world.current() });
+    const snapshot = challenge ? region.regionChallengeSnapshot(challenge.condition) : this.world.current();
+    const state = region.createRegion({ regionId, seed, mode, snapshot });
     const at = nowIso();
     this.db
       .prepare("INSERT INTO regions (region_id, owner_id, mode, week, seed, state_json, state_version, interval_no, ended, score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)")

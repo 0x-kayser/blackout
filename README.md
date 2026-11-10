@@ -105,8 +105,9 @@ lives through the same story.
 **Progress has a next step after the tutorial.** In a live region, the operating-permit card stays visible with the
 next permit, delivered-energy progress, and the reliability target when one applies. Opening it shows every permit
 and the plant options each one unlocks. A second card opens this week's shared, seeded challenge and leaderboard;
-its scenario rotates weekly while the live company stays saved. Progress comes from running the grid, not login
-streaks or missed-day penalties.
+its opening fuel, weather or carbon condition rotates weekly and actually changes the simulation inputs. Everyone
+gets the same conditions and seeded grid incidents for that week, while the live company stays saved. Progress comes
+from running the grid, not login streaks or missed-day penalties.
 
 ## The game
 * **Market (§6–7).** Pure deterministic clearing (`packages/sim/src/region/market.ts`): `GenerationOffer`s and

@@ -27,7 +27,7 @@ import { RACC, fuelAsset, rbal, rtransfer, rtransferUpTo, type RCtx, type RPlant
 
 export function createRegion(opts: { regionId: string; seed: number; mode?: "live" | "challenge"; snapshot?: import("@blackout/shared").WorldSnapshot }): RegionState {
   const mode = opts.mode ?? "live";
-  const input = mode === "challenge" ? CHALLENGE_SNAPSHOT : (opts.snapshot ?? DEFAULT_SNAPSHOT);
+  const input = opts.snapshot ?? (mode === "challenge" ? CHALLENGE_SNAPSHOT : DEFAULT_SNAPSHOT);
   const s: RegionState = {
     version: 1,
     regionId: opts.regionId,

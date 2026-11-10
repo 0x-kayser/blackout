@@ -33,7 +33,9 @@ The bottom line of the screen always names the single most useful move, with a b
 ## Every session (15–30 minutes) — grow
 * Earn operating permits by delivering power and maintaining regional reliability; each permit opens larger plants.
 * Own shares in merchants; they pay you every market day, even while you're away.
-* Finish this week's challenge (same seed and inputs for every player) and compare on the leaderboard.
+* Finish this week's challenge (same seed and scenario inputs for every player) and compare on the leaderboard. The
+  weekly opening condition rotates between fuel pressure, recovery, heat-driven demand, carbon costs and renewable
+  opportunity; seeded grid incidents then give every player in that week the same follow-on story.
 
 ## Why come back
 Your investments keep paying, the market keeps moving with other players, VoltLine keeps competing, and the real

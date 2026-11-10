@@ -31,6 +31,18 @@ describe("regional engine", () => {
     expect(sha256(canonical(c))).not.toBe(sha256(canonical(a)));
   });
 
+  it("uses deterministic, distinct opening inputs for each regional weekly challenge", () => {
+    const fuelA = createRegion({ regionId: "fuel-a", seed: 71, mode: "challenge", snapshot: region.regionChallengeSnapshot("disruption") });
+    const fuelB = createRegion({ regionId: "fuel-b", seed: 71, mode: "challenge", snapshot: region.regionChallengeSnapshot("disruption") });
+    const heat = createRegion({ regionId: "heat", seed: 71, mode: "challenge", snapshot: region.regionChallengeSnapshot("demand_surge") });
+    const carbon = createRegion({ regionId: "carbon", seed: 71, mode: "challenge", snapshot: region.regionChallengeSnapshot("carbon_tightening") });
+    expect(fuelA.input).toEqual(fuelB.input);
+    expect(fuelA.input.gasUsdPerMMBtu).toBeGreaterThan(region.regionConfig.CHALLENGE_SNAPSHOT.gasUsdPerMMBtu);
+    expect(heat.input.tempC).toBe(41);
+    expect(carbon.input.carbonUsdPerT).toBeGreaterThan(region.regionConfig.CHALLENGE_SNAPSHOT.carbonUsdPerT);
+    expect(new Set([fuelA.input.gasUsdPerMMBtu, heat.input.tempC, carbon.input.carbonUsdPerT]).size).toBe(3);
+  });
+
   it("conserves every asset: credits, gas and diesel sum to zero across accounts", () => {
     const { s } = run(5, 600, ONBOARD);
     expect(rsum(s, "cc")).toBe(0);
