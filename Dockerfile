@@ -12,7 +12,9 @@ RUN pnpm build:web
 
 FROM node:24-slim
 WORKDIR /app
-RUN corepack enable && useradd --create-home --uid 10001 blackout && mkdir -p /data && chown blackout /data
+RUN useradd --create-home --uid 10001 blackout \
+    && mkdir -p /data \
+    && chown blackout /data
 COPY --from=build --chown=blackout /app /app
 USER blackout
 ENV NODE_ENV=production \
@@ -24,4 +26,4 @@ ENV NODE_ENV=production \
     TRUST_PROXY=true
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["pnpm", "--filter", "@blackout/api", "start"]
+CMD ["node_modules/.bin/tsx", "apps/api/src/server.ts"]
