@@ -39,7 +39,9 @@ The separate NEP-245 resource adapter currently reports `chainMode: disabled`: i
 
 ## Login providers
 
-Guest access is enabled for the initial demo. The deployed public config currently advertises guest auth only; Google and email sign-in are not enabled. Google sign-in requires a valid `GOOGLE_CLIENT_ID` and the Railway origin registered with that OAuth client. Email magic links require Supabase configuration (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) and matching redirect URLs. Do not claim either provider works until it has been exercised on the deployed domain.
+Guest access is enabled for the initial demo. Google uses the direct Google Identity Services flow: Railway receives `GOOGLE_CLIENT_ID`, the browser returns a Google ID token, and the server verifies its signature and audience. This flow does not require a Google client secret or Supabase. In Google Cloud, register `https://blackout-production-c7fc.up.railway.app` under **Authorized JavaScript origins**; the app posts the credential to its same-origin API.
+
+Email magic links are not configured. They require Supabase settings (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) and matching redirect URLs. Verify the deployed public config and complete a real Google sign-in before claiming provider login works.
 
 ## Verify a deployment
 
