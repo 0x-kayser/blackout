@@ -2,29 +2,47 @@
 
 A regional power-system strategy game for the NEAR Hackathon **Games With Real Economies** track. You run a power
 company in the Vesper region: seven load centres, six transmission lines, a gigawatt of demand and never quite enough
-cheap generation. Every five game minutes a real merit-order market clears. When supply runs short, prices spike,
-customers switch off, then the lights go out — and businesses with real balance sheets lose money, lay people off
-and close. You decide what runs, what gets built, where, and with whose money.
+cheap generation. Every five game minutes, the simulated merit-order market clears. When supply runs short, prices
+spike, customers switch off, then the lights go out — and businesses with their own balance sheets lose money, lay
+people off and close. You decide what runs, what gets built, where, and with whose money.
 
-> **Honesty box.** Credits are imaginary, non-redeemable game currency. The simulation (market, plants, businesses,
-> suppliers, banks, VoltLine) runs on our server and is reproducible from a seed. Weather comes live from Open-Meteo;
-> Brent from EIA (live with a key, bundled dataset without); gas and carbon are labelled reference values unless you
-> configure a live source. The NEAR contract (NEP-245 resources incl. `credit:vesper`, NEP-171 Plant Assets with
-> plant accounts, settlement epochs) and the NEP-366 relayer are built and tested locally; **they are live only after
-> you deploy with your own funded Testnet account** (`pnpm chain:bootstrap`). Nothing in this repository claims a
-> deployment that hasn't happened.
+> **Live game:** [blackout-production-c7fc.up.railway.app](https://blackout-production-c7fc.up.railway.app). Production currently offers guest play and Google sign-in. Email sign-in is not configured.
+>
+> **Economy and chain status:** Credits are fictional, non-redeemable game currency, and the simulation is
+> server-authoritative. Railway has a separate NEAR Testnet economy service configured. A Testnet contract and a
+> standalone run with 40 successful transactions are documented in [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md).
+> The public config reports `chainMode: disabled` for the NEP-245 resource-market adapter, so player resource
+> listings and those transfers are not active in the deployed game. Testnet evidence applies to the documented demo
+> flow; it is not proof that every live game interaction settles on chain.
+
+## Play in production
+
+Open the [live game](https://blackout-production-c7fc.up.railway.app/) and choose **Play as guest** to enter
+immediately. Your guest session is saved in that browser. To use your company on another device, choose **Sign in to
+save your company** and continue with Google. A first-time Google sign-in upgrades the current guest company; a
+returning Google account opens its saved company. No external wallet, seed phrase, or gas setup is needed for normal
+play.
+
+Google uses Google Identity Services directly. The production Google OAuth client must allow
+`https://blackout-production-c7fc.up.railway.app` under **Authorized JavaScript origins**. The deployed public
+configuration advertises Google sign-in, but a real account consent round-trip should be checked in a browser before
+claiming it has been end-to-end verified. Email sign-in is currently unavailable in production.
 
 ## Play it locally
+
 ```bash
 pnpm install
 ```
+
 ```bash
-AUTH_LOCAL_EMAIL=true AUTH_LOCAL_EMAIL_SHOW_CODE=true pnpm dev
+ALLOW_GUEST_PLAY=true AUTH_LOCAL_EMAIL=true AUTH_LOCAL_EMAIL_SHOW_CODE=true pnpm dev
 ```
-Open **http://localhost:5173**. Everyone signs in first, with Google or an email code: the first page is the sign-in,
-and signing in creates your company, its NEAR wallet and its ₡300,000 starting capital. Returning players skip the
-title and land back in their region. (`ALLOW_GUEST_PLAY=true` adds a guest button, for local development only.) The
-original city game is still playable at **/city**. Node ≥ 22.5, pnpm 10. Set `WORLD_INPUTS=off` to skip live weather.
+
+Open **http://localhost:5173**. This command enables guest play and local email-code sign-in; during development the
+code is shown on screen. To enable Google locally, set `GOOGLE_CLIENT_ID` and add
+`http://localhost:5173` to that OAuth client's Authorized JavaScript origins. Do not set
+`AUTH_LOCAL_EMAIL_SHOW_CODE=true` in production. The original city game is still playable at **/city**. Node ≥ 22.5,
+pnpm 10. Set `WORLD_INPUTS=off` to skip live weather.
 
 ## How you learn it: by playing
 There is no manual and no menu. The first minute is three taps on glowing buttons in the world; the clock waits for
@@ -45,13 +63,13 @@ its price is what it is. **What happened** tells the region's story, cause by ca
 ## The brief, requirement by requirement
 | The brief asks | In BLACKOUT |
 |---|---|
-| Players gather materials and trade with NPC merchants | Your solar earns **renewable certificates**; your plants burn **gas and diesel**, surrender **carbon permits**, need **steel** to build and **turbine kits** to repair. You buy and sell all six at Vesper Market. |
-| Each merchant is an agent with its own wallet and inventory | Nine merchants, each with cash, stock, rent, imports and outside customers, shown on its stall and in its shop (and, on Testnet, its own account). |
+| Players gather materials and trade with NPC merchants | The simulated Vesper Market trades fuel, permits, certificates, steel and repair parts. The production NEP-245 resource adapter is disabled; those in-game trades are not evidence of on-chain resource transfers. |
+| Each merchant is an agent with its own wallet and inventory | Nine merchants have independent simulated cash, stock, imports and customers. A separate Testnet demo provisions NPC accounts; that setup is documented below. |
 | Prices from stock and recent demand | `stock factor × demand factor × margin`, recalculated every tick |
 | Flood the market and it gets cheap | Sell certificates and Lena's price falls for every player; buy gas and it rises for everyone |
 | A broke merchant closes until someone invests | Shops close when cash runs out; **Invest** reopens them and pays you a share of profits daily |
-| Items are NEP-245, one contract | `fuel:natural-gas`, `fuel:diesel`, `permit:carbon`, `certificate:renewable`, `material:steel`, `part:turbine`, `credit:vesper` in one contract; market epochs settle each one (`settle_items`) |
-| Social/email login, no seed phrases, popups or gas | The first page offers guest play, Google or an email code; the relayer pays gas; no chain words in play |
+| Items are NEP-245, one contract | Contract code and a Testnet demo are available. The live Railway public config reports `chainMode: disabled`, so the deployed player resource-market flow is not active. |
+| Social/email login, no seed phrases, popups or gas | Production offers guest and Google sign-in. Email is off. Normal play does not ask for a wallet, seed phrase or gas. |
 | Pricing rules in one readable file, reasoning in a tooltip | [`merchantPricing.ts`](packages/sim/src/town/merchantPricing.ts); hover any price. Outside events live in [`news.ts`](packages/sim/src/town/news.ts) and show up in the same tooltip |
 | Fast-forward a week in a minute | **⏩ Watch a week** in MARKET: seven market days, four bot companies, 60 seconds |
 | Game loop on paper first | [docs/GAME_LOOP.md](docs/GAME_LOOP.md) |
@@ -59,7 +77,7 @@ its price is what it is. **What happened** tells the region's story, cause by ca
 
 ## Vesper Market
 Nine stalls in the middle of the region: Ingrid and Bayo (gas), Kettle, Dayo and Chioma (diesel), Lena (renewable
-certificates), Ruth (carbon permits), Pavel (steel) and Nkechi (turbine kits). Tap a stall: its wallet, stock, buy
+certificates), Ruth (carbon permits), Pavel (steel) and Nkechi (turbine kits). Tap a stall: its ledger balance, stock, buy
 and sell prices with the reasoning, recent trades, investors, and buttons to trade or invest. MARKET shows them all
 plus what you hold and a live feed of who's trading.
 
@@ -90,79 +108,75 @@ lives through the same story.
   prices stay high, sells and mothballs plants in distress. Six fuel suppliers import, price by scarcity and ration.
   Two banks lend on leverage. The regulator caps offers during shedding, fines idle fuelled capacity and funds
   reliability tenders from carbon revenue. Steel output sets construction costs. Nobody is bailed out.
-* **Money (§13–14).** A genesis treasury funds every opening balance and your one-time starter grant; a double-entry
-  ledger keeps credits, gas and diesel summing to zero.
+* **In-game money (§13–14).** A simulation treasury funds every opening balance and your one-time starter grant; a
+  double-entry ledger keeps credits, gas and diesel summing to zero.
 * **Progression.** Licences (Independent Generator → Regional Producer → System Partner → Grid Anchor) unlock bigger
   plants by energy delivered and regional reliability; tenders, asset sales and the weekly leaderboard.
 
-## NEAR: the money is real, the chain is invisible
+## NEAR integration and current status
+
+NEAR Testnet has no monetary value, and BLACKOUT credits cannot be redeemed. Railway's separate economy service is
+configured for Testnet; its supported settlement flows are distinct from the legacy NEP-245 resource-market adapter.
+The public game config currently reports `chainMode: disabled` for that adapter, which disables on-chain player
+resource listings and transfers in the deployed game. A successful standalone Testnet run should not be presented
+as proof that a particular public-game interaction settled on chain.
+
 Full write-ups: [architecture](docs/NEAR_ARCHITECTURE.md) · [economy model](docs/ECONOMY_MODEL.md) ·
 [wallets and treasury](docs/WALLET_AND_TREASURY.md) · [transaction flows](docs/TRANSACTION_FLOWS.md) ·
 [testnet demo](docs/TESTNET_DEMO.md).
 
-| Piece | What it is | Where |
+| Piece | Status |
 |---|---|---|
-| Money | `credit:vesper` (the game's ₡, 1 unit = ₡0.01) in one NEP-245 contract with every item; **fixed supply** minted once into a treasury split into capped buckets; `issue` owner-only and capped for life | `contracts/near/src/economy.rs`, `apps/api/src/economy/treasury.ts` |
-| Player wallets | a real NEAR account per signed-in player, created once, key encrypted on the server; starting capital ₡300,000 from the treasury, once per account | `apps/api/src/economy/service.ts`, `wallets.ts` |
-| NPC wallets | each merchant and power company its own account; the companies sign their own purchases with function-call keys, bounded per payment and per day, with kill switches | bootstrap, `power_order_place` |
-| NPC power companies | Halvard Aluminium, Solara Energy, Northwind Gas Power decide every 3 market hours from their cash, the weather, gas prices and offers | `packages/sim/src/town/firmPolicy.ts`, `firms.ts` |
-| Power-delivery escrow | the buyer escrows, the player's grid delivers (measured), the operator confirms, the seller is paid for what arrived | `power_order_place` / `power_order_confirm`, region `export:` loads |
-| Settlement | market and region epochs in atomic multi-token batches; nothing per tick | `settle_batch`, `EconomyService.queueSettlement` |
-| Ownership | each player's plants minted as NEP-171 Plant Assets to their wallet, moved out when sold | `plants.rs`, `EconomyService.syncPlants` |
-| Reliability | every chain operation once (`chain_ops`), hash recorded before broadcast, `FINAL` required, unknown outcomes reconciled by reading the contract | `gateway.ts`, `service.ts` |
-
-**Status: live on testnet.** Contract [`vesper-econ.blackout-kay.testnet`](https://testnet.nearblocks.io/address/vesper-econ.blackout-kay.testnet);
-a run on 2026-11-09 settled 40 transactions, including NPCs paying a player for power with their own keys and an NPC
-buying from another NPC ([evidence](docs/TESTNET_DEMO.md#evidence-table)). Reproduce with `pnpm chain:economy`, then
-`pnpm chain:demo`.
-
-Players also sell whole plants to each other (MARKET → Plants for sale): one atomic `plant_buy_for` moves the credits
-and the NFT, then the plant moves grids. Guests get a wallet after their first minute; anyone can export their
-wallet key (⚙︎ → Money), or take all their money out of the game into their own wallet and end the game's custody of
-it for good (`release_to_owner`, signed by the wallet itself). **Not used:** NEAR Intents (see below).
+| Testnet contract | [`vesper-econ.blackout-kay.testnet`](https://testnet.nearblocks.io/address/vesper-econ.blackout-kay.testnet) is used by the separately documented demo. |
+| Testnet evidence | [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) records a run on 2026-11-09 with 40 final transactions and explorer links. |
+| Railway economy service | Configured separately for NEAR Testnet; check transaction evidence before attributing a specific gameplay event to chain settlement. |
+| Live game resource adapter | Disabled in the current Railway config (`chainMode: disabled`). On-chain player resource listings and transfers are unavailable in the deployed game. |
+| Game credits | Fictional, non-redeemable credits. They are not cash or a promise of a token payout. |
+| Wallet UX | Guest and Google onboarding do not require an external wallet, seed phrase or gas prompt. Do not describe an account as self-custodied unless that behavior is implemented and verified. |
+| NEAR Intents | Not integrated; the project has no demonstrated transaction path that needs it. |
 
 ## How this meets the track (§64)
 * **Games With Real Economies (primary):** prices, wages, debt, closures and construction costs all emerge from
-  actors' own rules; scarcity is real and nobody prints money.
-* **NFTs That Do Something (secondary):** a Plant Asset *is* the plant — its account earns, holds fuel and credits,
-  and control moves with the token.
-* **Agent Economy:** the NPCs decide autonomously in simulation; on-chain they are accounts with scoped keys, not
-  autonomous on-chain agents. We don't claim more.
+  actors' simulation rules. Game credits remain fictional and non-redeemable.
+* **Agent Economy:** NPCs make autonomous decisions in the simulation. The standalone Testnet demo shows NPC-signed
+  transactions; do not imply those accounts or transfers are active in every public-game interaction.
+* **On-chain ownership:** the contract supports NEP-245 resources and Plant Assets, but the live Railway config
+  disables the resource adapter. See the compliance and Testnet demo documents for the exact scope and evidence.
 
 ## What's live vs configured
 | Feature | Status |
 |---|---|
-| Regional game: market, plants, actors, events, world inputs, 3D client, persistence, weekly challenge, Economy Lab | **works** (Vitest, Playwright) |
+| Regional game: market, plants, actors, events, persistence and 3D client | **Live** at the Railway URL above; guest journey and live region connection were smoke-checked. |
 | Live weather (Open-Meteo) | **works** with network; falls back to the last saved snapshot |
-| Contract: treasury, escrow, batch settlement, Plant Assets, every item token | 53 Rust tests; **deployed** to `vesper-econ.blackout-kay.testnet` |
-| Economy service: wallets, NPC orders, settlement, reconciliation | 9 integration tests; **ran live on testnet** (40 final transactions); the dev server uses it once `.env.economy` is in its env |
-| NPC power companies and the power desk | **works** off chain (9 sim tests); visible in MARKET and in Watch a week |
-| Email sign-in | works locally (code on screen); production uses Supabase |
-| Google sign-in | direct (Google Identity Services, ID token verified on the server, 4 tests); needs a Google OAuth client id in `GOOGLE_CLIENT_ID` ([steps](docs/AUTH_PROVIDER_DECISION.md#google-sign-in-without-supabase-simplest)) |
-| Classic city game + shared fuel exchange | still works at `/city` |
+| Guest access | **Enabled** in production. |
+| Google sign-in | **Configured** with Google Identity Services. The sign-in bundle and public config are deployed; a real Google account consent round-trip still needs browser verification. See [setup](docs/AUTH_PROVIDER_DECISION.md#google-sign-in-without-supabase-simplest). |
+| Email sign-in | **Disabled** in production. Local development can use the on-screen email code. |
+| NEAR Testnet contract and standalone demo | **Deployed and demonstrated** as documented in [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md). |
+| NEP-245 resource adapter in the live game | **Disabled** in current Railway config; player resource listings and transfers are not available. |
+| Seven-day market replay | Available through **Watch a week** in MARKET; sandbox replay is distinct from Testnet settlement. |
+| Classic city game | Available at **/city**. |
 
 ## Demo script (§65, 3 minutes)
-1. Open the game: **▶ Play as guest** (or sign in). The crisis is already happening — read the Pulse question aloud.
+1. Open the [live game](https://blackout-production-c7fc.up.railway.app/): choose **▶ Play as guest** or sign in with Google. The crisis is already happening — read the Pulse question aloud.
 2. Start Kestrel, discharge the battery: the shortfall closes on screen.
 3. Tap the Residential East price: *why* it costs what it costs.
 4. Build a peaker on the pad; open GRID and upgrade the Eastside Line.
 5. Open **What happened**: follow one causal chain from a trip to a layoff.
-6. MARKET → Power companies: a company explains why it bought your power; follow the deal to "paid".
-7. PORTFOLIO: your Plant Assets; list one; accept VoltLine's bid.
-8. Point at the news ticker: tap the story, the merchant opens, hover the price and the story is in the reasoning.
-9. ⚙︎ → Money: your wallet, the treasury, every NPC wallet and every transaction. ⚙︎ → Verify: epochs re-hashed.
+6. Open **MARKET** and **Watch a week** to show the evolving simulated economy.
+7. For chain evidence, use the separate [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) walkthrough and its explorer links. Do not present it as a live player resource-market transaction from the Railway game.
 
 ## Commands
 | | |
 |---|---|
 | `pnpm dev` | API + web (hot reload) |
-| `pnpm test` | 200 TS tests (Vesper Market, power market, region engine and API, relayer, settlement, world inputs, plus the classic game) |
-| `pnpm test:e2e` | Playwright: the first session, the market (tooltip, trade, feed, watch a week), a phone layout, and the 8 classic journeys |
-| `pnpm test:contract` | 54 Rust contract tests |
+| `pnpm test` | Run the Vitest unit and integration suite |
+| `pnpm test:e2e` | Run the Playwright browser journeys |
+| `pnpm test:contract` | Run the NEAR contract Rust tests |
 | `pnpm typecheck` | type check (also `cd apps/web && npx tsc --noEmit`) |
 | `pnpm build` | production web build into `dist/` |
-| `pnpm build:contract` / `pnpm chain:economy` | build, deploy and initialise the economy on testnet with your account |
-| `pnpm chain:demo` | run the real economy against testnet and write `docs/TESTNET_RUN.md` |
+| `pnpm build:contract` | Build the NEAR contract WASM |
+| `pnpm chain:economy` | Deploy and initialise the Testnet economy (requires a funded Testnet account and credentials) |
+| `pnpm chain:demo` | Run the documented economy flow against Testnet and write `docs/TESTNET_RUN.md` |
 
 ## Docs
 [Game design](docs/GAME_DESIGN.md) · [Architecture](docs/ARCHITECTURE.md) · [API contract](docs/API_CONTRACT.md) ·
