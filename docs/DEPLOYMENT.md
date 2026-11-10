@@ -35,9 +35,11 @@ The Testnet economy variables are stored as Railway runtime variables from the i
 
 The server should report that the economy is enabled on NEAR Testnet. Confirm that status and verify account balances before presenting the on-chain demo. No transaction hash is recorded here unless a real transaction has been observed and independently verified.
 
+The separate NEP-245 resource adapter currently reports `chainMode: disabled`: its legacy `NEAR_CHAIN_ENABLED`, resource-contract, vault, and three merchant-signer settings are not configured. Resource listings and transfers that depend on that adapter are unavailable. The NEAR economy module above is enabled independently; do not treat that as evidence that the legacy resource-market flow is live.
+
 ## Login providers
 
-Guest access is enabled for the initial demo. Google sign-in requires a valid `GOOGLE_CLIENT_ID` and the Railway origin registered with that OAuth client. Email magic links require Supabase configuration (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) and matching redirect URLs. Do not claim either provider works until it has been exercised on the deployed domain.
+Guest access is enabled for the initial demo. The deployed public config currently advertises guest auth only; Google and email sign-in are not enabled. Google sign-in requires a valid `GOOGLE_CLIENT_ID` and the Railway origin registered with that OAuth client. Email magic links require Supabase configuration (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) and matching redirect URLs. Do not claim either provider works until it has been exercised on the deployed domain.
 
 ## Verify a deployment
 
