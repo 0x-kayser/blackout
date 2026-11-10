@@ -1,16 +1,18 @@
 # NEAR Games With Real Economies — compliance status
 
 **Audit date:** 2026-11-10
-**Overall status:** BLACKOUT now keeps chain status and transaction verification out of the player interface and
-provides protected operator audit endpoints. A separate power-economy Testnet contract and standalone transactions
-are documented in [`TESTNET_DEMO.md`](TESTNET_DEMO.md). The distinct NEP-245 resource-market adapter was observed
-disabled in the public Railway deployment on 2026-11-10; no live resource-market trade is claimed. Local adapter code
-and fake-RPC results are not proof of a live resource-market deployment.
+**Overall status:** Railway runs commit `c65411a`. Chain status and transaction verification stay out of the player
+interface; operators use the protected `/api/admin/chain-audit` endpoint. A read-only production audit confirmed the
+separate Testnet power economy is connected, with 21 settled and 6 submitted operations at the time checked. The
+distinct NEP-245 player-resource adapter remains disabled, so no live player-resource trade is claimed. A separate
+power-economy Testnet contract and standalone transactions are documented in [`TESTNET_DEMO.md`](TESTNET_DEMO.md).
+Local adapter code and fake-RPC results are not proof of a live resource-market deployment.
 
-## Deployment preflight and hard blockers
+## NEP-245 resource-market deployment preflight and hard blockers
 
-No external account creation, funding, deployment, or transaction was attempted. The repository environment had no
-`.env`, `.env.chain`, or `.env.local` file. These required values were missing:
+The BLACKOUT app itself is deployed on Railway. No NEAR account creation, funding, NEP-245 resource-contract
+deployment, or player-resource transfer was attempted during this audit. The repository environment had no `.env`,
+`.env.chain`, or `.env.local` file. These required resource-market values were missing:
 
 - `NEAR_CHAIN_ENABLED`, `NEAR_PARENT_ACCOUNT_ID`, `NEAR_PARENT_PRIVATE_KEY`
 - `NEAR_RESOURCE_CONTRACT_ID`, `NEAR_VAULT_ACCOUNT_ID`, `NEAR_VAULT_OPERATOR_PRIVATE_KEY`
@@ -28,9 +30,9 @@ before deployment, as required. Bootstrap code is not deployment evidence.
 | NEP-245 resources | `contracts/near/src/lib.rs` implements the multi-token contract, resource IDs, units, balance views, transfers, approvals, capped/idempotent NPC transfers, settlement checks, and listing escrow primitives. `scripts/near-bootstrap.ts` registers diesel, permits and selected materials. | Contract code and tests are local. Merchant minting currently provisions diesel only. No deployed contract or live resource balances exist. Carbon permits/materials are not connected to gameplay settlement. | Local contract implementation; not deployed. |
 | NPC to game vault trade | `apps/api/src/chain.ts`, `apps/api/src/workers.ts`, and `apps/api/src/services.ts` provide a real-transfer path when configured: merchant function-call key submits NEP-245 diesel into shared vault; final RPC outcome is reconciled with the game trade. | Resource transfer would be on-chain; credits and each player's game allocation remain off-chain. The server manages the vault key. | Code path exists; credentials are absent and no live transfer was verified. |
 | Player ownership and listings | `packages/sim/src/marketplace.ts`, `apps/api/src/routes.ts`, `apps/api/src/services.ts`, `apps/api/src/workers.ts`, and `apps/web/src/ui/Panels.tsx` implement registered-player listings, chain-backed fuel reservation, cancellable seven-day listings, autonomous merchant evaluation, and off-chain game-credit settlement. Migration `004_marketplace_jobs.sql` stores durable jobs. | The server maps the authenticated player ID to a shared custodial vault allocation. The contract moves the resource from that vault into listing escrow, then to a registered NPC account. The listing price and payment are off-chain fictional credits. | Local end-to-end path and fake-RPC behavior tested; live contract/account/transaction evidence unavailable. |
-| Social and email login | Guest sessions, Supabase JWT handling, Google/email provider integration points, and guest-to-account save migration are in `apps/api/src/auth.ts`, `apps/api/src/routes.ts`, and `apps/web/src/api/auth.ts`. | Authentication is off-chain. A registered identity currently maps to shared custodial vault allocation, not an individual NEAR account. | Local code exists; missing Supabase configuration prevents provider verification. |
-| Invisible custody and judge audit | The player interface has no wallet or transaction-verification screen. Chain status and evidence are exposed only through `/api/admin/chain-audit`, `/api/economy/admin/audit`, and operator-only `/api/chain/*` routes. | The operator audit requires `ECONOMY_ADMIN_TOKEN` in an `x-admin-token` header. Configured server keys remain on the server; the player interface does not show them. | Player UI separation implemented locally. Railway must run this build and have the operator token configured before the audit endpoint can be used there. |
-| Progressive challenge loop | After the three-step tutorial, a live Career HUD shows the next licence threshold and current energy/reliability progress. A second HUD card opens the rotating seeded weekly scenario and leaderboard. The settings Career view shows every licence and its build unlocks. | Goals use the same licence and weekly challenge rules as the simulation; the live company remains saved while a challenge run is played. | Implemented in `apps/web/src/region/ui/Progression.tsx`; production client build and TypeScript check passed on 2026-11-10. |
+| Social and email login | Guest sessions, Google Identity Services, and guest-to-account save migration are in `apps/api/src/auth.ts`, `apps/api/src/routes.ts`, and `apps/web/src/api/auth.ts`. | Authentication is off-chain. The separate power-economy service can provision a server-managed account for a registered player; NEP-245 player listings still depend on the shared vault allocation. | Production config reports guest and Google sign-in enabled; email is disabled. A Google consent round-trip was not repeated in this browser-disabled audit. |
+| Invisible custody and judge audit | The player interface has no wallet or transaction-verification screen. Chain status and evidence are exposed only through `/api/admin/chain-audit`, `/api/economy/admin/audit`, and operator-only `/api/chain/*` routes. | The operator audit requires `ECONOMY_ADMIN_TOKEN` in an `x-admin-token` header. Configured server keys remain on the server; the player interface does not show them. | Deployed to Railway. The audit returned 403 without the token and 200 with the configured Railway token. |
+| Progressive challenge loop | After the three-step tutorial, a live Career HUD shows the next licence threshold and current energy/reliability progress. A second HUD card opens the rotating seeded weekly scenario and leaderboard. The settings Career view shows every licence and its build unlocks. | Goals use the same licence and weekly challenge rules as the simulation; the live company remains saved while a challenge run is played. | Implemented in `apps/web/src/region/ui/Progression.tsx`; build and TypeScript check passed, and `/api/region/challenge` is live on Railway. |
 | NEAR Intents | No integration. The present concrete chain leg is a same-network NEP-245 resource transfer; no supported cross-asset or cross-chain flow has been shown to improve it. | Not applicable. | Deliberately not used. |
 | Continuous economy and replay | `packages/sim` contains live continuous city play and deterministic economy rules. `packages/sim/src/replay.ts` reuses simulation rules for seven-day fast-forward; the Economy Lab shows replay data. | Simulation-only; replay does not submit chain transactions. | Implemented locally; deterministic behavior is covered by tests. |
 
