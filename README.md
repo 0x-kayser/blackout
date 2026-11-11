@@ -10,8 +10,10 @@ people off and close. You decide what runs, what gets built, where, and with who
 >
 > **Economy and chain status:** Credits are fictional, non-redeemable game currency, and the simulation is
 > server-authoritative. The root Testnet economy supports the player electricity market and NEP-245 settlement for
-> merchant resources. This revision adds player resource custody and batched consumption reconciliation. It still needs
-> deployment and a verified player transaction before that resource flow can be claimed as live. The older standalone
+> merchant resources. Commit `bf3dd76` adds player resource custody and batched consumption reconciliation. It is pushed
+> to the repository; the public app and API health endpoint responded successfully, but Railway's deployment metadata
+> was unavailable, so the running release cannot yet be tied to that commit. A verified player transaction is also
+> required before that resource flow can be claimed as live. The older standalone
 > commodity-listing adapter remains disabled. See [`docs/NEAR_TRACK_COMPLIANCE.md`](docs/NEAR_TRACK_COMPLIANCE.md) and
 > [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) for exact evidence and limitations.
 
@@ -158,7 +160,7 @@ empty transaction log is reported as such, not as a successful on-chain trade.
 | Testnet contract | [`vesper-econ.blackout-kay.testnet`](https://testnet.nearblocks.io/address/vesper-econ.blackout-kay.testnet) is used by the separately documented demo. |
 | Testnet evidence | [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) records a run on 2026-11-09 with 40 final transactions and explorer links. |
 | Root Railway economy service | Configured for NEAR Testnet; merchant and power-company transactions use the root contract. Verify audit evidence before attributing a particular gameplay event to settlement. |
-| Player NEP-245 resources | The source now reconciles player holdings and resource consumption; this revision still needs deployment and an independently verified player trade. |
+| Player NEP-245 resources | Commit `bf3dd76` reconciles player holdings and resource consumption; its Railway rollout and an independently verified player trade still need confirmation. |
 | Legacy commodity-listing adapter | Disabled. Do not confuse it with the root Vesper Market or player electricity offer market. |
 | Game credits | Fictional, non-redeemable credits. They are not cash or a promise of a token payout. |
 | Wallet UX | Guest and Google onboarding do not require an external wallet, seed phrase or gas prompt. Do not describe an account as self-custodied unless that behavior is implemented and verified. |
@@ -182,7 +184,7 @@ empty transaction log is reported as such, not as a successful on-chain trade.
 | Google sign-in | **Configured** with Google Identity Services. The sign-in bundle and public config are deployed; a real Google account consent round-trip still needs browser verification. See [setup](docs/AUTH_PROVIDER_DECISION.md#google-sign-in-without-supabase-simplest). |
 | Email sign-in | **Disabled** in production. Local development can use the on-screen email code. |
 | NEAR Testnet contract and standalone demo | **Deployed and demonstrated** as documented in [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md). |
-| Root NEP-245 player-resource settlement | **Implemented in this source revision; deployment and a real player trade are still pending verification.** |
+| Root NEP-245 player-resource settlement | **Implemented and pushed in `bf3dd76`; the exact Railway release and a real player trade are still pending verification.** |
 | Legacy fuel-listing adapter | **Disabled** in Railway; it is a separate contract flow. |
 | Seven-day market replay | Available through **Watch a week** in MARKET; sandbox replay is distinct from Testnet settlement. |
 | Classic city game | Available at **/city**. |
