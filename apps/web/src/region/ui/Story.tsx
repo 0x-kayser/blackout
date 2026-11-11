@@ -103,15 +103,13 @@ export function Coach({ v, onTarget }: { v: RegionView; onTarget: (target: strin
   const step = v.onboarding.step
   return (
     <div className="coach" role="status">
-      <p className="eyebrow">
-        First minute · {step + 1} of 4
-      </p>
+      <p className="eyebrow">OPENING OPERATION · STEP {step + 1} OF 3</p>
       <b>{v.onboarding.title}</b>
       <p>{v.onboarding.hint}</p>
       <div className="row">
         {v.onboarding.target && (
           <button className="btn primary small" onClick={() => onTarget(v.onboarding.target!)}>
-            Show me
+            Show me on the map
           </button>
         )}
         <button className="btn ghost small" onClick={() => setHidden(true)}>

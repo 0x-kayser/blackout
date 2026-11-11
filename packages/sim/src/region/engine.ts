@@ -1049,9 +1049,9 @@ export function reliabilityBps(s: RegionState): number {
 }
 
 export const ONBOARDING = [
-  { title: "Residential East is dark", hint: "Tap ⚡ on your battery to send it power.", target: "plant:eastside" },
-  { title: "The region is short of power", hint: "Tap ▶ on your gas turbine to start it. You get paid for every megawatt.", target: "plant:kestrel" },
-  { title: "Build more power where it's needed", hint: "Tap + to build a diesel plant in Residential East.", target: "node:residential_east" },
+  { title: "Restore the homes", hint: "Select the Eastside battery and set it to Auto. It will discharge to bring the homes back online.", target: "plant:eastside" },
+  { title: "Dispatch Kestrel", hint: "Start the gas turbine. It takes a short time to warm up, then earns revenue when it sells power.", target: "plant:kestrel" },
+  { title: "Build your first reserve", hint: "Build a diesel peaker in Residential East. It can cover evening demand when stored power runs low.", target: "node:residential_east" },
 ] as const;
 
 function onboardingStep(s: RegionState, ctx: RCtx): void {

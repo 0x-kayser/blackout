@@ -64,9 +64,9 @@ export function SignInOptions({ g, compact = false, onSignedIn }: { g: Game; com
   const withGoogle = (credential: string) =>
     run(async () => {
       const r = await signInWithGoogleCredential(credential)
-      await g.boot()
       if (r.upgradedGuest) g.toast('Signed in with Google. Your company is saved to your account.', 'good')
-      await onSignedIn?.()
+      if (onSignedIn) await onSignedIn()
+      else await g.boot()
     })
 
   const run = async (fn: () => Promise<void>) => {
@@ -93,13 +93,12 @@ export function SignInOptions({ g, compact = false, onSignedIn }: { g: Game; com
     run(async () => {
       if (local) {
         const r = await verifyLocalEmail(email.trim(), code)
-        await g.boot()
         if (r.upgradedGuest) g.toast('Signed in. Your city is saved to your account.', 'good')
       } else {
         await verifyEmailCode(email.trim(), code)
-        await g.boot()
       }
-      await onSignedIn?.()
+      if (onSignedIn) await onSignedIn()
+      else await g.boot()
     })
 
   const copyLink = async () => {

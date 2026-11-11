@@ -19,9 +19,9 @@ export function missionFor(v: RegionView): Mission | null {
   if (v.onboarding.done || !v.onboarding.target) return null
   const step = v.onboarding.step
   const diesel = v.techs.find((t) => t.tech === 'diesel')?.sizes[1]
-  if (step === 0) return { step, title: 'Residential East is dark', hint: 'Send it power from your battery.', target: 'plant:eastside', label: '⚡ Send power', action: { type: 'SET_BATTERY_MODE', plantId: 'eastside', mode: 'auto' } }
-  if (step === 1) return { step, title: 'The region is short of power', hint: 'Start your gas turbine. You get paid for every megawatt it makes.', target: 'plant:kestrel', label: '▶ Start turbine', action: { type: 'SET_PLANT_ONLINE', plantId: 'kestrel', online: true } }
-  return { step, title: 'Your battery won’t last all night', hint: 'Build a diesel plant in Residential East.', target: 'node:residential_east', label: `+ Build diesel plant${diesel ? ` · ${credits(diesel.costCc)}` : ''}`, action: { type: 'BUILD_PLANT', tech: 'diesel', nodeId: 'residential_east', size: 1 } }
+  if (step === 0) return { step, title: 'Restore the homes', hint: 'Set the Eastside battery to Auto so it can send power into the dark district.', target: 'plant:eastside', label: '⚡ Restore Eastside', action: { type: 'SET_BATTERY_MODE', plantId: 'eastside', mode: 'auto' } }
+  if (step === 1) return { step, title: 'Dispatch Kestrel', hint: 'Start the gas turbine. It takes time to warm up, then earns revenue when it sells power.', target: 'plant:kestrel', label: '▶ Start Kestrel', action: { type: 'SET_PLANT_ONLINE', plantId: 'kestrel', online: true } }
+  return { step, title: 'Build your first reserve', hint: 'Add a diesel peaker in Residential East to cover the evening peak.', target: 'node:residential_east', label: `+ Build diesel peaker${diesel ? ` · ${credits(diesel.costCc)}` : ''}`, action: { type: 'BUILD_PLANT', tech: 'diesel', nodeId: 'residential_east', size: 1 } }
 }
 
 export const CELEBRATE = ['Lights back on in Residential East', 'Your turbine is running — you’re earning', 'Construction started — you run the power company now']

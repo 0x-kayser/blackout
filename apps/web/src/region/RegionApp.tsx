@@ -1,7 +1,7 @@
 /**
  * BLACKOUT — the regional power game. World first (§32): the region fills the screen, the System Pulse sits on
- * top, the dock at the bottom, the inspector beside whatever you tapped. No menus before play: a guest session
- * starts on its own and the first minute teaches by doing (§55–56).
+ * top, the dock at the bottom, the inspector beside whatever you tapped. Every visit begins at a clear entry screen;
+ * players choose guest or account access before opening the region. The first operation teaches by doing.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeId, PublicConfig, RegionEvent, RegionView, TechId } from '@blackout/shared'
@@ -15,7 +15,7 @@ import { Inspector } from './ui/Inspector'
 import { PulseBar } from './ui/Pulse'
 import { Settings, type SettingsTab } from './ui/Settings'
 import { Feed, Toasts, useNewEvents } from './ui/Story'
-import { CELEBRATE, Celebration, MissionBanner, NextMoveBar, missionFor, nextMove } from './ui/Guide'
+import { CELEBRATE, Celebration, NextMoveBar, missionFor, nextMove } from './ui/Guide'
 import { MarketSheet, MerchantInspector, NewsTicker, WatchAWeek, type Trade, type Invest } from './ui/Market'
 import { NameCompany } from './ui/Company'
 import { Title } from './ui/Title'
@@ -52,8 +52,9 @@ export default function RegionApp() {
   const [renaming, setRenaming] = useState(false)
   const [regionId, setRegionId] = useState<string | null>(null)
   const [bootError, setBootError] = useState<string | null>(null)
-  /** No session yet: show the title screen (play as guest, or sign in) instead of creating a guest on our own. */
-  const [entry, setEntry] = useState(false)
+  /** Keep the region out of view until the player chooses how to enter. */
+  const [entry, setEntry] = useState(true)
+  const [entryLoading, setEntryLoading] = useState(true)
   const { view, setView, town, conn, act, market } = useRegion(regionId)
   const [watching, setWatching] = useState(false)
   const viewRef = useRef<RegionView>(null as unknown as RegionView)
@@ -100,28 +101,39 @@ export default function RegionApp() {
   }, [prefs.music])
 
   /* -------------------------------------------------------------- boot: session → region */
-  const boot = useCallback(async () => {
+  const boot = useCallback(async (showEntry = true) => {
+    setEntryLoading(true)
     setBootError(null)
     try {
+      const authReturn = new URLSearchParams(location.search)
+      const returnedFromAuth = authReturn.has('code') && !authReturn.has('error_description')
       const cfg = await api.config()
       setConfig(cfg)
       await initSupabase(cfg)
       await currentSession()
+      if (authReturn.has('code') || authReturn.has('error_description')) history.replaceState(null, '', location.pathname)
       let me
       try {
         me = await api.me()
       } catch (e) {
         if (!(e instanceof BlackoutApiError && e.code === 'UNAUTHORIZED')) throw e
+        setPlayer(null)
+        setView(null)
+        setRegionId(null)
         setEntry(true)
+        setEntryLoading(false)
         return
       }
       // this server asks everyone to sign in first: a guest session from before gets the sign-in screen (and keeps
       // its company when it signs in)
       if (!cfg.auth.guestPlay && me.player.kind !== 'registered') {
+        setPlayer({ playerId: me.player.playerId, displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
+        setView(null)
+        setRegionId(null)
         setEntry(true)
+        setEntryLoading(false)
         return
       }
-      setEntry(false)
       if (me.player.kind === 'registered' && guestUpgradeToken()) {
         // Supabase creates a separate registered identity and needs the guest save linked.
         // Direct Google/local email upgrades the guest player in place, so linking it again
@@ -136,13 +148,24 @@ export default function RegionApp() {
         clearGuestUpgradeToken()
       }
       setPlayer({ playerId: me.player.playerId, displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
+      // Returning players see a welcome-back choice first. An OAuth return is already an explicit choice to sign in.
+      if (showEntry && !returnedFromAuth) {
+        setView(null)
+        setRegionId(null)
+        setEntry(true)
+        setEntryLoading(false)
+        return
+      }
       const r = await regionApi.live()
       // Keep player setup server-side; only the game's power desk preferences reach the browser.
       regionApi.desk().then((x) => setDesk(x.desk), () => undefined)
       setView(r.view)
       setRegionId(r.view.regionId)
+      setEntry(false)
+      setEntryLoading(false)
     } catch (e) {
       setBootError((e as Error).message || 'Could not reach the game server.')
+      setEntryLoading(false)
     }
   }, [setView])
   useEffect(() => {
@@ -151,7 +174,7 @@ export default function RegionApp() {
 
   const playAsGuest = useCallback(async () => {
     await startGuestSession()
-    await boot()
+    await boot(false)
   }, [boot])
   const signOut = useCallback(async () => {
     await api.logout().catch(() => undefined)
@@ -160,7 +183,7 @@ export default function RegionApp() {
     setRegionId(null)
     setView(null)
     setPlayer(null)
-    await boot()
+    await boot(true)
   }, [boot, setView])
 
   // the music follows the grid: tense while the region is short of power or dark
@@ -298,8 +321,12 @@ export default function RegionApp() {
     return (
       <Title
         config={config}
+        player={player}
+        ready={!entryLoading}
         music={prefs.music}
         onMusic={(on) => setPrefs({ ...prefs, music: on })}
+        onContinue={async () => { await boot(false) }}
+        onSignOut={signOut}
         onGuest={async () => {
           if (prefs.music) {
             unlockAudio()
@@ -312,7 +339,7 @@ export default function RegionApp() {
             unlockAudio()
             startMusic()
           }
-          await boot()
+          await boot(false)
         }}
       />
     )
@@ -376,7 +403,6 @@ export default function RegionApp() {
       />
       <PulseBar v={view} simple={simple} company={player?.companyNamed ? player.displayName : null} onCompany={() => setRenaming(true)} conn={conn} zoom={zoom} onSettings={() => { setSettingsTab('account'); setSettings(true) }} onHome={() => { setSelection(null); setFocus({ kind: 'home', id: '', nonce: Date.now() }) }} sound={prefs.sound} onSound={() => setPrefs({ ...prefs, sound: !prefs.sound })} />
       {!simple && <LoopGoals v={view} challenge={challengeInfo} onCareer={() => { setSettingsTab('career'); setSettings(true) }} onChallenge={() => { setSettingsTab('challenge'); setSettings(true) }} />}
-      {mission && <MissionBanner m={mission} />}
       {!simple && !mode && <NewsTicker town={town} onMerchant={(id) => select({ kind: 'merchant', id })} />}
       {celebrate && <Celebration text={celebrate} />}
       {move && !mode && !selection && !askName && !renaming && <NextMoveBar m={move} onDo={() => void doMove()} />}

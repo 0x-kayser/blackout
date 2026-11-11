@@ -44,7 +44,7 @@ export function Settings(p: SettingsProps) {
         <nav className="tabs">
           {(['account', 'career', 'challenge', 'lab', 'about'] as SettingsTab[]).map((t) => (
             <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-              {{ account: 'Account', career: 'Permits', challenge: 'Weekly challenge', lab: 'Economy Lab', about: 'About' }[t]}
+              {{ account: 'Account', career: 'Campaign', challenge: 'Weekly drill', lab: 'Economy Lab', about: 'About' }[t]}
             </button>
           ))}
         </nav>
@@ -103,7 +103,7 @@ function Challenge(p: SettingsProps) {
   }, [])
   return (
     <>
-      <h3>Weekly challenge</h3>
+      <h3>Weekly crisis drill</h3>
       <Section title={`${challenge?.week.replace('-', ' · ') ?? 'This week'}${challenge ? ` · ${challenge.name}` : ''}`}>
         <p className="fine">{challenge?.description ?? 'A shared three-day regional scenario.'} Everyone gets the same seed and starting conditions. Finish the three game days (about 15 minutes) to post a score on this week’s board.</p>
         <p className="fine">Score rewards profit and regional business output, and accounts for power left unserved and CO₂ emissions. The scenario rotates weekly; your live region stays saved while you play it.</p>
