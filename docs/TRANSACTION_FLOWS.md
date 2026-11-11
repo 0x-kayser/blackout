@@ -19,12 +19,17 @@ seller paid, buyer refunded the rest), or **failed** (the escrow never happened;
 1. MARKET → a merchant → Buy (`POST /api/town/trade`, idempotency key from the client).
 2. `TownService.trade` prices it with `merchantPricing.ts`, checks the merchant's stock and the player's cash, and
    records it on both ledgers in one synchronous step (or not at all).
-3. The market's next epoch (every 72 s) contains the player's −credits and the merchant's +credits and −fuel.
-   `EconomyService.queueSettlement` turns it into **one** `settle_batch` signed by the operator: the player's credits
-   from their wallet to the merchant's account, and the fuel from the merchant's account to grid custody (it is
-   delivered into the player's plants, which burn it off chain). Credits and fuel move in the same transaction, or
-   neither does (`economy_tests.rs`: "batch settlement moves credits and items together").
-4. A retry of the trade returns the stored result; a retry of the batch is refused on chain (`Epoch already settled`).
+3. `TownEpoch` records the player's −credits, merchant's +credits and item movement. After the player wallet's resource
+   baseline is confirmed, `EconomyService.queueSettlement` submits these as a zero-sum `settle_batch`: credits move
+   between the player's assigned Testnet account and the merchant; the NEP-245 resource moves between the merchant
+   account and the player's assigned account. Before that boundary, trades stay against shared world custody and the
+   bootstrap reads the player's current inventory before transferring it once.
+4. Region epochs separately account for resource consumed by the simulation. They subtract market trade flows, convert
+   the player's net inventory change to whole NEP-245 units, and batch consumed units back to world custody. Fractional
+   simulation units remain off chain until a whole token unit is gained or consumed. Consumption returns units to the
+   custody pool; it does not burn or redeem them. No transaction is sent for each simulation tick.
+5. A retry of the trade returns the stored result; a retry of the batch is checked against the contract's unique epoch
+   ID and reconciled by reading `epoch` after an unknown outcome. The batch is zero-sum and succeeds in full or not at all.
 
 ## Flow B — an NPC buys electricity from a player (the main demonstration)
 
@@ -71,7 +76,8 @@ and the `nft_transfer` (NFT seller → buyer); the listing was [G9cETXth…](htt
 |---|---|
 | The company's escrow is refused (limit, balance, kill switch) | order **failed** with the reason; its reservation released; no export, no money |
 | The response is lost | op stays **submitted**; looked up later; contract read decides; never sent twice |
-| A grant or batch is retried | refused on chain (single-use id) and recognised as already done |
+| A grant or batch is retried | single-use grant/epoch ID is read back from the contract and recognised as already done |
 | The grid float is short | batch **failed** as transient; floats topped up from the bucket; retried |
+| A resource market batch is ahead of the inventory snapshot | Town item settlement is held until the baseline lands; later region debits wait for unsettled market item credits |
 | Nobody confirms a delivery | after the deadline anyone can call `power_order_expire`: full refund to the buyer |
 | NPC spending is switched off | server stops placing orders; contract refuses any that arrive |

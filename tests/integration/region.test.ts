@@ -5,6 +5,7 @@ import { buildServer } from "../../apps/api/src/server.ts";
 import { loadChainConfig } from "../../apps/api/src/chain.ts";
 import { LiveWorldInputs, StaticWorldInputs } from "../../apps/api/src/world.ts";
 import { openDb } from "../../apps/api/src/db.ts";
+import { rtransfer } from "../../packages/sim/src/region/state.ts";
 
 type Built = Awaited<ReturnType<typeof buildServer>>;
 let built: Built;
@@ -151,6 +152,22 @@ describe("region API", () => {
     built.rsvc.advance(h);
     const count = built.db.prepare("SELECT COUNT(*) AS n FROM settlement_epochs WHERE region_id = ?").get(v.regionId) as { n: number };
     expect(count.n).toBe(2);
+  });
+
+  it("separates market item transfers from gameplay consumption in resource epochs", () => {
+    const s = region.createRegion({ regionId: "resource-epoch-test", seed: 44 });
+    const ctx = region.newRCtx();
+    region.regionAct(s, ctx, { type: "TOWN_SETTLE", ref: "buy-diesel", reason: "market purchase", items: { "fuel:diesel": 1 } });
+    s.interval += 1;
+    region.forceCloseEpoch(s);
+    expect(s.epochs.at(-1)?.resourceChanges).toEqual([]); // TownEpoch settles the market purchase.
+
+    rtransfer(s, ctx, "diesel", region.RACC.player, "ext:consumed", 500, "fuel burned");
+    s.interval += 1;
+    region.forceCloseEpoch(s);
+    const consumed = s.epochs.at(-1)!;
+    expect(consumed.resourceChanges).toEqual([{ token: "fuel:diesel", delta: -1 }]);
+    expect(region.verifyEpoch(consumed)).toBe(true);
   });
 
   it("pauses when nobody watches and runs while the stream is open", async () => {

@@ -55,6 +55,7 @@ export function createRegion(opts: { regionId: string; seed: number; mode?: "liv
     player: { autoFuel: { gas: true, diesel: true }, licence: 1, deliveredKwh: 0, emissionsKg: 0, servedShareWindow: [], profitCcToday: 0, revenueCcToday: 0, profitCcTotal: 0, starterGrantCc: STARTER_GRANT_CC },
     economy: { steelIndexBps: 10_000, steelWindow: [] },
     balances: { cc: {}, gas: {}, diesel: {}, permit: {}, cert: {}, steel: {}, parts: {} },
+    townItemFlow: {},
     ledgerSeq: 0,
     events: [],
     eventSeq: 0,
@@ -110,7 +111,12 @@ export function createRegion(opts: { regionId: string; seed: number; mode?: "liv
   suppliersStep(s, ctx, true);
   // the first settlement epoch carries the genesis distribution (treasury → everyone, starter grant included),
   // so on-chain balances start from the treasury's minted supply and never from nothing
-  s.epochStart = { interval: 0, balances: {} };
+  s.epochStart = {
+    interval: 0,
+    balances: {},
+    resourceBalances: Object.fromEntries(Object.entries(TOWN_UNITS).map(([item, unit]) => [item, s.balances[unit.asset]?.player ?? 0])),
+    townItemFlow: {},
+  };
   // clear one interval so a brand-new region opens on a real market, never on zeros
   regionTick(s, ctx);
   return s;
@@ -207,6 +213,10 @@ export function regionAct(s: RegionState, ctx: RCtx, action: AnyRegionAction): {
       for (const l of legs) {
         if (l.amount < 0) rtransfer(s, ctx, l.asset, RACC.player, "ext:town", -l.amount, action.reason);
         else rtransfer(s, ctx, l.asset, "ext:town", RACC.player, l.amount, action.reason);
+      }
+      s.townItemFlow ??= {};
+      for (const [item, quantity] of Object.entries(action.items ?? {})) {
+        if (quantity) s.townItemFlow[item as ItemId] = (s.townItemFlow[item as ItemId] ?? 0) + quantity;
       }
       if (action.income && action.cc && action.cc > 0) {
         s.player.profitCcToday += action.cc;

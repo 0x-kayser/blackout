@@ -34,7 +34,7 @@ const cr = (cc: number) => `₡${(cc / 100).toLocaleString("en-US", { maximumFra
 async function settle(rounds = 3) {
   for (let i = 0; i < rounds; i++) {
     await economy.ensureTownOpen();
-    economy.queueSettlement();
+    await economy.queueSettlement();
     economy.syncPlants();
     await economy.processOps(40);
   }

@@ -3,7 +3,7 @@
  * account. Accounts named `ext:*` are the outside world (exports, imports, contractors, burned fuel) and may go
  * negative; every other account is floored at zero. Invariant (tested): each asset sums to zero across accounts.
  */
-import type { BatteryMode, FuelId, NodeId, OfferStrategy, RegionEvent, RegionHistoryPoint, TechId, WorldSnapshot } from "@blackout/shared";
+import type { BatteryMode, FuelId, ItemId, NodeId, OfferStrategy, RegionEvent, RegionHistoryPoint, TechId, WorldSnapshot } from "@blackout/shared";
 import type { RngState } from "../prng.ts";
 import { SimError } from "../state.ts";
 
@@ -147,6 +147,8 @@ export interface REpoch {
   toInterval: number;
   /** Net credit change per chain identity (sums to zero). */
   transfers: { account: string; deltaCc: number }[];
+  /** Net player inventory consumed or created outside market trades, in NEP-245 token units. */
+  resourceChanges?: { token: string; delta: number }[];
   plants: { assetId: string; ownerId: string; lifetimeKwh: number; lifetimeRevenueCc: number; status: string }[];
   stateDigest: string;
   hash: string;
@@ -179,6 +181,8 @@ export interface RegionState {
   player: { autoFuel: { gas: boolean; diesel: boolean }; licence: number; deliveredKwh: number; emissionsKg: number; servedShareWindow: number[]; profitCcToday: number; revenueCcToday: number; profitCcTotal: number; starterGrantCc: number };
   economy: { steelIndexBps: number; steelWindow: number[] };
   balances: Record<RAsset, Record<string, number>>;
+  /** Cumulative market item movements recorded by TOWN_SETTLE, keyed by market item ID. */
+  townItemFlow?: Partial<Record<ItemId, number>>;
   ledgerSeq: number;
   events: RegionEvent[];
   eventSeq: number;
@@ -193,7 +197,14 @@ export interface RegionState {
   onboarding: { step: number; done: boolean };
   stats: { unservedKwh: number; regionOutputBpsSum: number; intervalsCounted: number };
   epochs: REpoch[];
-  epochStart: { interval: number; balances: Record<string, number> };
+  epochStart: {
+    interval: number;
+    balances: Record<string, number>;
+    /** Exact region units per market resource at the boundary; optional for states written by older builds. */
+    resourceBalances?: Record<string, number>;
+    /** Cumulative market flows at the boundary, used to separate trades from gameplay consumption. */
+    townItemFlow?: Partial<Record<ItemId, number>>;
+  };
   scripted: { firstTripDone: boolean };
   /** The market's fuel prices (cc per MMBtu / L), set by TOWN_PRICES. */
   townPrices?: { gas: number | null; diesel: number | null };

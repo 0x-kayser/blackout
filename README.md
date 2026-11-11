@@ -9,10 +9,11 @@ people off and close. You decide what runs, what gets built, where, and with who
 > **Live game:** [blackout-production-c7fc.up.railway.app](https://blackout-production-c7fc.up.railway.app). Production currently offers guest play and Google sign-in. Email sign-in is not configured.
 >
 > **Economy and chain status:** Credits are fictional, non-redeemable game currency, and the simulation is
-> server-authoritative. A separate power-economy contract and 40-transaction Testnet demo are documented in
-> [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md). A public Railway check on 2026-11-10 found the NEP-245
-> resource-market adapter disabled, so player resource listings and those transfers were not active in that
-> deployment. The standalone demo is not proof that a live gameplay interaction settles on chain.
+> server-authoritative. The root Testnet economy supports the player electricity market and NEP-245 settlement for
+> merchant resources. This revision adds player resource custody and batched consumption reconciliation. It still needs
+> deployment and a verified player transaction before that resource flow can be claimed as live. The older standalone
+> commodity-listing adapter remains disabled. See [`docs/NEAR_TRACK_COMPLIANCE.md`](docs/NEAR_TRACK_COMPLIANCE.md) and
+> [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) for exact evidence and limitations.
 
 ## Play in production
 
@@ -64,13 +65,13 @@ it is doing and why its price is what it is. **News & events** tells the region'
 ## The brief, requirement by requirement
 | The brief asks | In BLACKOUT |
 |---|---|
-| Players gather materials and trade with NPC merchants | The simulated Vesper Market trades fuel, permits, certificates, steel and repair parts. The production NEP-245 resource adapter is disabled; those in-game trades are not evidence of on-chain resource transfers. |
+| Players gather materials and trade with NPC merchants | The Vesper Market simulates fuel, permits, certificates, steel and repair parts. The root economy now maps those trades and consumed whole units to player NEP-245 balances in batches; a real post-deploy transaction is still needed to verify this build. |
 | Each merchant is an agent with its own wallet and inventory | Nine merchants have independent simulated cash, stock, imports and customers. A separate Testnet demo provisions NPC accounts; that setup is documented below. |
 | Prices from stock and recent demand | `stock factor × demand factor × margin`, recalculated every tick |
 | Flood the market and it gets cheap | Sell certificates and Lena's price falls for every player; buy gas and it rises for everyone |
 | A broke merchant closes until someone invests | Shops close when cash runs out; **Invest** reopens them and pays you a share of profits daily |
 | Progressive challenges with a clear next action | A three-step rescue opens the four-permit campaign; the city HUD keeps one live objective, its progress and the best next move visible. A shared three-day crisis rotates weekly. |
-| Items are NEP-245, one contract | Contract code and a Testnet demo are available. The Railway deployment check on 2026-11-10 found the player resource-market adapter disabled. |
+| Items are NEP-245, one contract | The root economy uses the existing `vesper-econ.blackout-kay.testnet` contract and its registered market IDs. The separate legacy listing adapter is disabled. |
 | Social/email login, no seed phrases, popups or gas | Production offers guest and Google sign-in. Email is off. Normal play does not ask for a wallet, seed phrase or gas. |
 | Pricing rules in one readable file, reasoning beside each price | [`merchantPricing.ts`](packages/sim/src/town/merchantPricing.ts); open a merchant stall to see why a quote moved. Outside events live in [`news.ts`](packages/sim/src/town/news.ts) and appear in the same explanation. |
 | Fast-forward a week in a minute | **⏩ Watch a week** in MARKET: seven market days, four bot companies, 60 seconds |
@@ -135,12 +136,12 @@ Account preferences open from the separate gear button; campaign progress stays 
 
 ## NEAR integration and current status
 
-NEAR Testnet has no monetary value, and BLACKOUT credits cannot be redeemed. Railway's separate economy service is
-configured for Testnet; its supported settlement flows are distinct from the legacy NEP-245 resource-market adapter.
-The public Railway deployment check on 2026-11-10 found that adapter disabled, which meant on-chain player resource
-listings and transfers were unavailable there. The player-facing configuration no longer advertises chain mode.
-A successful standalone Testnet run should not be presented as proof that a particular public-game interaction
-settled on chain.
+NEAR Testnet has no monetary value, and BLACKOUT credits cannot be redeemed. The root `ECONOMY_*` service connects the
+NPC merchant and power-company market to `vesper-econ.blackout-kay.testnet`; the player electricity market has a real
+escrow path. This revision adds player resource balances and consumption reconciliation through that same contract.
+The change must be deployed and exercised by a player before it counts as live resource-trade evidence. The separate
+legacy adapter still uses a different shared-vault flow and remains disabled. Do not present a standalone Testnet demo,
+opening batch, or resync as a live player resource trade.
 
 Full write-ups: [architecture](docs/NEAR_ARCHITECTURE.md) · [economy model](docs/ECONOMY_MODEL.md) ·
 [wallets and treasury](docs/WALLET_AND_TREASURY.md) · [transaction flows](docs/TRANSACTION_FLOWS.md) ·
@@ -156,8 +157,9 @@ empty transaction log is reported as such, not as a successful on-chain trade.
 |---|---|---|
 | Testnet contract | [`vesper-econ.blackout-kay.testnet`](https://testnet.nearblocks.io/address/vesper-econ.blackout-kay.testnet) is used by the separately documented demo. |
 | Testnet evidence | [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) records a run on 2026-11-09 with 40 final transactions and explorer links. |
-| Railway economy service | Configured separately for NEAR Testnet; check transaction evidence before attributing a specific gameplay event to chain settlement. |
-| Live game resource adapter | A public deployment check on 2026-11-10 found it disabled. Treat live player resource listings and transfers as unavailable until the protected operator audit confirms otherwise. |
+| Root Railway economy service | Configured for NEAR Testnet; merchant and power-company transactions use the root contract. Verify audit evidence before attributing a particular gameplay event to settlement. |
+| Player NEP-245 resources | The source now reconciles player holdings and resource consumption; this revision still needs deployment and an independently verified player trade. |
+| Legacy commodity-listing adapter | Disabled. Do not confuse it with the root Vesper Market or player electricity offer market. |
 | Game credits | Fictional, non-redeemable credits. They are not cash or a promise of a token payout. |
 | Wallet UX | Guest and Google onboarding do not require an external wallet, seed phrase or gas prompt. Do not describe an account as self-custodied unless that behavior is implemented and verified. |
 | NEAR Intents | Not integrated; the project has no demonstrated transaction path that needs it. |
@@ -167,8 +169,9 @@ empty transaction log is reported as such, not as a successful on-chain trade.
   actors' simulation rules. Game credits remain fictional and non-redeemable.
 * **Agent Economy:** NPCs make autonomous decisions in the simulation. The standalone Testnet demo shows NPC-signed
   transactions; do not imply those accounts or transfers are active in every public-game interaction.
-* **On-chain ownership:** the contract supports NEP-245 resources and Plant Assets, but the live Railway config
-  disables the resource adapter. See the compliance and Testnet demo documents for the exact scope and evidence.
+* **On-chain ownership:** the root economy settles player resources and Plant Assets through NEAR Testnet accounts;
+  the newly added resource custody path needs a production transaction trace. See the compliance and Testnet demo
+  documents for exact scope and evidence.
 
 ## What's live vs configured
 | Feature | Status |
@@ -179,7 +182,8 @@ empty transaction log is reported as such, not as a successful on-chain trade.
 | Google sign-in | **Configured** with Google Identity Services. The sign-in bundle and public config are deployed; a real Google account consent round-trip still needs browser verification. See [setup](docs/AUTH_PROVIDER_DECISION.md#google-sign-in-without-supabase-simplest). |
 | Email sign-in | **Disabled** in production. Local development can use the on-screen email code. |
 | NEAR Testnet contract and standalone demo | **Deployed and demonstrated** as documented in [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md). |
-| NEP-245 resource adapter in the live game | **Disabled** in current Railway config; player resource listings and transfers are not available. |
+| Root NEP-245 player-resource settlement | **Implemented in this source revision; deployment and a real player trade are still pending verification.** |
+| Legacy fuel-listing adapter | **Disabled** in Railway; it is a separate contract flow. |
 | Seven-day market replay | Available through **Watch a week** in MARKET; sandbox replay is distinct from Testnet settlement. |
 | Classic city game | Available at **/city**. |
 

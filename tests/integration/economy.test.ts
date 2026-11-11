@@ -10,6 +10,7 @@ import { buildServer } from "../../apps/api/src/server.ts";
 import { loadChainConfig } from "../../apps/api/src/chain.ts";
 import { StaticWorldInputs } from "../../apps/api/src/world.ts";
 import { STARTER_GRANT_CC, TREASURY_PLAN } from "../../apps/api/src/economy/treasury.ts";
+import { rtransfer } from "../../packages/sim/src/region/state.ts";
 import { FakeChain, fakeEconomyConfig } from "./fakeChain.ts";
 
 type Built = Awaited<ReturnType<typeof buildServer>>;
@@ -49,9 +50,13 @@ const requireWallet = (view: NonNullable<Awaited<ReturnType<typeof economy>>>) =
 async function drain(rounds = 6) {
   for (let i = 0; i < rounds; i++) {
     await built.economy.ensureTownOpen();
-    built.economy.queueSettlement();
+    await built.economy.queueSettlement();
     await built.economy.processOps(50);
   }
+}
+async function forceRegionSettlement() {
+  built.db.prepare("INSERT INTO economy_state (key, value_json, updated_at) VALUES ('region_batch_at', '0', ?) ON CONFLICT(key) DO UPDATE SET value_json = '0', updated_at = excluded.updated_at").run(new Date().toISOString());
+  await drain(3);
 }
 
 describe("player wallets and starting capital", () => {
@@ -101,25 +106,56 @@ describe("player wallets and starting capital", () => {
     expect(wa).not.toBe(wb);
   });
 
-  it("a player selling items to a merchant settles on chain (items come back into the market's stock)", async () => {
+  it("settles a player's market inventory to their wallet and returns sold items to market custody", async () => {
     const p = await player();
     await economy(p.token);
     await drain();
     const h = built.rsvc.liveFor(p.userId);
-    built.rsvc.act(h, { type: "TOWN_SETTLE", ref: "gift", reason: "test certificates", items: { "certificate:renewable": 40 } }, "gift-certs", "system");
-    built.tsvc.trade({ userId: p.userId, name: "Test Co" }, h, built.rsvc, { merchantId: "lena", item: "certificate:renewable", side: "sell", quantity: 40 }, "sell-certs");
     const wallet = built.economy.activeAccount(p.userId)!;
-    const before = chain.balance(wallet);
-    // close the market epoch now and let the batch go out (the server batches on a timer; tests don't wait for it)
+    const token = "certificate:renewable";
+    const beforeItems = chain.balance(wallet, token);
+    built.tsvc.trade({ userId: p.userId, name: "Test Co" }, h, built.rsvc, { merchantId: "lena", item: token, side: "buy", quantity: 40 }, "buy-certs");
     for (let i = 0; i < 72; i++) built.tsvc.tick();
     built.db.prepare("UPDATE settlement_epochs SET created_at = ? WHERE region_id = 'town'").run(new Date(Date.now() - 600_000).toISOString());
-    await drain(3);
-    const settled = built.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE op_id LIKE 'batch:town:%' AND status = 'settled'").get() as { n: number };
+    await drain(4);
+    expect(chain.balance(wallet, token)).toBe(beforeItems + 40);
+
+    const beforeSaleCash = chain.balance(wallet);
+    built.tsvc.trade({ userId: p.userId, name: "Test Co" }, h, built.rsvc, { merchantId: "lena", item: token, side: "sell", quantity: 40 }, "sell-certs");
+    for (let i = 0; i < 72; i++) built.tsvc.tick();
+    built.db.prepare("UPDATE settlement_epochs SET created_at = ? WHERE region_id = 'town'").run(new Date(Date.now() - 600_000).toISOString());
+    await drain(4);
+    const settled = built.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE subject = 'town' AND kind = 'batch' AND status = 'settled'").get() as { n: number };
     expect(settled.n).toBeGreaterThan(0);
-    expect(built.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE op_id LIKE 'batch:town:%' AND status = 'failed'").get()).toEqual({ n: 0 });
-    // Lena paid the player's wallet for them
-    expect(chain.balance(wallet)).toBeGreaterThan(before);
+    expect(built.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE subject = 'town' AND kind = 'batch' AND status = 'failed'").get()).toEqual({ n: 0 });
+    expect(chain.balance(wallet, token)).toBe(beforeItems);
+    // Lena paid the player's wallet for the resource they sold.
+    expect(chain.balance(wallet)).toBeGreaterThan(beforeSaleCash);
     expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
+  });
+
+  it("settles gameplay resource consumption back to world custody in a batched region epoch", async () => {
+    const p = await player();
+    await economy(p.token);
+    await drain();
+    const h = built.rsvc.liveFor(p.userId);
+    const wallet = built.economy.activeAccount(p.userId)!;
+    const token = "fuel:diesel";
+    const ctx = region.newRCtx();
+
+    rtransfer(h.state, ctx, "diesel", "ext:imports", region.RACC.player, 1_000, "resource accounting fixture");
+    h.state.interval += region.regionConfig.EPOCH_INTERVALS;
+    region.forceCloseEpoch(h.state);
+    built.rsvc.advance(h); // persist the epoch before the chain worker reads it
+    await forceRegionSettlement();
+    expect(chain.balance(wallet, token)).toBe(1);
+
+    rtransfer(h.state, ctx, "diesel", region.RACC.player, "ext:burned", 500, "gameplay fuel burn");
+    h.state.interval += region.regionConfig.EPOCH_INTERVALS;
+    region.forceCloseEpoch(h.state);
+    built.rsvc.advance(h);
+    await forceRegionSettlement();
+    expect(chain.balance(wallet, token)).toBe(0);
   });
 
   it("keeps account identifiers and wallet controls out of player-facing routes", async () => {
@@ -140,6 +176,8 @@ describe("player wallets and starting capital", () => {
     const h = built.rsvc.liveFor(p.userId);
     h.state.onboarding.done = true;
     for (let i = 0; i < 50; i++) built.rsvc.advance(h);
+    // The player buys while still a guest; wallet opening must seed the held item exactly once.
+    built.tsvc.trade({ userId: p.userId, name: "Test Co" }, h, built.rsvc, { merchantId: "lena", item: "certificate:renewable", side: "buy", quantity: 40 }, "pre-wallet-certs");
     await economy(p.token);
     await drain();
     const e = await economy(p.token);
@@ -147,6 +185,8 @@ describe("player wallets and starting capital", () => {
     const w = built.economy.wallet(p.userId)!;
     expect(chain.balance(w.account_id)).toBe(w.opening_cash_cc);
     expect(w.opening_cash_cc).not.toBe(STARTER_GRANT_CC);
+    expect(w.resource_opened_interval).not.toBeNull();
+    expect(chain.balance(w.account_id, "certificate:renewable")).toBe(40);
   });
 });
 
@@ -444,6 +484,7 @@ describe("NPC companies buying power from players on chain", () => {
     const p = await playerSelling();
     await run(36 * 4, p.h);
     built.rsvc.checkpoint(p.h);
+    await forceRegionSettlement();
     const settled = built.db.prepare("SELECT COUNT(*) AS n FROM settlement_epochs WHERE status = 'confirmed' AND tx_hash IS NOT NULL").get() as { n: number };
     expect(settled.n).toBeGreaterThan(0);
     // close and settle everything outstanding, then the wallet matches the game to the credit
@@ -451,6 +492,7 @@ describe("NPC companies buying power from players on chain", () => {
     built.rsvc.advance(p.h);
     await drain(4);
     const w = built.economy.activeAccount(p.userId)!;
+    expect(built.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE subject = 'regions' AND status = 'failed'").get()).toEqual({ n: 0 });
     const unsettledTown = built.db.prepare("SELECT COUNT(*) AS n FROM settlement_epochs WHERE region_id = 'town' AND status IN ('pending', 'submitted')").get() as { n: number };
     if (unsettledTown.n === 0) {
       const town = built.tsvc.state;

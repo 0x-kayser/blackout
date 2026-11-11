@@ -107,7 +107,7 @@ export function startEconomyWorker(economy: EconomyService, ms = 3_000): () => v
       try {
         await economy.ensureTownOpen();
         economy.finishResync();
-        economy.queueSettlement();
+        await economy.queueSettlement();
         economy.syncPlants();
         await economy.processOps();
         if (beats % 20 === 0) economy.sweepEscrows();

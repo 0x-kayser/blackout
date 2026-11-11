@@ -1,75 +1,59 @@
 # NEAR Games With Real Economies — compliance status
 
 **Audit date:** 2026-11-11
-**Overall status:** The Railway production audit confirms the root game's Testnet power-economy service is connected.
-Its latest snapshot showed 38 settled operations and 28 submitted operations; submitted operations are in flight and
-are not counted as successful transactions. The separate commodity-resource adapter remains disabled, with zero
-production NEP-245 resource trades or player listings. The existing Testnet economy contract and standalone chain
-evidence are documented in [`TESTNET_DEMO.md`](TESTNET_DEMO.md). The root game routes player electricity offers through
-the power-company economy; the merchant fuel/permit/parts shop still uses the local simulation. Commit `63a33b1` was
-pushed to the private `0x-kayser/blackout` repository. Railway is online at
-https://blackout-production-c7fc.up.railway.app. A live browser check confirmed the welcome screen, four-step optional
-product tour, guest and Google entry choices, and campaign route. Public config confirms Google is enabled; a real
-Google consent-and-return flow still needs a player sign-in to verify.
+**Overall status:** The Railway game uses the root Testnet economy contract and power-company market. Read-only Testnet
+queries verified NEP-245 balances on several existing merchant accounts. The older standalone commodity-listing adapter
+remains disabled and has no live player listings. The source changes in this audit extend the root economy so a
+registered player's assigned custodial account can hold bought resources and reconcile gameplay consumption. Those
+changes are local until pushed and deployed; a real post-deploy player resource transfer is still required before
+claiming the full flow is live.
 
-## NEP-245 resource-market preflight and remaining integration work
+The existing Testnet economy contract is `vesper-econ.blackout-kay.testnet`, owned by `blackout-kay.testnet`, with
+`vesper-op.blackout-kay.testnet` as operator. Its registered market IDs include `fuel:natural-gas`, `fuel:diesel`,
+`permit:carbon`, `certificate:renewable`, `material:steel`, and `part:turbine`. Resource amounts use market units from
+`packages/sim/src/region/config.ts` (`TOWN_UNITS`).
 
-The resource contract does not need to be created from scratch: the existing Testnet contract is
-`vesper-econ.blackout-kay.testnet`, owned by `blackout-kay.testnet`, with `vesper-op.blackout-kay.testnet` as its
-operator. Read-only contract queries confirmed registered IDs including `fuel:diesel`, `permit:carbon`,
-`material:steel`, and `part:turbine`. The production power-economy service already uses this economy. No resource-token
-transfer, new account/key creation, funding, or deployment was attempted during this audit.
-
-The production commodity-resource adapter is a separate integration. It was missing:
-
-- `NEAR_CHAIN_ENABLED`
-- `NEAR_RESOURCE_CONTRACT_ID`, `NEAR_VAULT_ACCOUNT_ID`, `NEAR_VAULT_OPERATOR_PRIVATE_KEY`
-- `NEAR_MERCHANT_{EMBER,LANTERN,HARBOR}_ACCOUNT_ID` and corresponding restricted keys
-
-The existing contract's resource IDs also differ from the resource adapter's expected IDs (`DIESEL_100ML`,
-`CARBON_PERMIT_10KG`, `REPAIR_PART`, `SOLAR_COMPONENT`, and `BATTERY_COMPONENT`). Pointing the adapter at the existing
-contract alone would not enable working resource trades. The contract IDs, merchant permissions and balances, vault
-escrow, and the root game's market flow must be aligned and verified before enabling this adapter. The larger
-`scripts/near-bootstrap.ts` provisions a separate resource setup; do not run it as a shortcut. Google Identity Services
-is enabled without Supabase; email login remains unavailable in production. Bootstrap code is not deployment evidence.
+The separate legacy adapter (`NEAR_CHAIN_ENABLED`, `NEAR_RESOURCE_CONTRACT_ID`, vault keys, and `DIESEL_100ML`-style
+IDs) is not the root game's merchant or power market and must not be enabled against this contract. Its IDs and trust
+model differ. `scripts/near-bootstrap.ts` provisions another standalone setup; do not run it as a shortcut. The root
+market uses the existing `ECONOMY_*` configuration and contract IDs. Email sign-in remains unavailable in production;
+Google sign-in is enabled, but a real consent-and-return flow still requires a user sign-in.
 
 ## Capability matrix
 
 | Track capability | Current implementation | On-chain vs off-chain | Status |
 |---|---|---|---|
-| NPC economic agents | Deterministic merchant agents have finite stock, cash, reserve floors, replacement-cost pricing, demand response, restock lead times, rationing and readable pricing rules. The root game also has three Testnet power companies that decide whether to buy player electricity. | The live power-economy service records on-chain operations. That is separate from merchant commodity inventory: no production NEP-245 fuel, permit, or material trade was found. | Power-company economy is connected; live commodity NPC balances and transfers are not verified. |
-| NEP-245 resources | `contracts/near/src/lib.rs` implements the multi-token contract, resource IDs, units, balance views, transfers, approvals, capped/idempotent NPC transfers, settlement checks, and listing escrow primitives. An existing Testnet economy contract is deployed and has registered resource IDs, including diesel, permits, steel, and turbine parts. | The root resource adapter expects token IDs that differ from those registered on the existing economy contract. Production resource mode is disabled, and no live resource trade or merchant balance was verified. | Contract deployed; resource adapter and market integration are not live. |
-| NPC to game vault trade | `apps/api/src/chain.ts`, `apps/api/src/workers.ts`, and `apps/api/src/services.ts` provide a real-transfer path when the resource adapter is configured: a merchant function-call key submits NEP-245 diesel into a shared vault and the final RPC outcome is reconciled with the game trade. | Resource transfer would be on-chain; credits and each player's game allocation remain off-chain. The server manages the vault key. | Local code path exists; Railway lacks the resource-specific configuration and the expected token IDs do not match the existing contract. No live commodity transfer was verified. |
-| Player ownership and listings | `packages/sim/src/marketplace.ts`, `apps/api/src/routes.ts`, `apps/api/src/services.ts`, `apps/api/src/workers.ts`, and `apps/web/src/ui/Panels.tsx` implement registered-player listings, chain-backed fuel reservation, cancellable seven-day listings, autonomous merchant evaluation, and off-chain game-credit settlement. Migration `004_marketplace_jobs.sql` stores durable jobs. | The server maps the authenticated player ID to a shared custodial vault allocation. The contract moves the resource from that vault into listing escrow, then to a registered NPC account. The listing price and payment are off-chain fictional credits. The separate player-account provisioning in the power-economy service does not establish ownership of these resource listings. | Local end-to-end path and fake-RPC behavior tested; production resource mode is disabled and there is no live listing or transfer evidence. |
-| Social and email login | Guest sessions, Google Identity Services, Google-to-player mapping, and guest-to-account save migration are in `apps/api/src/auth.ts`, `apps/api/src/routes.ts`, and `apps/web/src/api/auth.ts`. The live welcome screen shows Google sign-in beside guest play. | Authentication is off-chain. Registered players can receive a server-managed Testnet account for the power economy. It is not currently attached to NEP-245 resource listings. | Production page and public config show guest and Google entry; email is disabled. Automated Google token-verification tests pass; the real Google consent-and-return flow remains unverified. |
+| NPC economic agents | Deterministic merchant agents have finite stock, cash, reserve floors, replacement-cost pricing, demand response, restock lead times, rationing and readable pricing rules. Three Testnet power companies decide whether to buy player electricity. | Merchant commodity and power operations use distinct NPC Testnet accounts when the root economy is live. The simulation's continuous decisions remain off-chain; settled market epochs reconcile their inventory and cash. | Read-only Testnet queries verified nonzero NEP-245 balances for multiple merchant accounts. Production audit evidence must still distinguish opening/resync batches from actual market trades. |
+| NEP-245 resources | `contracts/near/src/lib.rs` implements resource IDs, units, balance views, transfers, settlement checks, and listing escrow primitives. `apps/api/src/economy/service.ts` aligns root TownEpoch items with the existing contract IDs and reconciles player balances. | NPC merchant stock and active players' whole market units settle in `settle_batch`. Simulation-only fractional units remain off-chain; consumed whole units return to world custody rather than being burned. | Contract and NPC balances are verified. Player inventory bootstrap and consumption settlement are implemented locally and fake-chain tested; a real player transfer after deployment is still needed. |
+| NPC to player resource trade | `EconomyService.townEntries`, `bootstrapPlayerResources`, and `queueRegionEpochs` connect merchant buy/sell activity to active registered player accounts. A clean wallet boundary and on-chain balance read prevent replaying old trades. | NEP-245 items move between merchant accounts and the registered player's server-managed Testnet account. Settlement epochs are idempotent and reconciled by contract epoch ID. | Local fake-chain integration tests cover buying, selling, wallet bootstrap, and resource consumption. No post-change Railway transaction hash is claimed. |
+| Player-owned markets | The live power desk lets a player offer spare electricity; NPC companies place and settle escrowed `power_order_place` trades. Plant NFTs also have a separate chain-backed listing flow. A separate fuel-listing adapter exists in code but is disabled. | Electricity trades settle on-chain in game credits; plants are NFTs. The legacy commodity-listing path uses a different shared-vault model and remains off in production. | Power and plant workflows have fake-chain coverage and historical Testnet evidence in [`TESTNET_DEMO.md`](TESTNET_DEMO.md). No live player-owned fuel listing is claimed. |
+| Social and email login | Guest sessions, Google Identity Services, Google-to-player mapping, and guest-to-account save migration are in `apps/api/src/auth.ts`, `apps/api/src/routes.ts`, and `apps/web/src/api/auth.ts`. Registered players can receive a server-managed Testnet subaccount. | Authentication is off-chain. The server manages the subaccount key; it is custodial and does not imply self-custody or withdrawals. Players do not see a wallet or gas prompts. | Guest/Google entry and Google token-validation tests pass. The real Google consent-and-return flow still requires user sign-in; email is not enabled in production. |
 | Invisible custody and judge audit | The player interface has no wallet or transaction-verification screen. Chain status and evidence are exposed only through `/api/admin/chain-audit`, `/api/economy/admin/audit`, and operator-only `/api/chain/*` routes. | The operator audit requires `ECONOMY_ADMIN_TOKEN` in an `x-admin-token` header. Configured server keys remain on the server; the player interface does not show them. | Deployed to Railway. The audit returned 403 without the token and 200 with the configured Railway token. |
 | Progressive challenge loop | Before entry, an optional four-step tour explains the rescue, controls, merchant/resource decisions, player electricity offers and campaign. The in-game three-step rescue gives each action a direct button and matching city marker. After it, the HUD keeps a named campaign chapter, progress, unlock and recommended next action visible. The weekly crisis opens from the same card and applies its named opening condition; same-week players receive identical inputs. | Campaign goals use simulation rules. Challenge runs use deterministic, condition-specific opening inputs plus seeded incidents; the live company remains saved. | Deployed to Railway on 2026-11-11; the live welcome screen and tour were browser-verified. Local desktop/mobile browser checks cover the guided rescue and campaign loop. Weekly runs start past the tutorial so scores cover the challenge. Permit thresholds remain fixed, not calibrated from playtest telemetry. |
-| Clear trading navigation | The commodity market opens on merchant stalls, shows an explicit shop action, then the player's holdings and owned listings. The Power Companies panel lets players offer spare electricity and inspect NPC budgets, weather, offers, decisions and deal status. | Commodity quotes and trades remain simulation-only in production. Power-company operations use the connected on-chain economy when configured and available. | Deployed to Railway on 2026-11-11. Desktop/mobile market and power-company navigation were checked locally; no production commodity trade was performed. |
-| Financial-action clarity | Market orders show a current estimate, total, cash and inventory after the order, merchant constraints and separate fees. Investments show the projected profit share; loans show principal, per-day interest, and default risk. Plant purchases, offers and listings have review steps. | Game credits and prices are fictional, off-chain and non-redeemable. A quote does not reserve a price; the server rechecks on confirmation. | Implemented locally in the market, investment, loan and plant-sale UI; API quote routes are read-only. |
-| NEAR Intents | No integration. The live game's resource adapter is disabled, and no supported cross-asset or cross-chain path has been shown to improve a real player transaction. | Not applicable. | Deliberately not used; USDC is not needed for the current game flow. |
+| Clear trading navigation | The commodity market opens on merchant stalls, shows an explicit shop action, then player holdings and owned listings. The Power Companies panel lets players offer spare electricity and inspect NPC budgets, weather, offers, decisions and deal status. | Quotes and NPC decisions are simulation state. After a player wallet's custody boundary, completed resource trades settle to that account; power orders use their own escrow flow. | UI was deployed and checked locally on desktop/mobile. No post-change production resource trade has been performed. |
+| Financial-action clarity | Market orders show a current estimate, total, cash and inventory after the order, merchant constraints and separate fees. Investments show the projected profit share; loans show principal, per-day interest, and default risk. Plant purchases, offers and listings have review steps. | Credits and prices are fictional, non-redeemable game assets. The Testnet contract records game credit balances for auditability; a quote does not reserve a price and the server rechecks on confirmation. | Implemented in the market, investment, loan and plant-sale UI; API quote routes are read-only. |
+| NEAR Intents | No integration. The root game has no supported cross-chain asset conversion or solver-assisted settlement path that improves its current resource or electricity flows. | Not applicable. | Deliberately not used; USDC is not needed for the current game flow. |
 | Continuous economy and replay | `packages/sim` contains live continuous city play and deterministic economy rules. `packages/sim/src/replay.ts` reuses simulation rules for seven-day fast-forward; the Economy Lab shows replay data. | Simulation-only; replay does not submit chain transactions. | Implemented locally; deterministic behavior is covered by tests. |
 
 ## Resource ownership, custody and settlement limits
 
-- The current player resource allocation is per-run game state, not a personal Testnet account. The shared vault is
-  custodial; players have no private key and cannot withdraw assets. The listing contract records the authenticated
-  player ID as seller and holds the listed resource on that player's behalf.
-- A run's listable diesel starts at zero. It increases only after a confirmed NPC-to-vault transfer, decreases when
-  the simulation consumes fuel or reserves a listing, and cannot exceed the player's free fuel after active-contract
-  reservations. Starter-kit diesel is not listable. On-chain escrow and the aggregate vault balance provide the final
-  transfer check; the per-player attribution remains trusted server state.
-- Gameplay fuel consumption is still simulated off-chain. It conservatively reduces the run's listable allocation but
-  does not yet burn or reconcile the corresponding Testnet tokens. This leaves unallocated tokens in the shared vault
-  and is a known custody-accounting gap; do not describe simulation consumption as an on-chain burn.
-- The two-phase NPC purchase path reserves fictional game credits before the NEP-245 transfer. It releases those
-  credits to the player only after final transfer confirmation. A definitive failure refunds the NPC and reopens the
-  listing. Unknown outcomes keep the resource and credit reservations locked and are reconciled by transaction hash
-  and contract listing view; they are never blindly re-broadcast or refunded.
-- Cancellation and expiry return escrowed fuel only after a confirmed contract result. A definitive cancellation
-  failure restores the active listing; an unknown result keeps it pending. The unit price is contract metadata only;
-  credits are non-redeemable and no atomic on-chain payment exists.
-- Fake-RPC integration tests exercise the listing create → NPC policy decision → resource settlement flow. They do
-  not constitute a live Testnet demo.
+- Registered player accounts are server-provisioned Testnet subaccounts. The server manages their keys, pays transaction
+  gas and controls in-game settlement. They are custodial accounts; do not call them self-custody wallets or promise
+  withdrawals. Guest play remains simulation-only until account provisioning.
+- On first account activation, the server reads current NEP-245 balances and reconciles the player's whole market-unit
+  inventory from world custody to the assigned account. It stores Town and Region boundaries so pre-opening epochs are
+  not replayed. New market trades after the boundary go to or from the player's account.
+- Resource epochs distinguish Town market transfers from simulation changes. Whole NEP-245 units consumed by gameplay
+  move back to the world custody account in batched settlement. Fractional simulation units are tracked off-chain until
+  the player's integer token balance changes. This is a custody-pool return, not a token burn.
+- Town/Region settlement is zero-sum and uses unique contract epoch IDs. The server waits for a balance read before
+  bootstrapping, defers region debits until prerequisite market item credits settle, and reconciles unknown outcomes by
+  reading the contract. A transaction is not considered settled until final success is observed.
+- Game credits are fictional and non-redeemable. They are a separate in-game asset even where the Testnet contract
+  records their balances for auditability. The player electricity market's escrow and resource transfers use real
+  Testnet state; they have no real-world monetary value.
+- The legacy fuel-listing adapter's two-phase credit reservation and shared-vault flow is separate from this root
+  market. It remains disabled; fake-RPC tests for that adapter are not live Testnet evidence.
 
 ## Restricted authorization model in bootstrap
 
@@ -92,9 +76,10 @@ These are properties of the bootstrap and contract code, not keys/accounts curre
 Source locations:
 
 - Simulation, merchant policy, customer/rival rules and replay: `packages/sim/src/`
+- Region resource-unit mapping and epoch reconciliation: `packages/sim/src/region/config.ts`, `packages/sim/src/region/state.ts`, `packages/sim/src/region/settlement.ts`, `packages/sim/src/region/engine.ts`
+- Root Testnet market settlement and player resource custody: `apps/api/src/economy/service.ts`, migration `database/migrations/015_player_resource_custody.sql`
 - NEP-245 resource contract and tests: `contracts/near/src/lib.rs`, `contracts/near/src/tests.rs`
-- Testnet adapter, purchase worker and reconciliation: `apps/api/src/chain.ts`, `apps/api/src/workers.ts`,
-  `apps/api/src/services.ts`
+- Legacy standalone resource adapter (disabled): `apps/api/src/chain.ts`, `apps/api/src/workers.ts`, `apps/api/src/services.ts`
 - Listing economy, player-market policy and durable operations: `packages/sim/src/marketplace.ts`,
   `packages/sim/src/policies/playerMarket.ts`, `database/migrations/004_marketplace_jobs.sql`
 - Player market: `apps/web/src/ui/Panels.tsx`; operator evidence: `GET /api/admin/chain-audit`, `GET /api/economy/admin/audit`
@@ -103,47 +88,39 @@ Source locations:
 
 Verification run for this audit:
 
-- `pnpm typecheck` — **passed 2026-11-11** after the interface and API response changes.
-- Final verification after the tour-copy and compliance update: `pnpm typecheck` — **passed**; `pnpm test -- --maxWorkers=2 --minWorkers=1` — **204 passed across 22 files**; `pnpm build:web` — **passed**; `git diff --check` — **passed**. The build retains the existing 948 kB lazy 3D scene warning.
-- `pnpm build:contract` — produced `contracts/near/res/blackout_resources.wasm` using the plain Cargo fallback. `cargo-near`
-  was not installed, so NEAR-specific WASM compatibility and Testnet loading are unverified.
-- `pnpm build:web` — **passed 2026-11-11**. The welcome/game controls build to about 120 kB; Vite still warns that the lazy-loaded 3D scene chunk is 948 kB. That scene loads after the player chooses how to enter.
-- Focused Google and region API integration tests passed, including Google token validation, read-only trade quotes, and read-only investment quotes that match completed investment shares.
-- Full `pnpm test` — **204 passed across 22 test files** on 2026-11-11.
-- Playwright `tests/e2e/browser/region.spec.ts` previously passed **6 desktop/mobile checks** for the four-step tour, guest rescue/campaign/weekly crisis, email sign-in/out, primary navigation, local merchant purchase and replay, and mobile market/account access. A rerun after the latest tour-copy edit timed out waiting for the Playwright-managed local API healthcheck, although the same API command was started and its health endpoint answered when launched separately. The new copy is covered by the successful typecheck and web build, but this latest rerun did not verify it in Playwright. The earlier browser pass preceded this copy-only change. Google OAuth consent and live gameplay transactions were not performed against production.
-- `git diff --check` — passed after the current local changes.
-- The mobile HUD now keeps both city status and cash visible without horizontal scrolling in local browser checks. A real Google OAuth consent round-trip, mobile production gameplay, and live Testnet resource trade are not claimed from these checks.
+- `pnpm typecheck` — **passed** after the resource accounting and settlement changes.
+- `pnpm exec vitest run tests/integration/economy.test.ts tests/integration/region.test.ts --maxWorkers=2 --minWorkers=1` — **37/37 passed**. This includes player wallet bootstrapping, market buy/sell transfers, consumption reconciliation, settlement ordering, and region epoch verification on the fake chain.
+- The latest full-suite attempt ran 203 tests successfully but one test failed before the settlement-ordering fix. The SSE suite was also blocked by the sandbox's `listen EPERM` restriction. The full suite has not been rerun after the fix; do not label it as passing.
+- `pnpm build:web` — **passed**; Vite still warns that the lazy 3D chunk is 948 kB. The focused server/simulation changes do not alter that chunk.
+- `git diff --check` — **passed** after the source and documentation edits.
+- A previous Playwright `tests/e2e/browser/region.spec.ts` run passed **6 desktop/mobile checks**. A later rerun timed out waiting for Playwright's managed API healthcheck. That previous pass did not verify the latest tour copy or this NEP-245 accounting change.
+- No live Testnet player resource purchase/consumption transaction has been performed from this code revision. The real Google consent-and-return flow still requires the user to sign in.
 
 Local tests and fake RPC fixtures do not constitute live Testnet evidence. Do not infer a deployment from a successful
 build.
 
 ## Judge demo path and current availability
 
-The guest game, electricity loop, campaign progression, weekly challenge and seven-day replay can be demonstrated
-locally and in the production UI. TinyFish reached the production entry page and found the guest/Google choice, but its
-SPA content extraction returned empty content; it did not verify every production screen. The production root game's
-Power Companies panel is connected to the Testnet power economy. The separate commodity listings are not connected to
-that panel or to the production resource adapter. To inspect chain evidence, use the protected operator audit route
-from a trusted environment; the player UI intentionally hides transaction hashes. Fake-RPC fixtures must never be
-shown as live settlement evidence.
+The guest game, electricity loop, campaign progression, weekly challenge and seven-day replay can be demonstrated in
+the UI. The player electricity offer is the on-chain player-owned market; resource trades use NEP-245 after the updated
+root economy is deployed. To inspect chain evidence, use the protected operator audit route from a trusted environment;
+the player UI intentionally hides transaction hashes. Fake-RPC fixtures and opening balance corrections must not be
+presented as completed player market trades.
 
-The next chain step is to align the commodity adapter with an existing deployed contract: reconcile the adapter's
-token IDs with the contract's registered IDs, verify merchant accounts and their resource balances, configure
-restricted merchant and vault keys, and connect the root game's player-market flow to the adapter. Then run and
-independently verify the NPC purchase and player-listing settlement path on Testnet before enabling it in production.
-Do not run the separate resource bootstrap or claim that the Testnet owner balance covers any changes until the
-incremental storage and gas requirements have been checked. Google login is enabled in production but its consent and
-return to a saved company still need a real sign-in; email is not configured. Record transaction hashes only after
-final outcomes are observed and independently re-queried.
+After deployment, create one registered player, buy a resource, wait for its `settle_batch` to reach final success,
+verify the player's NEP-245 balance and transaction hash, then advance the game until a whole resource unit is
+consumed and verify its return to world custody. Also verify the NPC and player market decision in the operator audit.
+Google login is enabled in production but its real consent-and-return flow still needs the user to sign in; email is not
+configured. Record transaction hashes only after final outcomes are observed and independently re-queried.
 
 ## Known gaps against acceptance criteria
 
-1. NEP-245 resource balances and transfers for three commodity merchants: **not live-verified in the root game**. The deployed contract and power-economy transactions do not prove commodity ownership or merchant transfers.
-2. Registered-player Testnet identity: **server-managed account provisioning exists for the power economy; the commodity marketplace does not yet tie listings to that account or an on-chain escrow balance**.
-3. Player-owned active commodity listing with actual balance reservation: **local flow implemented; production adapter disabled and live contract escrow unverified**.
-4. Autonomous NPC evaluation and purchase of player commodity listings: **policy and worker implemented; live NPC resource transfer unverified**.
-5. Real verifiable Testnet transaction hash for commodity settlement: **none recorded**. Power-economy transaction evidence exists in the protected audit and [`TESTNET_DEMO.md`](TESTNET_DEMO.md).
-6. Exactly-once listing payment reconciliation/refund: **local idempotent flow implemented and fake-RPC tested; live RPC outcomes unverified**.
-7. Economy evolves without a developer patch: **local continuous simulation and deterministic replay are implemented; the root power-company economy is connected to Testnet and has recorded operations, but live autonomous NEP-245 commodity trading is unverified**.
-8. Wallet-free normal gameplay: **guest and Google login are enabled in production config; the separate server-managed Testnet account is not exposed in the normal game loop**.
-9. Judge evidence: **protected operator audit routes are deployed; the production audit observed the commodity resource adapter disabled, zero resource trades/listings, and a connected power-economy service**.
+1. Three merchant wallets and inventory: **NEP-245 balances were read from Testnet for several merchant accounts; a recent post-opening merchant trade still needs to be independently identified in production audit data.**
+2. Registered-player Testnet ownership: **server-managed account provisioning exists; the new resource baseline and market settlement need deployment plus a real player transaction. Custody remains server-managed.**
+3. Player-owned market: **player electricity offers settle through the power-company escrow path. A player-owned commodity listing and NEP-245 escrow remain in the disabled legacy adapter and are not claimed for this root market.**
+4. Autonomous NPC decisions: **continuous merchant and power-company policies are implemented; a live player commodity-listing purchase by an NPC is not demonstrated.**
+5. Real resource transaction evidence: **no post-change player resource hash recorded.** Existing power and plant transaction evidence is in the protected audit and [`TESTNET_DEMO.md`](TESTNET_DEMO.md).
+6. Exactly-once resource accounting: **fake-chain tests cover bootstrap, buy, sell, and consumption batches; a live Testnet run after deployment is pending.**
+7. Economy evolution and replay: **continuous simulation and deterministic seven-day replay are implemented; live power operations exist, while a live resource buy-and-consume trace remains to verify.**
+8. Wallet-free gameplay: **guest and Google entry are available; the server-managed Testnet account is hidden from the normal game loop. Real Google consent still needs a user sign-in.**
+9. Judge evidence: **protected operator audit routes exist. After deployment, verify and record the player resource settlement separately from grants, account creation, opening batches, or resync batches.**

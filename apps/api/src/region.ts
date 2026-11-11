@@ -173,6 +173,9 @@ export class RegionService {
   }
 
   checkpoint(h: RegionHandle): void {
+    // Wallet and custody boundaries may force-close an epoch between simulation ticks; persist it before the state
+    // snapshot so a paused region cannot strand a settlement only in memory.
+    this.persistEpochs(h);
     const score = h.state.ended ? region.regionScore(h.state).score : null;
     this.db
       .prepare("UPDATE regions SET state_json = ?, state_version = ?, interval_no = ?, ended = ?, score = COALESCE(?, score), updated_at = ? WHERE region_id = ?")

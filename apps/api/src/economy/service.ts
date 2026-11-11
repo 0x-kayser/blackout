@@ -3,8 +3,8 @@
  *
  * What lives where
  *   off chain  the simulation: weather, generation, fuel burn, demand, prices, every NPC decision, real-time play.
- *   on chain   money (credit:vesper, fixed supply), who holds it, every payment between real accounts, Vesper
- *              Market's item custody, and the power orders NPC companies sign with their own keys.
+ *   on chain   money (credit:vesper, fixed supply), NEP-245 market resources and player inventory, payments between
+ *              real accounts, and the power orders NPC companies sign with their own keys.
  *
  * Accounts
  *   treasury   holds the supply; pays out only through `treasury_grant` (bucket caps, one start grant per account).
@@ -21,7 +21,7 @@
  */
 import type { ChainOpView, EconomyView, NpcWalletView } from "@blackout/shared";
 import { region, town } from "@blackout/sim";
-import { nowIso, type Db } from "../db.ts";
+import { nowIso, tx, type Db } from "../db.ts";
 import type { RegionHandle, RegionService } from "../region.ts";
 import type { TownService } from "../town.ts";
 import type { EconomyConfig } from "./config.ts";
@@ -30,7 +30,7 @@ import { GRID_TRANCHE_CC, NPC_IDENTITIES, STARTER_GRANT_CC, TOPUP_BELOW_BPS, WOR
 import { newWalletKey, openKey, sealKey, walletAccountId } from "./wallets.ts";
 
 const CREDIT = "credit:vesper";
-const ITEM_TOKENS = ["fuel:natural-gas", "fuel:diesel", "permit:carbon", "certificate:renewable", "material:steel", "part:turbine"];
+const ITEM_TOKENS = Object.keys(region.regionConfig.TOWN_UNITS);
 const RETRYABLE = /Insufficient|exhausted|timeout|TIMEOUT|broadcast|nonce|InvalidNonce|Expired|LackBalanceForState|NotEnoughBalance|allowance/i;
 /** Settle the market at most this often, and players' region earnings at most this often (fewer, bigger batches). */
 const TOWN_BATCH_MS = 120_000;
@@ -65,6 +65,11 @@ interface WalletRow {
   opened_interval: number | null;
   opened_town_tick: number | null;
   opening_cash_cc: number | null;
+  resource_opened_interval: number | null;
+  resource_opened_town_tick: number | null;
+  resource_pending_interval: number | null;
+  resource_pending_town_tick: number | null;
+  resource_pending_op_id: string | null;
   detail: string | null;
   created_at: string;
 }
@@ -76,6 +81,7 @@ export class EconomyService {
   private treasury: EconomyView["treasury"] = null;
   private treasuryAt = 0;
   private busy = false;
+  private settlementBusy = false;
   private applied = new Set<string>();
   /** The plant market's callbacks for its own operations (player-to-player sales). */
   saleHooks: { settled: (row: OpRow) => void; failed: (row: OpRow, detail: string) => void } | null = null;
@@ -160,6 +166,7 @@ export class EconomyService {
     const fromInterval = region.forceCloseEpoch(h.state);
     const fromTick = town.forceCloseTownEpoch(this.tsvc.state);
     this.rsvc.checkpoint(h);
+    this.tsvc.persistEpochsNow();
     this.tsvc.checkpoint();
     const cash = region.rbal(h.state, "cc", "player");
     this.db.prepare("UPDATE player_wallets SET status = 'opening', region_id = ?, opened_interval = ?, opened_town_tick = ?, opening_cash_cc = ?, updated_at = ? WHERE player_id = ?").run(h.regionId, fromInterval, fromTick, cash, nowIso(), userId);
@@ -372,8 +379,13 @@ export class EconomyService {
 
   private onSettled(row: OpRow): void {
     if (row.effects_applied) return;
-    this.db.prepare("UPDATE chain_ops SET effects_applied = 1 WHERE op_id = ?").run(row.op_id);
     const a = JSON.parse(row.args_json) as Record<string, unknown>;
+    if (Array.isArray(a._resource_wallets)) {
+      const open = this.db.prepare("UPDATE player_wallets SET resource_opened_interval = ?, resource_opened_town_tick = ?, resource_pending_interval = NULL, resource_pending_town_tick = NULL, resource_pending_op_id = NULL, updated_at = ? WHERE player_id = ? AND resource_pending_op_id = ?");
+      for (const item of a._resource_wallets as { playerId: string; interval: number; townTick: number }[])
+        open.run(item.interval, item.townTick, nowIso(), item.playerId, row.op_id);
+    }
+    this.db.prepare("UPDATE chain_ops SET effects_applied = 1 WHERE op_id = ?").run(row.op_id);
     const user = row.subject?.startsWith("wallet:") ? row.subject.slice(7) : null;
     if (row.kind === "account" && user) this.openWallet(user);
     if (user && (row.kind === "grant" || row.kind === "batch")) this.maybeActivate(user);
@@ -407,6 +419,11 @@ export class EconomyService {
     if (row.subject?.startsWith("sale:") && !(this.retryable(row, detail) && row.attempts < 8)) this.saleHooks?.failed(row, detail);
     const user = row.subject?.startsWith("wallet:") ? row.subject.slice(7) : null;
     if (this.retryable(row, detail) && row.attempts < 8) return; // the worker tries again later
+    const a = JSON.parse(row.args_json) as Record<string, unknown>;
+    if (row.subject === "resource-bootstrap" && Array.isArray(a._resource_wallets)) {
+      const clear = this.db.prepare("UPDATE player_wallets SET resource_pending_interval = NULL, resource_pending_town_tick = NULL, resource_pending_op_id = NULL, updated_at = ? WHERE player_id = ? AND resource_pending_op_id = ?");
+      for (const item of a._resource_wallets as { playerId: string }[]) clear.run(nowIso(), item.playerId, row.op_id);
+    }
     if (user && (row.kind === "account" || row.op_id.startsWith("grant:start:"))) this.db.prepare("UPDATE player_wallets SET status = 'failed', detail = ?, updated_at = ? WHERE player_id = ?").run(detail.slice(0, 300), nowIso(), user);
     if (row.kind === "order") town.failPowerOrder(this.tsvc.state, town.newTCtx(), String((JSON.parse(row.args_json) as { order_id: string }).order_id), `NEAR refused the escrow: ${friendly(detail)}`);
   }
@@ -601,11 +618,62 @@ export class EconomyService {
     return this.op(`batch:open:town:${open.id}`)?.status === "settled" ? open : null;
   }
 
-  /** Queues settled market epochs (once the market is open on chain) and players' region epochs, batched. */
-  queueSettlement(): void {
-    if (!this.live) return;
-    const open = this.townOpened();
-    if (!open) return;
+  /** Queues market and regional epochs in batches, with a one-time player-resource custody boundary. */
+  async queueSettlement(): Promise<void> {
+    if (!this.live || this.settlementBusy || this.getState("resync")) return;
+    this.settlementBusy = true;
+    try {
+      const open = this.townOpened();
+      if (!open) return;
+      const missingBaseline = this.db.prepare("SELECT COUNT(*) AS n FROM player_wallets WHERE status = 'active' AND resource_opened_interval IS NULL").get() as { n: number };
+      const bootstrapInFlight = this.db.prepare("SELECT COUNT(*) AS n FROM player_wallets WHERE status = 'active' AND resource_pending_op_id IS NOT NULL").get() as { n: number };
+      const resourceEpochWaiting = this.hasPendingRegionResources();
+      if (bootstrapInFlight.n === 0 && resourceEpochWaiting && this.hasOpenPlayerMarketBuys()) {
+        const state = this.tsvc.state;
+        town.forceCloseTownEpoch(state);
+        this.tsvc.persistEpochsNow();
+        this.tsvc.checkpoint();
+      }
+
+      // While a baseline transfer is in flight, hold Town resource epochs. The baseline reflects the inventory at a
+      // clean Town tick, and subsequent epochs must be ordered after it so no item can be credited twice.
+      if (bootstrapInFlight.n === 0) this.queueTownEpochs(open, missingBaseline.n > 0 || resourceEpochWaiting);
+
+      const unsettledTownNow = this.db.prepare("SELECT COUNT(*) AS n FROM settlement_epochs WHERE region_id = 'town' AND status IN ('pending', 'submitted')").get() as { n: number };
+      const marketPurchaseStillOpen = resourceEpochWaiting && this.hasOpenPlayerMarketBuys();
+
+      const lastRegion = this.getState<number>("region_batch_at") ?? 0;
+      if (Date.now() - lastRegion >= REGION_BATCH_MS && !(resourceEpochWaiting && (unsettledTownNow.n > 0 || marketPurchaseStillOpen))) this.queueRegionEpochs();
+
+      if (bootstrapInFlight.n > 0 || missingBaseline.n === 0) return;
+      const unsettledTown = this.db.prepare("SELECT COUNT(*) AS n FROM settlement_epochs WHERE region_id = 'town' AND status IN ('pending', 'submitted')").get() as { n: number };
+      if (unsettledTown.n > 0) return;
+
+      // Close Town at a known boundary. Any row created here is first settled to world custody; the next worker beat
+      // will start player bootstrap only after it has landed.
+      const townState = this.tsvc.state;
+      const previousTownBoundary = townState.epochStart.tick;
+      const previousTownEpoch = townState.epochs.at(-1)?.epochNo ?? 0;
+      town.forceCloseTownEpoch(townState);
+      if (townState.tick === previousTownBoundary && (townState.epochs.at(-1)?.epochNo ?? 0) === previousTownEpoch) {
+        // No tick elapsed, so forceCloseTownEpoch intentionally emitted nothing. Rebase the open market snapshot at
+        // the wallet boundary so a pre-wallet trade can never be replayed after its inventory was seeded below.
+        townState.epochStart = { tick: townState.tick, balances: JSON.parse(JSON.stringify(townState.balances)) };
+        townState.direct = {};
+      }
+      this.tsvc.persistEpochsNow();
+      this.tsvc.checkpoint();
+      const afterClose = this.db.prepare("SELECT COUNT(*) AS n FROM settlement_epochs WHERE region_id = 'town' AND status IN ('pending', 'submitted')").get() as { n: number };
+      if (afterClose.n > 0) return;
+
+      await this.bootstrapPlayerResources();
+    } finally {
+      this.settlementBusy = false;
+    }
+  }
+
+  /** Queues settled market epochs once the market is open on chain. */
+  private queueTownEpochs(open: { tick: number }, forceFlush = false): void {
     const rows = this.db.prepare("SELECT epoch_id, from_interval, body_json, created_at FROM settlement_epochs WHERE region_id = 'town' AND status = 'pending' ORDER BY epoch_no LIMIT 12").all() as { epoch_id: string; from_interval: number; body_json: string; created_at: string }[];
     const fresh: town.TownEpoch[] = [];
     for (const r of rows) {
@@ -614,7 +682,7 @@ export class EconomyService {
     }
     // several market epochs in one transaction: fewer transactions, and far less contract storage
     const oldest = rows.find((r) => r.from_interval >= open.tick)?.created_at;
-    if (fresh.length && (fresh.length >= 6 || (oldest && Date.now() - Date.parse(oldest) >= TOWN_BATCH_MS))) {
+    if (fresh.length && (forceFlush || fresh.length >= 6 || (oldest && Date.now() - Date.parse(oldest) >= TOWN_BATCH_MS))) {
       const merged = new Map<string, Map<string, number>>();
       for (const e of fresh) for (const [tk, legs] of this.townEntries(e)) for (const [acct, d] of legs) {
         const m = merged.get(tk) ?? new Map<string, number>();
@@ -628,11 +696,123 @@ export class EconomyService {
       const upd = this.db.prepare("UPDATE settlement_epochs SET status = ?, updated_at = ? WHERE epoch_id = ?");
       for (const e of ids) upd.run(entries.length ? "submitted" : "confirmed", nowIso(), e);
     }
-    const lastRegion = this.getState<number>("region_batch_at") ?? 0;
-    if (Date.now() - lastRegion >= REGION_BATCH_MS) this.queueRegionEpochs();
   }
 
-  /** A market epoch in NEAR accounts: merchants and companies their own, players their wallet (else grid), the rest the world. */
+  private hasPendingRegionResources(): boolean {
+    const wallets = this.db.prepare("SELECT player_id, region_id, resource_opened_interval FROM player_wallets WHERE status = 'active' AND resource_opened_interval IS NOT NULL").all() as { player_id: string; region_id: string | null; resource_opened_interval: number }[];
+    for (const w of wallets) {
+      if (!w.region_id) continue;
+      const rows = this.db.prepare("SELECT from_interval, body_json FROM settlement_epochs WHERE region_id = ? AND status IN ('pending', 'local', 'submitted') ORDER BY epoch_no").all(w.region_id) as { from_interval: number; body_json: string }[];
+      if (rows.some((r) => r.from_interval >= w.resource_opened_interval && (JSON.parse(r.body_json) as { resourceChanges?: { delta: number }[] }).resourceChanges?.some((x) => x.delta !== 0))) return true;
+    }
+    return false;
+  }
+
+  private hasOpenPlayerMarketBuys(): boolean {
+    const state = this.tsvc.state;
+    const wallets = this.db.prepare("SELECT player_id FROM player_wallets WHERE status = 'active' AND resource_opened_town_tick IS NOT NULL").all() as { player_id: string }[];
+    return wallets.some((w) => {
+      const acct = `ext:player:${w.player_id}`;
+      return ITEM_TOKENS.some((token) => (state.balances[token]?.[acct] ?? 0) - (state.epochStart.balances[token]?.[acct] ?? 0) > 0);
+    });
+  }
+
+  /**
+   * Gives each active player wallet the current market-unit inventory in its Region. The operator first reads both
+   * sides, then submits one zero-sum batch from world custody. The saved boundaries ensure older Town/Region epochs
+   * are not replayed after this snapshot; pending metadata and the batch row are committed atomically.
+   */
+  private async bootstrapPlayerResources(): Promise<void> {
+    const wallets = this.db
+      .prepare("SELECT * FROM player_wallets WHERE status = 'active' AND resource_opened_interval IS NULL AND resource_pending_op_id IS NULL ORDER BY created_at LIMIT 6")
+      .all() as unknown as WalletRow[];
+    if (!wallets.length || !this.gateway || !this.cfg.worldId) return;
+
+    const units = region.regionConfig.TOWN_UNITS;
+    const townTick = this.tsvc.state.epochStart.tick;
+    const plans = wallets.flatMap((w) => {
+      if (!w.region_id) return [];
+      const h = this.rsvc.liveFor(w.player_id);
+      const interval = region.forceCloseEpoch(h.state);
+      this.rsvc.checkpoint(h);
+      const target = Object.fromEntries(Object.entries(units).map(([token, unit]) => [token, Math.floor(region.rbal(h.state, unit.asset, region.RACC.player) / unit.per)]));
+      return [{ wallet: w, interval, target }];
+    });
+    if (!plans.length) return;
+
+    let world: number[];
+    try {
+      const raw = await this.gateway.view<string[]>("mt_batch_balance_of", { account_id: this.cfg.worldId, token_ids: ITEM_TOKENS });
+      world = raw.map(Number);
+      if (world.length !== ITEM_TOKENS.length || world.some((x) => !Number.isSafeInteger(x) || x < 0)) return;
+    } catch {
+      return; // retry on the next worker beat; do not create a partially read reconciliation
+    }
+
+    const actual = new Map<string, number[]>();
+    try {
+      for (const p of plans) {
+        const raw = await this.gateway.view<string[]>("mt_batch_balance_of", { account_id: p.wallet.account_id, token_ids: ITEM_TOKENS });
+        const balances = raw.map(Number);
+        if (balances.length !== ITEM_TOKENS.length || balances.some((x) => !Number.isSafeInteger(x) || x < 0)) return;
+        actual.set(p.wallet.player_id, balances);
+      }
+    } catch {
+      return;
+    }
+
+    const desiredByToken = new Map<string, Map<string, number>>();
+    const needsByToken = new Map<string, number>();
+    for (const p of plans) {
+      const have = actual.get(p.wallet.player_id)!;
+      ITEM_TOKENS.forEach((token, i) => {
+        const delta = Number(p.target[token] ?? 0) - Number(have[i] ?? 0);
+        if (!delta) return;
+        const accountDeltas = desiredByToken.get(token) ?? new Map<string, number>();
+        accountDeltas.set(p.wallet.account_id, delta);
+        desiredByToken.set(token, accountDeltas);
+        needsByToken.set(token, (needsByToken.get(token) ?? 0) + delta);
+      });
+    }
+
+    // Do not submit a batch which would draw more from custody than it holds. Let market settlements land first and
+    // retry from fresh on-chain balances instead of leaving a known-doomed operation in the worker queue.
+    if (ITEM_TOKENS.some((token, i) => (needsByToken.get(token) ?? 0) > Number(world[i] ?? 0))) return;
+
+    const boundaries = plans.map((p) => ({ playerId: p.wallet.player_id, interval: p.interval, townTick }));
+    const entries = ITEM_TOKENS.flatMap((token) => {
+      const accounts = desiredByToken.get(token);
+      if (!accounts?.size) return [];
+      const worldDelta = -[...accounts.values()].reduce((sum, d) => sum + d, 0);
+      const legs = [...accounts.entries(), [this.cfg.worldId!, worldDelta] as [string, number]]
+        .filter(([, d]) => d !== 0)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([account, delta]) => [account, String(delta)] as [string, string]);
+      return legs.length ? [[token, legs] as [string, [string, string][]]] : [];
+    });
+
+    if (!entries.length) {
+      const upd = this.db.prepare("UPDATE player_wallets SET resource_opened_interval = ?, resource_opened_town_tick = ?, updated_at = ? WHERE player_id = ? AND resource_opened_interval IS NULL");
+      for (const p of plans) upd.run(p.interval, townTick, nowIso(), p.wallet.player_id);
+      return;
+    }
+
+    const id = `resources:${plans[0].wallet.player_id}:${plans[0].interval}:${townTick}`;
+    const opId = `batch:${id}`;
+    const args = {
+      epoch_id: id,
+      hash: region.sha256(region.canonical({ boundaries, entries })),
+      entries,
+      _resource_wallets: boundaries,
+    };
+    tx(this.db, () => {
+      const upd = this.db.prepare("UPDATE player_wallets SET resource_pending_interval = ?, resource_pending_town_tick = ?, resource_pending_op_id = ?, updated_at = ? WHERE player_id = ? AND resource_opened_interval IS NULL");
+      for (const p of plans) upd.run(p.interval, townTick, opId, nowIso(), p.wallet.player_id);
+      this.enqueue({ opId, kind: "batch", subject: "resource-bootstrap", signer: "operator", method: "settle_batch", args });
+    });
+  }
+
+  /** A market epoch in NEAR accounts: NPCs their accounts; active players their wallet after its resource boundary. */
   private townEntries(e: town.TownEpoch): [string, [string, string][]][] {
     const out: [string, [string, string][]][] = [];
     for (const tk of e.tokens) {
@@ -642,9 +822,10 @@ export class EconomyService {
         if (x.account === "world") acct = this.cfg.worldId!;
         else if (x.account.startsWith("player:")) {
           const w = this.wallet(x.account.slice(7));
-          // a player's money moves in their own wallet. The items they trade are delivered into, or come out of, their
-          // plants inside their region: on chain they come from and return to the market's stock (the world's custody)
-          acct = tk.token !== CREDIT ? this.cfg.worldId! : w?.status === "active" && e.fromTick >= (w.opened_town_tick ?? Infinity) ? w.account_id : this.cfg.gridId!;
+          // Resource deltas move through the player's NEP-245 wallet after its inventory baseline is settled.
+          if (tk.token !== CREDIT) {
+            acct = w?.status === "active" && w.resource_opened_town_tick !== null && e.fromTick >= w.resource_opened_town_tick ? w.account_id : this.cfg.worldId!;
+          } else acct = w?.status === "active" && e.fromTick >= (w.opened_town_tick ?? Infinity) ? w.account_id : this.cfg.gridId!;
         } else acct = this.npcAccount(x.account) ?? this.cfg.worldId!;
         m.set(acct, (m.get(acct) ?? 0) + x.delta);
       }
@@ -657,7 +838,8 @@ export class EconomyService {
   /** Players' region epochs since their wallets opened, many players per transaction. */
   private queueRegionEpochs(): void {
     const wallets = this.db.prepare("SELECT * FROM player_wallets WHERE status = 'active'").all() as unknown as WalletRow[];
-    const legs: [string, number][] = [];
+    const creditLegs: [string, number][] = [];
+    const resourceLegs = new Map<string, Map<string, number>>();
     const ids: string[] = [];
     for (const w of wallets) {
       if (!w.region_id) continue;
@@ -668,25 +850,44 @@ export class EconomyService {
           this.db.prepare("UPDATE settlement_epochs SET status = 'local', updated_at = ? WHERE epoch_id = ?").run(nowIso(), r.epoch_id);
           continue;
         }
-        const e = JSON.parse(r.body_json) as { transfers: { account: string; deltaCc: number }[] };
+        // A bootstrap snapshot owns every earlier interval; keep later epochs intact until its transfer lands.
+        if (w.resource_pending_interval !== null && r.from_interval >= w.resource_pending_interval) continue;
+        const e = JSON.parse(r.body_json) as { transfers: { account: string; deltaCc: number }[]; resourceChanges?: { token: string; delta: number }[] };
         d += e.transfers.find((x) => x.account === "player")?.deltaCc ?? 0;
+        if (w.resource_opened_interval !== null && r.from_interval >= w.resource_opened_interval) {
+          for (const change of e.resourceChanges ?? []) {
+            const m = resourceLegs.get(change.token) ?? new Map<string, number>();
+            m.set(w.account_id, (m.get(w.account_id) ?? 0) + change.delta);
+            resourceLegs.set(change.token, m);
+          }
+        }
         ids.push(r.epoch_id);
       }
-      if (d !== 0) legs.push([w.account_id, d]);
-      if (legs.length >= 38) break;
+      if (d !== 0) creditLegs.push([w.account_id, d]);
+      if (creditLegs.length >= 38) break;
     }
     if (!ids.length) return;
     const upd = this.db.prepare("UPDATE settlement_epochs SET status = ?, updated_at = ? WHERE epoch_id = ?");
-    if (!legs.length) {
+    const entries: [string, [string, string][]][] = [];
+    if (creditLegs.length) {
+      const legs = [...creditLegs, [this.cfg.gridId!, -creditLegs.reduce((a, [, d]) => a + d, 0)] as [string, number]];
+      entries.push([CREDIT, legs.map(([a, d]) => [a, String(d)])]);
+    }
+    for (const [token, accounts] of resourceLegs) {
+      const resourceDelta = [...accounts.values()].reduce((sum, d) => sum + d, 0);
+      const legs = [...accounts.entries()];
+      if (resourceDelta !== 0) legs.push([this.cfg.worldId!, -resourceDelta]);
+      const clean = legs.filter(([, d]) => d !== 0).sort(([a], [b]) => a.localeCompare(b)).map(([a, d]) => [a, String(d)] as [string, string]);
+      if (clean.length) entries.push([token, clean]);
+    }
+    if (!entries.length) {
       for (const id of ids) upd.run("confirmed", nowIso(), id);
       return;
     }
     const n = (this.getState<number>("region_batch") ?? 0) + 1;
     this.setState("region_batch", n);
     this.setState("region_batch_at", Date.now());
-    legs.push([this.cfg.gridId!, -legs.reduce((a, [, d]) => a + d, 0)]);
-    const entries = [[CREDIT, legs.map(([a, d]) => [a, String(d)])]];
-    this.enqueue({ opId: `batch:regions:${n}`, kind: "batch", subject: "regions", signer: "operator", method: "settle_batch", args: { epoch_id: `regions:${n}`, hash: region.sha256(region.canonical({ ids, legs })), entries, _epochs: ids } });
+    this.enqueue({ opId: `batch:regions:${n}`, kind: "batch", subject: "regions", signer: "operator", method: "settle_batch", args: { epoch_id: `regions:${n}`, hash: region.sha256(region.canonical({ ids, entries })), entries, _epochs: ids } });
     for (const id of ids) upd.run("submitted", nowIso(), id);
   }
 
@@ -902,8 +1103,10 @@ export class EconomyService {
     const inflight = (this.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE kind IN ('order', 'confirm', 'expire') AND status IN ('created', 'submitted')").get() as { n: number }).n;
     if (busy > 0 || inflight > 0 || (pool ?? 1) > 0) return { status: "waiting", detail: `NPC spending paused; waiting for ${busy} open orders, ${inflight} order operations in flight and ₡${Math.round((pool ?? 0) / 100).toLocaleString("en-US")} in escrow to clear` };
     const at = nowIso();
+    this.setState("resync", { at, phase: "preparing" });
     const withdrawn = this.db.prepare("UPDATE chain_ops SET status = 'failed', attempts = 99, detail = 'withdrawn by resync (never landed)', updated_at = ? WHERE kind = 'batch' AND status != 'settled'").run(at).changes;
     this.db.prepare("UPDATE settlement_epochs SET status = 'local', updated_at = ? WHERE status IN ('pending', 'submitted')").run(at);
+    this.db.prepare("UPDATE player_wallets SET resource_opened_interval = NULL, resource_opened_town_tick = NULL, resource_pending_interval = NULL, resource_pending_town_tick = NULL, resource_pending_op_id = NULL, updated_at = ? WHERE status = 'active'").run(at);
     // the market: reopen with a fresh id (ensureTownOpen reads every NPC's balance on chain and settles the difference)
     this.db.prepare("DELETE FROM economy_state WHERE key = 'town_open'").run();
     await this.ensureTownOpen();
