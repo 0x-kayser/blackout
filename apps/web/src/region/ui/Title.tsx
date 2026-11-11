@@ -50,7 +50,7 @@ const TOUR = [
   },
   {
     label: 'THE MARKET', icon: '🏪', title: 'Trade with living merchants',
-    detail: 'Each merchant has limited stock and cash. Buy fuel, permits, or parts; sell what your company produces. Review the quote and your cash after the trade before confirming.',
+    detail: 'Buy fuel, permits, or parts from merchants with limited stock. Offer spare electricity to three power companies; each weighs its budget, the weather, and your price.',
   },
   {
     label: 'YOUR CAMPAIGN', icon: '🏆', title: 'Earn permits. Take on the crisis.',
