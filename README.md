@@ -20,7 +20,9 @@ Open the [live game](https://blackout-production-c7fc.up.railway.app/) and choos
 immediately. Your guest session is saved in that browser. To use your company on another device, choose **Continue
 with Google**. A first-time Google sign-in upgrades the current guest company; a
 returning Google account opens its saved company. No external wallet, seed phrase, or gas setup is needed for normal
-play.
+play. The welcome screen offers an optional one-minute **How to play** tour before entry, explaining the rescue,
+dispatch and build controls, merchant trading, campaign permits, and weekly crisis. The in-game rescue then guides the
+first three actions on the map.
 
 Google uses Google Identity Services directly. The production Google OAuth client must allow
 `https://blackout-production-c7fc.up.railway.app` under **Authorized JavaScript origins**. The deployed public
@@ -43,9 +45,10 @@ code is shown on screen. To enable Google locally, set `GOOGLE_CLIENT_ID` and ad
 `AUTH_LOCAL_EMAIL_SHOW_CODE=true` in production. The original city game is still playable at **/city**. Node ≥ 22.5,
 pnpm 10. Set `WORLD_INPUTS=off` to skip live weather.
 
-## How you learn it: by playing
-There is no manual and no menu. The first minute is three taps on glowing buttons in the world; the clock waits for
-you, then runs just long enough to show what your tap did.
+## Your first night in Vesper
+You enter through a rescue briefing. The first three steps each have a short explanation, a direct action button, and
+a matching marker on the city map. Restore Eastside, bring Kestrel online, then build a reserve plant before the full
+map and company controls open.
 
 | You see | You tap | What happens |
 |---|---|---|
@@ -53,11 +56,10 @@ you, then runs just long enough to show what your tap did.
 | *The region is short of power.* | **▶ Start turbine** on your gas turbine | It spins up, smokes, and earns on every megawatt. |
 | *Your battery won't last all night.* | **+ Build diesel plant** on the glowing pad | A plant starts rising in Residential East. |
 
-Then the full game opens: the System Pulse (demand, available, reserve, spot price, cash), the dock (DISPATCH,
-BUILD, MARKET, GRID, PORTFOLIO) and one line at the bottom that always names the most useful next move, with a
-button that does it ("Residential East is dark → ⚡ Discharge Eastside Battery", "Power sells for ₡250 and Kestrel
-makes it for ₡63 → ▶ Start", "Eastside Line is full → Upgrade"). Tap anything in the world to see what it is and why
-its price is what it is. **What happened** tells the region's story, cause by cause, in the words of the people in it.
+Then the campaign stays in view while you play: it shows the next city goal, progress toward it, what new builds it
+will unlock, and a field note with the best available action. The bottom dock opens **Power**, **Build**, **Market**,
+**Map**, or **Company** without taking you away from the city. Select a plant, district, or merchant to see what
+it is doing and why its price is what it is. **News & events** tells the region's story, cause by cause.
 
 ## The brief, requirement by requirement
 | The brief asks | In BLACKOUT |
@@ -67,18 +69,20 @@ its price is what it is. **What happened** tells the region's story, cause by ca
 | Prices from stock and recent demand | `stock factor × demand factor × margin`, recalculated every tick |
 | Flood the market and it gets cheap | Sell certificates and Lena's price falls for every player; buy gas and it rises for everyone |
 | A broke merchant closes until someone invests | Shops close when cash runs out; **Invest** reopens them and pays you a share of profits daily |
+| Progressive challenges with a clear next action | A three-step rescue opens the four-permit campaign; the city HUD keeps one live objective, its progress and the best next move visible. A shared three-day crisis rotates weekly. |
 | Items are NEP-245, one contract | Contract code and a Testnet demo are available. The Railway deployment check on 2026-11-10 found the player resource-market adapter disabled. |
 | Social/email login, no seed phrases, popups or gas | Production offers guest and Google sign-in. Email is off. Normal play does not ask for a wallet, seed phrase or gas. |
-| Pricing rules in one readable file, reasoning in a tooltip | [`merchantPricing.ts`](packages/sim/src/town/merchantPricing.ts); hover any price. Outside events live in [`news.ts`](packages/sim/src/town/news.ts) and show up in the same tooltip |
+| Pricing rules in one readable file, reasoning beside each price | [`merchantPricing.ts`](packages/sim/src/town/merchantPricing.ts); open a merchant stall to see why a quote moved. Outside events live in [`news.ts`](packages/sim/src/town/news.ts) and appear in the same explanation. |
 | Fast-forward a week in a minute | **⏩ Watch a week** in MARKET: seven market days, four bot companies, 60 seconds |
 | Game loop on paper first | [docs/GAME_LOOP.md](docs/GAME_LOOP.md) |
 | Multiple players | Every player trades with the same merchants; their trades show in the live feed and move your prices |
 
 ## Vesper Market
 Nine stalls in the middle of the region: Ingrid and Bayo (gas), Kettle, Dayo and Chioma (diesel), Lena (renewable
-certificates), Ruth (carbon permits), Pavel (steel) and Nkechi (turbine kits). Tap a stall: its ledger balance, stock, buy
-and sell prices with the reasoning, recent trades, investors, and buttons to trade or invest. MARKET shows them all
-plus what you hold and a live feed of who's trading.
+certificates), Ruth (carbon permits), Pavel (steel) and Nkechi (turbine kits). The market opens on merchant stalls and
+what you hold, before news and replay details. Each stall says **Shop this stall** and opens its stock, buy and sell
+prices with the reasoning, a reviewable quote, recent trades, investors, and trade or invest actions. MARKET also
+shows the live feed of who's trading.
 
 **Every financial action is reviewable.** Before a market order, the game shows the estimated average price, total,
 cash and inventory after the order, and whether the merchant can fill it. Investments show the projected share of
@@ -102,12 +106,15 @@ breakdown at a rival's plant (supply drops and prices jump), or a fuel supplier'
 through the same physics and appears in **What happened** with its causes. It is seeded, so every challenge player
 lives through the same story.
 
-**Progress has a next step after the tutorial.** In a live region, the operating-permit card stays visible with the
-next permit, delivered-energy progress, and the reliability target when one applies. Opening it shows every permit
-and the plant options each one unlocks. A second card opens this week's shared, seeded challenge and leaderboard;
-its opening fuel, weather or carbon condition rotates weekly and actually changes the simulation inputs. Everyone
-gets the same conditions and seeded grid incidents for that week, while the live company stays saved. Progress comes
-from running the grid, not login streaks or missed-day penalties.
+**Progress has a next step after the rescue.** In a live region, the campaign card stays visible with the next goal,
+delivered-energy progress, the reliability target when one applies, and the builds it unlocks. The Campaign view shows
+the whole route. The weekly crisis is available from the same card, with its shared, seeded challenge and leaderboard;
+its opening fuel, weather or carbon condition rotates weekly and actually changes the simulation inputs. Everyone gets
+the same conditions and seeded grid incidents for that week, while the live company stays saved. Progress comes from
+running the grid, not login streaks or missed-day penalties.
+
+The player account menu is beside the in-game clock. It offers company naming and a visible **Sign out** action.
+Account preferences open from the separate gear button; campaign progress stays in the city HUD and Campaign view.
 
 ## The game
 * **Market (§6–7).** Pure deterministic clearing (`packages/sim/src/region/market.ts`): `GenerationOffer`s and

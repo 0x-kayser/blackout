@@ -1,14 +1,14 @@
 # NEAR Games With Real Economies — compliance status
 
-**Audit date:** 2026-11-10
+**Audit date:** 2026-11-11
 **Overall status:** A read-only Railway audit confirmed the separate Testnet power economy was connected, with 21
 settled and 6 submitted operations at the time checked. Chain status and transaction verification stay out of the
 player interface; operators use the protected `/api/admin/chain-audit` endpoint. The distinct NEP-245 player-resource
 adapter was disabled, so no live player-resource trade is claimed. A separate power-economy Testnet contract and
-standalone transactions are documented in [`TESTNET_DEMO.md`](TESTNET_DEMO.md). Local UI changes in this checkout
-must be built and deployed before they can be claimed as part of the Railway experience. A fresh public-config read
-still reports guest and Google sign-in enabled and email disabled; this confirms configuration, not a real Google
-consent round-trip.
+standalone transactions are documented in [`TESTNET_DEMO.md`](TESTNET_DEMO.md). This checkout has a rescue briefing,
+named campaign chapters, a persistent objective and next-action button, direct access to the weekly crisis, and sign-out
+in the account menu. These changes are local and have not yet been deployed to Railway. A public-config read reported
+guest and Google sign-in enabled and email disabled; this confirms configuration, not a real Google consent round-trip.
 
 ## NEP-245 resource-market deployment preflight and hard blockers
 
@@ -37,7 +37,8 @@ evidence.
 | Player ownership and listings | `packages/sim/src/marketplace.ts`, `apps/api/src/routes.ts`, `apps/api/src/services.ts`, `apps/api/src/workers.ts`, and `apps/web/src/ui/Panels.tsx` implement registered-player listings, chain-backed fuel reservation, cancellable seven-day listings, autonomous merchant evaluation, and off-chain game-credit settlement. Migration `004_marketplace_jobs.sql` stores durable jobs. | The server maps the authenticated player ID to a shared custodial vault allocation. The contract moves the resource from that vault into listing escrow, then to a registered NPC account. The listing price and payment are off-chain fictional credits. | Local end-to-end path and fake-RPC behavior tested; live contract/account/transaction evidence unavailable. |
 | Social and email login | Guest sessions, Google Identity Services, Google-to-player mapping, and guest-to-account save migration are in `apps/api/src/auth.ts`, `apps/api/src/routes.ts`, and `apps/web/src/api/auth.ts`. The local welcome screen places Google sign-in beside guest play. | Authentication is off-chain. The separate power-economy service can provision a server-managed Testnet account for a registered player; the NEP-245 listing path still lacks its own configured resource ownership path. | Public production config reports guest and Google sign-in enabled; email is disabled. Automated Google token-verification tests pass; the real Google consent round-trip remains unverified. |
 | Invisible custody and judge audit | The player interface has no wallet or transaction-verification screen. Chain status and evidence are exposed only through `/api/admin/chain-audit`, `/api/economy/admin/audit`, and operator-only `/api/chain/*` routes. | The operator audit requires `ECONOMY_ADMIN_TOKEN` in an `x-admin-token` header. Configured server keys remain on the server; the player interface does not show them. | Deployed to Railway. The audit returned 403 without the token and 200 with the configured Railway token. |
-| Progressive challenge loop | After the three-step tutorial, the live HUD shows the next operating permit, delivered-energy progress and any reliability target. The permit screen shows plant unlocks. A second HUD card opens the rotating, seeded three-day challenge and leaderboard. The weekly regional challenge now applies its named opening condition (fuel squeeze, recovery, heat demand, carbon costs or clear-sky fuel pressure) to the simulation; same-week players receive identical inputs. Live cash pressure routes players to credit, fuel-spend or asset-sale options. | Permit goals use the same rules enforced by the simulation. Challenge runs use deterministic, condition-specific opening inputs plus seeded incidents; the live company remains saved. There are no XP levels or login streak penalties. | Implemented in `packages/sim/src/region/challenge.ts`, `apps/api/src/region.ts`, `apps/web/src/region/ui/Progression.tsx`, `Guide.tsx` and `Dock.tsx`. Permit thresholds are still fixed rather than calibrated from playtest telemetry. |
+| Progressive challenge loop | Before entry, an optional four-step tour explains the rescue, controls, merchant trades and campaign. The in-game three-step rescue gives each action a direct button and matching city marker. After it, the HUD keeps a named campaign chapter, progress, unlock and recommended next action visible. The weekly crisis opens from the same card and applies its named opening condition; same-week players receive identical inputs. | Campaign goals use simulation rules. Challenge runs use deterministic, condition-specific opening inputs plus seeded incidents; the live company remains saved. | Implemented locally in `packages/sim/src/region/challenge.ts`, `apps/api/src/region.ts`, `apps/web/src/region/ui/Title.tsx`, `Progression.tsx`, `Guide.tsx` and `Dock.tsx`. Weekly runs start past the tutorial so scores cover the challenge. This checkout has not yet been deployed. Permit thresholds remain fixed, not calibrated from playtest telemetry. |
+| Clear trading navigation | Market opens on merchant stalls, shows an explicit shop action, then the player's holdings and owned listings; news, replay and company decisions follow. A stall opens the quote/review flow. | Quotes and settlements follow the existing on-chain/off-chain limits documented above. | Implemented locally in `apps/web/src/region/ui/Market.tsx`; desktop/mobile purchase flow is included in browser verification. Not deployed to Railway. |
 | Financial-action clarity | Market orders show a current estimate, total, cash and inventory after the order, merchant constraints and separate fees. Investments show the projected profit share; loans show principal, per-day interest, and default risk. Plant purchases, offers and listings have review steps. | Game credits and prices are fictional, off-chain and non-redeemable. A quote does not reserve a price; the server rechecks on confirmation. | Implemented locally in the market, investment, loan and plant-sale UI; API quote routes are read-only. |
 | NEAR Intents | No integration. The live game's resource adapter is disabled, and no supported cross-asset or cross-chain path has been shown to improve a real player transaction. | Not applicable. | Deliberately not used; USDC is not needed for the current game flow. |
 | Continuous economy and replay | `packages/sim` contains live continuous city play and deterministic economy rules. `packages/sim/src/replay.ts` reuses simulation rules for seven-day fast-forward; the Economy Lab shows replay data. | Simulation-only; replay does not submit chain transactions. | Implemented locally; deterministic behavior is covered by tests. |
@@ -74,8 +75,8 @@ local git-ignored `.near-credentials/blackout/` directory. Server-facing keys ar
   transfer per call and rejects duplicate trade IDs. It cannot transfer another account's assets.
 - Vault operator key: receiver is the resource contract; methods are `custodial_list`, `custodial_cancel_listing`, and
   `custodial_fill_listing`. It can move only resources already held by the vault or listing escrow, and a fill target
-  must be a registered NPC. The trusted operator can direct an active listing to an NPC without on-chain credit
-  settlement; the future API must enforce policy, buyer budget, and off-chain settlement exactly once.
+  must be a registered NPC. The contract does not enforce off-chain credit payment; the application worker must
+  authorize fills through the NPC policy and buyer-budget checks, then settle fictional credits exactly once.
 - The contract owner's full-access key stays on the developer machine and is not emitted in server environment lines.
 
 These are properties of the bootstrap and contract code, not keys/accounts currently created on Testnet.
@@ -96,22 +97,25 @@ Source locations:
 
 Verification run for this audit:
 
-- `pnpm typecheck` — passed on 2026-11-10, including the local UI and API changes.
+- `pnpm typecheck` — **passed 2026-11-11** after the interface and API response changes.
 - `pnpm build:contract` — produced `contracts/near/res/blackout_resources.wasm` using the plain Cargo fallback. `cargo-near`
   was not installed, so NEAR-specific WASM compatibility and Testnet loading are unverified.
-- `pnpm build:web` — passed on 2026-11-10; Vite emitted upstream Zod comment-annotation and large-chunk warnings and completed the build.
+- `pnpm build:web` — **passed 2026-11-11**. The welcome/game controls build to about 120 kB; Vite still warns that the lazy-loaded 3D scene chunk is 948 kB. That scene loads after the player chooses how to enter.
 - Focused Google and region API integration tests passed, including Google token validation, read-only trade quotes, and read-only investment quotes that match completed investment shares.
-- Full `pnpm test` — **not green**: 179 passed, 23 failed, 2 skipped. Remaining failures are in older economy and exchange integration assertions, a player-identity response expectation, and one Cold Room assignment assertion; the SSE browser tests were skipped because this sandbox cannot bind loopback. Review those suites against current route/configuration behavior before treating the repository's full test command as passing.
-- `git diff --check` — passed on 2026-11-10.
-- UI browser smoke check — not run: browser control is disabled in Work settings, and the local browser surface is unavailable. No production UI behavior is claimed from this check.
+- Full `pnpm test` — **204 passed across 22 test files** on 2026-11-11.
+- Playwright `tests/e2e/browser/region.spec.ts` — **6 passed** across desktop and mobile: the four-step pre-game tour, guest rescue/campaign/weekly crisis, registered email sign-in and sign-out, all primary navigation panels and Economy Lab access, a quoted in-game merchant purchase plus week replay, and mobile market/account access. The purchase is a local game-market flow, not a NEP-245 settlement. These checks verify the local build, not Railway or Google OAuth.
+- `git diff --check` — passed after the current local changes.
+- The mobile HUD now keeps both city status and cash visible without horizontal scrolling. These local UI changes do not verify the deployed Railway interface. A real Google OAuth consent round-trip and live Testnet resource trade are not claimed from these checks.
 
 Local tests and fake RPC fixtures do not constitute live Testnet evidence. Do not infer a deployment from a successful
 build.
 
 ## Judge demo path and current availability
 
-The guest game, electricity loop, operating-permit progression, weekly challenge, seven-day replay, and listing UI can be
-demonstrated locally. To inspect chain evidence, use the protected operator audit route from a trusted environment;
+The guest game, electricity loop, campaign progression, weekly challenge, seven-day replay, and listing UI can be
+demonstrated locally. TinyFish reached the production entry page and found the guest/Google choice, but its SPA content
+extraction returned empty content; it did not verify every production screen. The root game and `/city` exchange are separate experiences; the player-resource exchange is not
+connected to the root game's NPC market. To inspect chain evidence, use the protected operator audit route from a trusted environment;
 the player UI intentionally does not show transaction hashes. The deployed resource-market adapter was observed
 disabled, so a live NEP-245 player listing or NPC fill is not currently claimed. Fake-RPC fixtures must never be
 shown as live settlement evidence.

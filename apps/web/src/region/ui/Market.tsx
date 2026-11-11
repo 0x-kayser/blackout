@@ -331,8 +331,50 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, d
     <>
       <h3>Vesper Market</h3>
       <p className="fine">
-        {town.clock} · {town.players} {town.players === 1 ? 'company' : 'companies'} trading · every merchant sets prices from its own stock and recent demand. Hover a price to see why.
+        {town.clock} · {town.players} {town.players === 1 ? 'company' : 'companies'} trading · prices move with each merchant’s stock and recent demand. Tap a stall to see the quote and price reasoning.
       </p>
+      <Section title="Choose a stall to trade">
+        <p className="fine">Tap a merchant to review a quote, check your cash and confirm a buy or sale.</p>
+        {town.merchants.map((m) => (
+          <button key={m.merchantId} type="button" className={`merchant-card ${m.open ? '' : 'closed'}`} onClick={() => onMerchant(m.merchantId)}>
+            <span className="mc-head">
+              <span>
+                {m.face} <b>{m.person}</b> <small>{m.name}</small>
+              </span>
+              {!m.open ? <span className="pill-closed">CLOSED</span> : <small className="fine">{credits(m.cashCc)}</small>}
+            </span>
+            {m.items.map((it) => (
+              <span key={it.item} className="mc-item">
+                <span>
+                  {ITEMS[it.item].icon} {ITEMS[it.item].name}
+                </span>
+                <span>
+                  {it.askCc !== null && <span className="mc-ask">{unitPrice(it.askCc)} {trend(it)}</span>}
+                  {it.bidCc !== null && <small className="bid-price"> buys {unitPrice(it.bidCc)}</small>}
+                </span>
+              </span>
+            ))}
+            <span className="mc-action">{m.open ? 'Shop this stall →' : 'See why it closed →'}</span>
+          </button>
+        ))}
+      </Section>
+      <Section title="What you hold">
+        <Inventory v={v} />
+        <div className="row">
+          {(['gas', 'diesel'] as const).map((f) => (
+            <label key={f} className="toggle">
+              <input type="checkbox" checked={v.player.autoFuel[f]} onChange={(e) => onAutoFuel(f, e.target.checked)} /> Auto-buy {f} for running plants
+            </label>
+          ))}
+        </div>
+        {v.player.certificates > 0 && (
+          <button className="btn primary small" disabled={busy} onClick={() => run(trade('lena', 'certificate:renewable', 'sell', v.player.certificates))}>
+            Sell {v.player.certificates} certificates to Lena
+          </button>
+        )}
+        {msg && <p className={msg.ok ? 'ok-line' : 'warn-line'}>{msg.text}</p>}
+      </Section>
+      <PlantSales v={v} />
       {!!town.news?.length && (
         <Section title="In the news">
           {town.news.map((n) => {
@@ -354,50 +396,6 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, d
         ⏩ Watch a week of trading in a minute
       </button>
       <CompaniesSection c={town.companies} desk={desk} onDesk={onDesk} />
-      <PlantSales v={v} />
-      <Section title="What you hold">
-        <Inventory v={v} />
-        <div className="row">
-          {(['gas', 'diesel'] as const).map((f) => (
-            <label key={f} className="toggle">
-              <input type="checkbox" checked={v.player.autoFuel[f]} onChange={(e) => onAutoFuel(f, e.target.checked)} /> Auto-buy {f} for running plants
-            </label>
-          ))}
-        </div>
-        {v.player.certificates > 0 && (
-          <button className="btn primary small" disabled={busy} onClick={() => run(trade('lena', 'certificate:renewable', 'sell', v.player.certificates))}>
-            Sell {v.player.certificates} certificates to Lena
-          </button>
-        )}
-        {msg && <p className={msg.ok ? 'ok-line' : 'warn-line'}>{msg.text}</p>}
-      </Section>
-      <Section title="Merchants">
-        {town.merchants.map((m) => (
-          <div key={m.merchantId} role="button" tabIndex={0} className={`merchant-card ${m.open ? '' : 'closed'}`} onClick={() => onMerchant(m.merchantId)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onMerchant(m.merchantId))}>
-            <span className="mc-head">
-              <span>
-                {m.face} <b>{m.person}</b> <small>{m.name}</small>
-              </span>
-              {!m.open ? <span className="pill-closed">CLOSED</span> : <small className="fine">{credits(m.cashCc)}</small>}
-            </span>
-            {m.items.map((it) => (
-              <span key={it.item} className="mc-item">
-                <span>
-                  {ITEMS[it.item].icon} {ITEMS[it.item].name}
-                </span>
-                <span>
-                  {it.askCc !== null && (
-                    <WhyPrice why={it.why}>
-                      {unitPrice(it.askCc)} {trend(it)}
-                    </WhyPrice>
-                  )}
-                  {it.bidCc !== null && <small className="bid-price"> buys {unitPrice(it.bidCc)}</small>}
-                </span>
-              </span>
-            ))}
-          </div>
-        ))}
-      </Section>
       <TradeFeed town={town} />
     </>
   )

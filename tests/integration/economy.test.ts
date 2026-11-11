@@ -36,7 +36,16 @@ async function player(registered = true) {
   if (registered) built.db.prepare("UPDATE players SET kind = 'registered' WHERE player_id = ?").run(userId);
   return { token, userId };
 }
-const economy = async (t: string) => (await built.app.inject({ method: "GET", url: "/api/economy", headers: auth(t) })).json().economy;
+// Wallet state is operator/service data now, not a public player API. These service-level tests exercise
+// the internal provisioning path directly while separate assertions keep that data out of player routes.
+const economy = async (t: string) => {
+  const me = (await built.app.inject({ method: "GET", url: "/api/me", headers: auth(t) })).json();
+  return built.economy.view(me.player.playerId as string);
+};
+const requireWallet = (view: NonNullable<Awaited<ReturnType<typeof economy>>>) => {
+  if (!view.wallet) throw new Error("Expected an internally provisioned wallet");
+  return view.wallet;
+};
 async function drain(rounds = 6) {
   for (let i = 0; i < rounds; i++) {
     await built.economy.ensureTownOpen();
@@ -50,25 +59,26 @@ describe("player wallets and starting capital", () => {
     const p = await player();
     const first = await economy(p.token);
     expect(first.mode).toBe("near");
-    expect(first.wallet.status).toBe("creating");
+    expect(requireWallet(first).status).toBe("creating");
     await economy(p.token);
     await economy(p.token);
     await drain();
     const e = await economy(p.token);
-    expect(e.wallet.status).toBe("active");
-    expect(chain.accounts.has(e.wallet.accountId)).toBe(true);
-    expect(e.wallet.accountId).toMatch(/^p[0-9a-f]{20}\.players\.game\.testnet$/);
+    const playerWallet = requireWallet(e);
+    expect(playerWallet.status).toBe("active");
+    expect(chain.accounts.has(playerWallet.accountId)).toBe(true);
+    expect(playerWallet.accountId).toMatch(/^p[0-9a-f]{20}\.players\.game\.testnet$/);
     // exactly one grant, from the players' bucket, of the game's own starting capital
-    const grants = [...chain.grants.values()].filter((g) => g.receiver === e.wallet.accountId);
-    expect(grants).toEqual([{ bucket: "players", receiver: e.wallet.accountId, amount: STARTER_GRANT_CC }]);
+    const grants = [...chain.grants.values()].filter((g) => g.receiver === playerWallet.accountId);
+    expect(grants).toEqual([{ bucket: "players", receiver: playerWallet.accountId, amount: STARTER_GRANT_CC }]);
     // the wallet holds what the company holds in the game
     const h = built.rsvc.liveFor(p.userId);
-    expect(chain.balance(e.wallet.accountId)).toBe(region.rbal(h.state, "cc", "player"));
+    expect(chain.balance(playerWallet.accountId)).toBe(region.rbal(h.state, "cc", "player"));
     // asking again, or a direct retry of the grant, never pays twice
     built.economy.ensureWallet(p.userId);
-    built.economy.enqueue({ opId: "grant:start:" + p.userId, kind: "grant", subject: `wallet:${p.userId}`, signer: "operator", method: "treasury_grant", args: { grant_id: `start:${p.userId}`, bucket: "players", receiver_id: e.wallet.accountId, amount: String(STARTER_GRANT_CC), memo: "again" } });
+    built.economy.enqueue({ opId: "grant:start:" + p.userId, kind: "grant", subject: `wallet:${p.userId}`, signer: "operator", method: "treasury_grant", args: { grant_id: `start:${p.userId}`, bucket: "players", receiver_id: playerWallet.accountId, amount: String(STARTER_GRANT_CC), memo: "again" } });
     await drain();
-    expect([...chain.grants.values()].filter((g) => g.receiver === e.wallet.accountId)).toHaveLength(1);
+    expect([...chain.grants.values()].filter((g) => g.receiver === playerWallet.accountId)).toHaveLength(1);
     expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
   });
 
@@ -78,16 +88,16 @@ describe("player wallets and starting capital", () => {
     expect(e.wallet).toBeNull();
     expect(e.walletNote).toMatch(/Finish your first minute/);
     built.rsvc.liveFor(guest.userId).state.onboarding.done = true;
-    expect((await economy(guest.token)).wallet.status).toBe("creating");
+    expect(requireWallet(await economy(guest.token)).status).toBe("creating");
     await drain();
-    expect((await economy(guest.token)).wallet.status).toBe("active");
+    expect(requireWallet(await economy(guest.token)).status).toBe("active");
     const a = await player();
     const b = await player();
     await economy(a.token);
     await economy(b.token);
     await drain();
-    const wa = (await economy(a.token)).wallet.accountId;
-    const wb = (await economy(b.token)).wallet.accountId;
+    const wa = requireWallet(await economy(a.token)).accountId;
+    const wb = requireWallet(await economy(b.token)).accountId;
     expect(wa).not.toBe(wb);
   });
 
@@ -112,25 +122,17 @@ describe("player wallets and starting capital", () => {
     expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
   });
 
-  it("the owner can export their wallet key (it matches the account's key), only with confirmation, at most 3 times an hour", async () => {
+  it("keeps account identifiers and wallet controls out of player-facing routes", async () => {
     const p = await player();
     await economy(p.token);
     await drain();
-    const ex = (payload: object) => built.app.inject({ method: "POST", url: "/api/economy/wallet/export", headers: auth(p.token), payload });
-    expect((await ex({})).statusCode).toBe(400);
-    const r = await ex({ confirm: "I understand" });
-    expect(r.statusCode).toBe(200);
-    expect(r.headers["cache-control"]).toBe("no-store");
-    const w = built.economy.wallet(p.userId)!;
-    const { KeyPair } = await import("near-api-js");
-    expect(KeyPair.fromString(r.json().privateKey).getPublicKey().toString()).toBe(w.public_key);
-    expect(r.json().accountId).toBe(w.account_id);
-    await ex({ confirm: "I understand" });
-    await ex({ confirm: "I understand" });
-    expect((await ex({ confirm: "I understand" })).statusCode).toBe(429);
-    // someone else's session can't get it: they get their own (or none)
-    const other = await player(false);
-    expect((await built.app.inject({ method: "POST", url: "/api/economy/wallet/export", headers: auth(other.token), payload: { confirm: "I understand" } })).statusCode).toBe(404);
+    const identity = (await built.app.inject({ method: "GET", url: "/api/identity", headers: auth(p.token) })).json().identity;
+    expect(identity).not.toHaveProperty("chainAccountId");
+    expect(identity).not.toHaveProperty("gasless");
+    expect((await built.app.inject({ method: "GET", url: "/api/economy", headers: auth(p.token) })).statusCode).toBe(404);
+    expect((await built.app.inject({ method: "POST", url: "/api/economy/wallet/export", headers: auth(p.token), payload: { confirm: "I understand" } })).statusCode).toBe(404);
+    expect((await built.app.inject({ method: "POST", url: "/api/economy/wallet/leave", headers: auth(p.token), payload: { confirm: "LEAVE" } })).statusCode).toBe(404);
+    expect((await built.app.inject({ method: "GET", url: "/api/region", headers: auth(p.token) })).json()).not.toMatchObject({ wallet: expect.anything(), accountId: expect.anything(), chainAccountId: expect.anything() });
   });
 
   it("a wallet opened after playing a while starts with exactly the company's current cash", async () => {
@@ -141,7 +143,7 @@ describe("player wallets and starting capital", () => {
     await economy(p.token);
     await drain();
     const e = await economy(p.token);
-    expect(e.wallet.status).toBe("active");
+    expect(requireWallet(e).status).toBe("active");
     const w = built.economy.wallet(p.userId)!;
     expect(chain.balance(w.account_id)).toBe(w.opening_cash_cc);
     expect(w.opening_cash_cc).not.toBe(STARTER_GRANT_CC);
@@ -164,38 +166,6 @@ describe("opening the market on chain", () => {
     }
     expect(chain.balance(ingrid, "fuel:natural-gas")).toBe(t.epochStart.balances["fuel:natural-gas"][`merchant:ingrid`]);
     for (const f of ["halvard", "solara", "northwind"]) expect(chain.balance(`${f}.game.testnet`)).toBe(t.epochStart.balances.cc[`firm:${f}`]);
-    expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
-  });
-});
-
-describe("leaving game custody", () => {
-  it("moves the company's cash to the wallet, the wallet releases itself, and the game never settles to it again", async () => {
-    const p = await player();
-    await economy(p.token);
-    await drain();
-    const h = built.rsvc.liveFor(p.userId);
-    h.state.onboarding.done = true;
-    for (let i = 0; i < 20; i++) built.rsvc.advance(h);
-    const wallet = built.economy.activeAccount(p.userId)!;
-    const cash = region.rbal(h.state, "cc", "player");
-    const leave = (confirm: string) => built.app.inject({ method: "POST", url: "/api/economy/wallet/leave", headers: auth(p.token), payload: { confirm } });
-    expect((await leave("yes")).statusCode).toBe(400);
-    const r = (await leave("LEAVE")).json();
-    expect(r.status).toBe("leaving");
-    // the cash left the company at once
-    expect(region.rbal(h.state, "cc", "player")).toBe(0);
-    await drain(6);
-    expect(built.economy.wallet(p.userId)!.status).toBe("released");
-    expect(chain.released.has(wallet)).toBe(true);
-    expect(chain.balance(wallet)).toBe(cash);
-    // the release was signed by the wallet itself
-    expect(chain.calls.find((c) => c.method === "release_to_owner")!.signer).toBe(wallet);
-    // later play settles nothing to it (it's out of the operator's reach), and nothing fails trying
-    for (let i = 0; i < 80; i++) built.rsvc.advance(h);
-    for (let i = 0; i < 80; i++) built.tsvc.tick();
-    await drain(4);
-    expect(chain.balance(wallet)).toBe(cash);
-    expect(built.db.prepare("SELECT COUNT(*) AS n FROM chain_ops WHERE kind = 'batch' AND status = 'failed'").get()).toEqual({ n: 0 });
     expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
   });
 });
@@ -320,7 +290,7 @@ describe("plants as NFTs", () => {
     await drain();
     expect(chain.plants.get(built.economy.plantTokenId(h.regionId, sold.assetNo))).toBe("grid.game.testnet");
     const view = await economy(p.token);
-    expect(view.plants.find((x: { tokenId: string }) => x.tokenId === built.economy.plantTokenId(h.regionId, sold.assetNo)).status).toBe("sold");
+    expect(view.plants.find((x: { tokenId: string }) => x.tokenId === built.economy.plantTokenId(h.regionId, sold.assetNo))?.status).toBe("sold");
   });
 });
 

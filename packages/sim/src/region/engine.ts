@@ -62,7 +62,9 @@ export function createRegion(opts: { regionId: string; seed: number; mode?: "liv
     cooldowns: {},
     history: [],
     pulse: { demandKw: 0, availableKw: 0, shedKw: 0, curtailedKw: 0, spotCc: 0 },
-    onboarding: { step: 0, done: false },
+    // Weekly crisis runs are scored competitions; players go straight into the scenario instead of replaying the
+    // guest tutorial, whose free setup actions would otherwise distort their shared starting conditions.
+    onboarding: { step: mode === "challenge" ? ONBOARDING.length : 0, done: mode === "challenge" },
     stats: { unservedKwh: 0, regionOutputBpsSum: 0, intervalsCounted: 0 },
     epochs: [],
     epochStart: { interval: 0, balances: {} },

@@ -73,8 +73,13 @@ export async function verifyEmailCode(email: string, code: string): Promise<void
 }
 
 export async function signOutProvider(): Promise<void> {
-  if (client) await client.auth.signOut()
-  setBearer(null)
+  try {
+    if (client) await client.auth.signOut()
+  } finally {
+    // The app session has already been revoked server-side. Clear the API token even if
+    // Supabase is temporarily offline so the next screen cannot keep making signed-in calls.
+    setBearer(null)
+  }
 }
 
 /** Direct Google sign-in: hands the ID token Google issued in the browser to our server, which verifies it. */

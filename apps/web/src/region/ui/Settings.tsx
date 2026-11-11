@@ -1,6 +1,4 @@
-/**
- * Account, operating permits, the rotating weekly challenge, the Economy Lab, and game information.
- */
+/** Account preferences and the deterministic strategy lab. Campaign play lives in Operations. */
 import { useEffect, useRef, useState } from 'react'
 import type { PublicConfig, RegionView } from '@blackout/shared'
 import { SignInOptions } from '../../ui/SignIn'
@@ -9,9 +7,8 @@ import { regionApi, type ChallengeInfo, type LabResult, type LeaderboardRow } fr
 import { credits, mw, pct, price } from '../format'
 import { Section, Spark, Stat } from './Bits'
 import { NameCompany } from './Company'
-import { Career } from './Progression'
 
-export type SettingsTab = 'account' | 'career' | 'challenge' | 'lab' | 'about'
+export type SettingsTab = 'account' | 'lab' | 'about'
 
 export interface SettingsProps {
   v: RegionView
@@ -20,7 +17,7 @@ export interface SettingsProps {
   player: { displayName: string; kind: string; companyNamed?: boolean } | null
   onRename: (name: string) => Promise<{ ok: boolean; message: string }>
   onSignOut: () => Promise<void>
-  boot: () => Promise<void>
+  boot: (showEntry?: boolean) => Promise<void>
   toast: (text: string, tone?: 'info' | 'good' | 'bad') => void
   sound: boolean
   music: boolean
@@ -28,30 +25,38 @@ export interface SettingsProps {
   onMusic: (on: boolean) => void
   quality: 'high' | 'low'
   onQuality: (q: 'high' | 'low') => void
+  initialTab?: SettingsTab
+}
+
+export interface WeeklyChallengeProps {
+  v: RegionView
   onChallenge: () => Promise<void>
   onLive: () => Promise<void>
-  initialTab?: SettingsTab
 }
 
 export function Settings(p: SettingsProps) {
   const [tab, setTab] = useState<SettingsTab>(p.initialTab ?? 'account')
+  useEffect(() => {
+    const closeOnEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') p.onClose() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [p.onClose])
   return (
     <div className="modal-back" onClick={p.onClose}>
-      <div className="modal" role="dialog" aria-label="Settings" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(e) => e.stopPropagation()}>
+        <h2 id="settings-title" className="sr-only">Settings and account</h2>
         <button className="close" onClick={p.onClose} aria-label="Close">
           ×
         </button>
-        <nav className="tabs">
-          {(['account', 'career', 'challenge', 'lab', 'about'] as SettingsTab[]).map((t) => (
+        <nav className="tabs" aria-label="Settings sections">
+          {(['account', 'lab', 'about'] as SettingsTab[]).map((t) => (
             <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-              {{ account: 'Account', career: 'Campaign', challenge: 'Weekly drill', lab: 'Economy Lab', about: 'About' }[t]}
+              {{ account: 'Account', lab: 'Economy Lab', about: 'About' }[t]}
             </button>
           ))}
         </nav>
         <div className="modal-body">
           {tab === 'account' && <Account {...p} />}
-          {tab === 'career' && <Career v={p.v} />}
-          {tab === 'challenge' && <Challenge {...p} />}
           {tab === 'lab' && <Lab />}
           {tab === 'about' && <About {...p} />}
         </div>
@@ -61,7 +66,8 @@ export function Settings(p: SettingsProps) {
 }
 
 function Account(p: SettingsProps) {
-  const host = { config: p.config, boot: p.boot, toast: p.toast } as unknown as Game
+  const signInAndContinue = async () => p.boot(false)
+  const host = { config: p.config, boot: signInAndContinue, toast: p.toast } as unknown as Game
   const registered = p.player?.kind === 'registered'
   return (
     <>
@@ -70,14 +76,13 @@ function Account(p: SettingsProps) {
       <Section title="Company name">
         <NameCompany current={p.player?.companyNamed ? p.player.displayName : ''} title={p.player?.companyNamed ? 'Rename your company' : 'Name your company'} onSave={p.onRename} />
       </Section>
-      {!registered && <SignInOptions g={host} onSignedIn={p.boot} />}
-      {registered && (
-        <div className="row">
-          <button className="btn" onClick={() => void p.onSignOut()}>
-            Sign out
-          </button>
-        </div>
-      )}
+      {!registered && <SignInOptions g={host} onSignedIn={signInAndContinue} />}
+      {!registered && <p className="guest-save-note">Guest progress is saved in this browser. Link Google before signing out if you want to keep this company.</p>}
+      <div className="row account-actions">
+        <button className="btn signout-button" onClick={() => void p.onSignOut()}>
+          Sign out
+        </button>
+      </div>
       <Section title="Preferences">
         <label className="toggle">
           <input type="checkbox" checked={p.sound} onChange={(e) => p.onSound(e.target.checked)} /> Sound effects
@@ -93,10 +98,22 @@ function Account(p: SettingsProps) {
   )
 }
 
-function Challenge(p: SettingsProps) {
+export function WeeklyChallenge(p: WeeklyChallengeProps) {
   const [rows, setRows] = useState<LeaderboardRow[] | null>(null)
   const [challenge, setChallenge] = useState<ChallengeInfo | null>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await fn()
+    } catch (e) {
+      setError((e as Error).message || 'The weekly run could not be opened. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
   useEffect(() => {
     regionApi.leaderboard().then((r) => setRows(r.entries), () => setRows([]))
     regionApi.challenge().then((r) => setChallenge(r.challenge), () => setChallenge(null))
@@ -105,20 +122,21 @@ function Challenge(p: SettingsProps) {
     <>
       <h3>Weekly crisis drill</h3>
       <Section title={`${challenge?.week.replace('-', ' · ') ?? 'This week'}${challenge ? ` · ${challenge.name}` : ''}`}>
-        <p className="fine">{challenge?.description ?? 'A shared three-day regional scenario.'} Everyone gets the same seed and starting conditions. Finish the three game days (about 15 minutes) to post a score on this week’s board.</p>
+        <p className="fine">{challenge?.description ?? 'A shared three-day regional scenario.'} Every operator gets the same starting conditions. Finish the three-day run to post a score on this week’s board.</p>
         <p className="fine">Score rewards profit and regional business output, and accounts for power left unserved and CO₂ emissions. The scenario rotates weekly; your live region stays saved while you play it.</p>
       </Section>
       <div className="row">
         {p.v.mode === 'challenge' ? (
-          <button className="btn" disabled={busy} onClick={async () => { setBusy(true); await p.onLive(); setBusy(false) }}>
+          <button className="btn" disabled={busy} onClick={() => void run(p.onLive)}>
             Back to my region
           </button>
         ) : (
-          <button className="btn primary" disabled={busy} onClick={async () => { setBusy(true); await p.onChallenge(); setBusy(false) }}>
-            Start this week’s run
+          <button className="btn primary" disabled={busy} onClick={() => void run(p.onChallenge)}>
+            {busy ? 'Preparing the crisis…' : 'Start this week’s run'}
           </button>
         )}
       </div>
+      {error && <p className="warn-line" role="alert">{error}</p>}
       <Section title="Leaderboard">
         {rows === null && <p className="fine">Loading…</p>}
         {rows?.length === 0 && <p className="fine">No finished runs yet this week. Be first.</p>}

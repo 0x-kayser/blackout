@@ -3,25 +3,27 @@
  * top, the dock at the bottom, the inspector beside whatever you tapped. Every visit begins at a clear entry screen;
  * players choose guest or account access before opening the region. The first operation teaches by doing.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NodeId, PublicConfig, RegionEvent, RegionView, TechId } from '@blackout/shared'
 import { api, BlackoutApiError, clearGuestUpgradeToken, guestUpgradeToken, startGuestSession } from '../api/client'
 import { currentSession, initSupabase, signOutProvider } from '../api/auth'
 import { bindAudioToPage, enableSound, playCue, setMusicMood, startMusic, stopMusic, unlockAudio, unlockOnFirstGesture, type Cue } from '../audio'
 import { regionApi, useRegion, type ChallengeInfo, type DeskView } from './api'
-import { World3D, type FocusCmd, type Selection, type ZoomLevel } from './scene/World3D'
+import type { FocusCmd, Selection, ZoomLevel } from './scene/World3D'
 import { Dock, ModeSheet, type DockMode } from './ui/Dock'
 import { Inspector } from './ui/Inspector'
 import { PulseBar } from './ui/Pulse'
 import { Settings, type SettingsTab } from './ui/Settings'
 import { Feed, Toasts, useNewEvents } from './ui/Story'
-import { CELEBRATE, Celebration, NextMoveBar, missionFor, nextMove } from './ui/Guide'
+import { CELEBRATE, Celebration, MissionBanner, missionFor, nextMove } from './ui/Guide'
 import { MarketSheet, MerchantInspector, NewsTicker, WatchAWeek, type Trade, type Invest } from './ui/Market'
 import { NameCompany } from './ui/Company'
 import { Title } from './ui/Title'
-import { LoopGoals } from './ui/Progression'
+import { LoopGoals, OperationCenter, type OperationTab } from './ui/Progression'
 import type { TownEvent } from '@blackout/shared'
 import './region.css'
+
+const World3D = lazy(() => import('./scene/World3D').then(({ World3D }) => ({ default: World3D })))
 
 type Prefs = { sound: boolean; music: boolean; quality: 'high' | 'low' }
 const loadPrefs = (): Prefs => {
@@ -35,27 +37,20 @@ const loadPrefs = (): Prefs => {
 }
 
 const CUE_FOR: Record<string, Cue> = { BLACKOUT: 'siren', RESTORED: 'restore', PLANT_TRIPPED: 'fail', PRICE_SPIKE: 'ping', BUILD_STARTED: 'coin', PLANT_COMMISSIONED: 'restore', TENDER_MET: 'coin', LICENCE: 'coin', PLANT_SOLD: 'coin', BUSINESS_CLOSED: 'fail', VOLTLINE_MOTHBALL: 'fail' }
-const TOAST_TYPES = new Set(['BLACKOUT', 'PLANT_TRIPPED', 'PRICE_SPIKE', 'HEATWAVE', 'STORM', 'RATIONING', 'SUPPLY_DISRUPTION', 'CONGESTION', 'BUSINESS_DISTRESS', 'BUSINESS_CLOSED', 'LAYOFFS', 'STEEL_SHORTAGE', 'VOLTLINE_DISTRESS', 'VOLTLINE_MOTHBALL', 'VOLTLINE_BUILDS', 'ASSET_FOR_SALE', 'TENDER_POSTED', 'TENDER_MET', 'TENDER_MISSED', 'LICENCE', 'PLANT_COMMISSIONED', 'LINE_UPGRADED', 'REGULATOR_FINE', 'REGULATOR_MITIGATION', 'BLACKOUT_IMPACT', 'DEMAND_RESPONSE', 'ONBOARDING_DONE', 'CHALLENGE_ENDED', 'FORECLOSURE', 'BUSINESS_REOPENED'])
+const TOAST_TYPES = new Set(['BLACKOUT', 'PLANT_TRIPPED', 'PRICE_SPIKE', 'HEATWAVE', 'STORM', 'RATIONING', 'SUPPLY_DISRUPTION', 'CONGESTION', 'BUSINESS_DISTRESS', 'BUSINESS_CLOSED', 'LAYOFFS', 'STEEL_SHORTAGE', 'VOLTLINE_DISTRESS', 'VOLTLINE_MOTHBALL', 'VOLTLINE_BUILDS', 'ASSET_FOR_SALE', 'TENDER_POSTED', 'TENDER_MET', 'TENDER_MISSED', 'LICENCE', 'PLANT_COMMISSIONED', 'LINE_UPGRADED', 'REGULATOR_FINE', 'REGULATOR_MITIGATION', 'BLACKOUT_IMPACT', 'DEMAND_RESPONSE', 'CHALLENGE_ENDED', 'FORECLOSURE', 'BUSINESS_REOPENED'])
 
 export default function RegionApp() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [player, setPlayer] = useState<{ playerId: string; displayName: string; kind: string; companyNamed: boolean } | null>(null)
   const [desk, setDesk] = useState<DeskView | null>(null)
   const [challengeInfo, setChallengeInfo] = useState<ChallengeInfo | null>(null)
-  const [nameLater, setNameLater] = useState(() => {
-    try {
-      return sessionStorage.getItem('bo_name_later') === '1'
-    } catch {
-      return false
-    }
-  })
   const [renaming, setRenaming] = useState(false)
   const [regionId, setRegionId] = useState<string | null>(null)
   const [bootError, setBootError] = useState<string | null>(null)
   /** Keep the region out of view until the player chooses how to enter. */
   const [entry, setEntry] = useState(true)
   const [entryLoading, setEntryLoading] = useState(true)
-  const { view, setView, town, conn, act, market } = useRegion(regionId)
+  const { view, setActiveView, town, conn, act, market } = useRegion(regionId)
   const [watching, setWatching] = useState(false)
   const viewRef = useRef<RegionView>(null as unknown as RegionView)
   if (view) viewRef.current = view
@@ -68,6 +63,8 @@ export default function RegionApp() {
   const [zoom, setZoom] = useState<ZoomLevel>('REGION')
   const [settings, setSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
+  const [operations, setOperations] = useState(false)
+  const [operationsTab, setOperationsTab] = useState<OperationTab>('campaign')
   const [feed, setFeed] = useState(false)
   const [toasts, setToasts] = useState<RegionEvent[]>([])
   const [flash, setFlash] = useState<{ text: string; ok: boolean } | null>(null)
@@ -88,6 +85,14 @@ export default function RegionApp() {
     }
   }
   useEffect(() => bindAudioToPage(), [])
+  useEffect(() => {
+    if (mode !== 'market') return
+    const closeMarketOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMode(null)
+    }
+    window.addEventListener('keydown', closeMarketOnEscape)
+    return () => window.removeEventListener('keydown', closeMarketOnEscape)
+  }, [mode])
   useEffect(() => (prefs.sound || prefs.music ? unlockOnFirstGesture() : undefined), [prefs.sound, prefs.music])
   // music that was on last visit starts again on the first tap (browsers only allow sound after a gesture)
   useEffect(() => {
@@ -118,7 +123,7 @@ export default function RegionApp() {
       } catch (e) {
         if (!(e instanceof BlackoutApiError && e.code === 'UNAUTHORIZED')) throw e
         setPlayer(null)
-        setView(null)
+        setActiveView(null)
         setRegionId(null)
         setEntry(true)
         setEntryLoading(false)
@@ -128,7 +133,7 @@ export default function RegionApp() {
       // its company when it signs in)
       if (!cfg.auth.guestPlay && me.player.kind !== 'registered') {
         setPlayer({ playerId: me.player.playerId, displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
-        setView(null)
+        setActiveView(null)
         setRegionId(null)
         setEntry(true)
         setEntryLoading(false)
@@ -150,7 +155,7 @@ export default function RegionApp() {
       setPlayer({ playerId: me.player.playerId, displayName: me.player.displayName, kind: me.player.kind, companyNamed: !!me.player.companyNamed })
       // Returning players see a welcome-back choice first. An OAuth return is already an explicit choice to sign in.
       if (showEntry && !returnedFromAuth) {
-        setView(null)
+        setActiveView(null)
         setRegionId(null)
         setEntry(true)
         setEntryLoading(false)
@@ -159,15 +164,15 @@ export default function RegionApp() {
       const r = await regionApi.live()
       // Keep player setup server-side; only the game's power desk preferences reach the browser.
       regionApi.desk().then((x) => setDesk(x.desk), () => undefined)
-      setView(r.view)
       setRegionId(r.view.regionId)
+      setActiveView(r.view)
       setEntry(false)
       setEntryLoading(false)
     } catch (e) {
       setBootError((e as Error).message || 'Could not reach the game server.')
       setEntryLoading(false)
     }
-  }, [setView])
+  }, [setActiveView])
   useEffect(() => {
     void boot()
   }, [boot])
@@ -177,14 +182,22 @@ export default function RegionApp() {
     await boot(false)
   }, [boot])
   const signOut = useCallback(async () => {
-    await api.logout().catch(() => undefined)
+    try {
+      const res = await api.logout()
+      if (!res.ok) throw new Error('Could not sign out. Check your connection and try again.')
+    } catch (e) {
+      setFlash({ text: (e as Error).message || 'Could not sign out. Try again.', ok: false })
+      return
+    }
     await signOutProvider().catch(() => undefined)
+    clearGuestUpgradeToken()
     setSettings(false)
+    setOperations(false)
     setRegionId(null)
-    setView(null)
+    setActiveView(null)
     setPlayer(null)
     await boot(true)
-  }, [boot, setView])
+  }, [boot, setActiveView])
 
   // the music follows the grid: tense while the region is short of power or dark
   // The same server-side player setup is rechecked after the first-minute tutorial is complete.
@@ -229,7 +242,7 @@ export default function RegionApp() {
       if (e.kind === 'power' && e.who !== me) continue
       // market news appears like region news, linked to the shop
       const asRegion = { seq: 1_000_000 + e.seq, interval: 0, type: 'MARKET', severity: e.severity, title: e.title, detail: e.detail, nodeId: null, actorId: null, causes: [], quote: null, merchantId: e.merchantId } as RegionEvent & { merchantId: string | null }
-      setToasts((t) => [...t.slice(-3), asRegion])
+      setToasts([asRegion])
       setTimeout(() => setToasts((t) => t.filter((x) => x.seq !== asRegion.seq)), 8_000)
       if (prefs.sound) playCue(e.severity === 'crisis' ? 'fail' : 'coin')
     }
@@ -242,7 +255,7 @@ export default function RegionApp() {
     const cue = CUE_FOR[e.type]
     if (cue && prefs.sound) playCue(cue)
     if (TOAST_TYPES.has(e.type)) {
-      setToasts((t) => [...t.filter((x) => x.type !== e.type || x.nodeId !== e.nodeId).slice(-3), e])
+      setToasts([e])
       const ttl = e.severity === 'crisis' ? 9_000 : 6_000
       setTimeout(() => setToasts((t) => t.filter((x) => x.seq !== e.seq)), ttl)
     }
@@ -365,60 +378,73 @@ export default function RegionApp() {
       return { ok: false, message: (e as Error).message }
     }
   }
-  const askName = !!player && view.onboarding.done && !player.companyNamed && !nameLater && !celebrate
   const highlight = view.onboarding.done ? null : view.onboarding.target
   const mission = missionFor(view)
   const simple = !view.onboarding.done
   const move = simple ? null : nextMove(view, town)
+  const runMission = () => {
+    if (!mission) return
+    void act(mission.action).then((r) => !r.ok && setFlash({ text: r.message, ok: false }))
+  }
   const doMove = async () => {
     if (!move) return
     if (move.action) await doAct(move.action)
     else if (move.build) {
       setBuilding(building ?? { tech: 'diesel', size: 1 })
       onBuildAt(move.build)
-    } else if (move.trade) await trade(move.trade.merchantId, move.trade.item, move.trade.side, move.trade.qty)
+    } else if (move.trade) {
+      setMode(null)
+      select({ kind: 'merchant', id: move.trade.merchantId })
+    }
     else if (move.select) select(move.select)
     else if (move.market) setMode('market')
     else setMode('portfolio')
   }
+  const showOperations = (tab: OperationTab = 'campaign') => {
+    setOperationsTab(tab)
+    setSettings(false)
+    setOperations(true)
+  }
+  const returnToLive = async () => {
+    const r = await regionApi.live()
+    setRegionId(r.view.regionId)
+    setActiveView(r.view)
+    setOperations(false)
+  }
   return (
     <div className={`region-app ${view.pulse.status}`}>
-      <World3D
-        view={view}
-        viewRef={viewRef}
-        selection={selection}
-        onSelect={select}
-        overlay={mode === 'grid' ? 'grid' : 'normal'}
-        building={mode === 'build' ? (building ?? { tech: 'diesel', size: 0 }) : null}
-        onBuildAt={onBuildAt}
-        focus={focus}
-        highlight={highlight}
-        quality={prefs.quality}
-        onZoom={setZoom}
-        mission={mission ? { target: mission.target, label: mission.label } : null}
-        onMission={() => mission && void act(mission.action).then((r) => !r.ok && setFlash({ text: r.message, ok: false }))}
-        simple={simple}
-        town={town}
-        zoom={zoom}
-      />
-      <PulseBar v={view} simple={simple} company={player?.companyNamed ? player.displayName : null} onCompany={() => setRenaming(true)} conn={conn} zoom={zoom} onSettings={() => { setSettingsTab('account'); setSettings(true) }} onHome={() => { setSelection(null); setFocus({ kind: 'home', id: '', nonce: Date.now() }) }} sound={prefs.sound} onSound={() => setPrefs({ ...prefs, sound: !prefs.sound })} />
-      {!simple && <LoopGoals v={view} challenge={challengeInfo} onCareer={() => { setSettingsTab('career'); setSettings(true) }} onChallenge={() => { setSettingsTab('challenge'); setSettings(true) }} />}
-      {!simple && !mode && <NewsTicker town={town} onMerchant={(id) => select({ kind: 'merchant', id })} />}
+      <Suspense fallback={<div className="world-loading" role="status"><span aria-hidden>🌃</span><b>Vesper is waking up</b><small>Bringing the city grid online…</small></div>}>
+        <World3D
+          view={view}
+          viewRef={viewRef}
+          selection={selection}
+          onSelect={select}
+          overlay={mode === 'grid' ? 'grid' : 'normal'}
+          building={mode === 'build' ? (building ?? { tech: 'diesel', size: 0 }) : null}
+          onBuildAt={onBuildAt}
+          focus={focus}
+          highlight={highlight}
+          quality={prefs.quality}
+          onZoom={setZoom}
+          mission={mission ? { target: mission.target, label: mission.label } : null}
+          onMission={runMission}
+          simple={simple}
+          town={town}
+          zoom={zoom}
+        />
+      </Suspense>
+      <PulseBar v={view} simple={simple} company={player?.companyNamed ? player.displayName : null} onCompany={() => setRenaming(true)} player={player} conn={conn} onSettings={() => { setOperations(false); setSettingsTab('account'); setSettings(true) }} onSignOut={signOut} onHome={() => { setSelection(null); setFocus({ kind: 'home', id: '', nonce: Date.now() }) }} sound={prefs.sound} onSound={() => setPrefs({ ...prefs, sound: !prefs.sound })} />
+      {simple && mission && <MissionBanner m={mission} onAction={runMission} />}
+      {!simple && !mode && !selection && !renaming && <LoopGoals v={view} challenge={challengeInfo} move={move} onCareer={showOperations} onChallenge={() => showOperations('weekly')} onLive={() => void returnToLive()} onDoMove={() => void doMove()} />}
+      {!simple && !mode && !selection && <NewsTicker town={town} onMerchant={(id) => select({ kind: 'merchant', id })} />}
       {celebrate && <Celebration text={celebrate} />}
-      {move && !mode && !selection && !askName && !renaming && <NextMoveBar m={move} onDo={() => void doMove()} />}
-      {(askName || renaming) && !mode && (
+      {renaming && !mode && (
         <NameCompany
           current={player?.companyNamed ? player.displayName : ''}
-          title={renaming ? 'Rename your company' : 'You run a power company now. What is it called?'}
+          title={player?.companyNamed ? 'Rename your company' : 'Name your company'}
           onSave={renameCompany}
           onLater={() => {
             setRenaming(false)
-            setNameLater(true)
-            try {
-              sessionStorage.setItem('bo_name_later', '1')
-            } catch {
-              /* asks again next visit */
-            }
           }}
         />
       )}
@@ -448,7 +474,7 @@ export default function RegionApp() {
       {!simple && (
         <>
           <button className="feed-btn" onClick={() => { setFeed(!feed); setMode(null) }} aria-pressed={feed}>
-            📰 What happened
+            📰 News & events
           </button>
           <Dock mode={mode} onMode={(m) => { setMode(m); setFeed(false); if (m !== 'build') setBuildNode(null) }} badges={badges} />
         </>
@@ -456,10 +482,25 @@ export default function RegionApp() {
       {view.ended && (
         <div className="ended">
           <b>Challenge complete · score {view.scores.score.toLocaleString('en-US')}</b>
-          <button className="btn primary small" onClick={() => { setSettingsTab('challenge'); setSettings(true) }}>
+          <button className="btn primary small" onClick={() => showOperations('weekly')}>
             See the leaderboard
           </button>
         </div>
+      )}
+      {operations && (
+        <OperationCenter
+          v={view}
+          challenge={challengeInfo}
+          initialTab={operationsTab}
+          onClose={() => setOperations(false)}
+          onChallenge={async () => {
+            const r = await regionApi.create('challenge')
+            setRegionId(r.view.regionId)
+            setActiveView(r.view)
+            setOperations(false)
+          }}
+          onLive={returnToLive}
+        />
       )}
       {settings && (
         <Settings
@@ -478,18 +519,6 @@ export default function RegionApp() {
           onMusic={(on) => setPrefs({ ...prefs, music: on })}
           quality={prefs.quality}
           onQuality={(q) => setPrefs({ ...prefs, quality: q })}
-          onChallenge={async () => {
-            const r = await regionApi.create('challenge')
-            setView(r.view)
-            setRegionId(r.view.regionId)
-            setSettings(false)
-          }}
-          onLive={async () => {
-            const r = await regionApi.live()
-            setView(r.view)
-            setRegionId(r.view.regionId)
-            setSettings(false)
-          }}
         />
       )}
     </div>

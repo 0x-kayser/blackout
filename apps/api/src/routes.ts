@@ -54,11 +54,18 @@ const STATUS: Partial<Record<ErrorCode, number>> = {
 export const httpStatus = (code: ErrorCode) => STATUS[code] ?? 422;
 
 /** Chain receipts stay in the database for operator audits, never in player API responses. */
+const CHAIN_ONLY_PLAYER_FIELDS = new Set([
+  "txhash", "tx_hash", "explorerurl", "explorer_url", "accountid", "account_id",
+  "contract_id", "chaincontractid", "chain_contract_id", "resourcecontractid", "resource_contract_id",
+  "chainmode", "chain_mode", "chainstatus", "chain_status", "network", "tokenid", "token_id", "tokenamount", "token_amount",
+]);
 function playerValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(playerValue);
   if (!value || typeof value !== "object") return value;
+  // Hide chain-specific fields by their actual wire names. `contractId` is also a normal
+  // in-game customer-contract ID, so a broad `contract_?id` pattern breaks the next move.
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .filter(([key]) => !/^(tx_?hash|explorer_?url|account_?id|contract_?id|resource_?contract_?id|chain_?(mode|status)?|network|token_?(id|amount))$/i.test(key))
+    .filter(([key]) => !CHAIN_ONLY_PLAYER_FIELDS.has(key.toLowerCase()))
     .map(([key, nested]) => [key, playerValue(nested)]));
 }
 

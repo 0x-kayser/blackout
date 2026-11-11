@@ -76,7 +76,9 @@ describe("relayer API", () => {
   it("describes the player as a GameIdentity", async () => {
     const t = await session();
     const r = (await built.app.inject({ method: "GET", url: "/api/identity", headers: auth(t) })).json().identity;
-    expect(r).toMatchObject({ kind: "guest", providers: ["guest"], chainAccountId: null, gasless: true });
+    expect(r).toMatchObject({ kind: "guest", providers: ["guest"] });
+    expect(r).not.toHaveProperty("chainAccountId");
+    expect(r).not.toHaveProperty("gasless");
   });
 });
 

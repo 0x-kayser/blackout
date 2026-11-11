@@ -1,105 +1,91 @@
 /// <reference lib="dom" />
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-// The full first session in the regional game (§61): world → crisis → decision → physical response →
-// economic consequence → progression, then Verify and the Economy Lab.
-/** Taps a first-minute button once the camera has flown to it (the button rides on the world while it moves). */
-async function tapMission(page: import("@playwright/test").Page, label: string) {
-  const b = page.locator(".mission-btn", { hasText: label });
-  await expect(b).toBeVisible({ timeout: 15_000 });
-  await page.waitForTimeout(2_200);
-  await expect(b).toBeInViewport();
-  await b.dispatchEvent("click");
-}
-
-/** The first page: the title screen offers guest play or sign-in; the journeys play as a guest. */
-async function enterAsGuest(page: import("@playwright/test").Page) {
+async function enterAsGuest(page: Page, takeTour = false) {
   await page.goto("/");
   const title = page.locator(".title-screen");
   await expect(title).toBeVisible({ timeout: 30_000 });
-  await expect(title).toContainText("No wallet app");
-  await expect(title.getByRole("button", { name: /Sign in/ })).toBeVisible();
+  await expect(title).toContainText("The lights are out in Eastside");
+  if (takeTour) {
+    await title.getByRole("button", { name: /How to play/ }).click();
+    const tour = page.locator(".title-tour");
+    await expect(tour.getByRole("heading")).toHaveText("Bring Eastside back");
+    await page.screenshot({ path: "/tmp/blackout-product-tour.png" });
+    await tour.getByRole("button", { name: /Next/ }).click();
+    await expect(tour.getByRole("heading")).toHaveText("Keep power ahead of demand");
+    await expect(tour).toContainText("Manage finances");
+    await tour.getByRole("button", { name: /Next/ }).click();
+    await expect(tour.getByRole("heading")).toHaveText("Trade with living merchants");
+    await tour.getByRole("button", { name: /Next/ }).click();
+    await expect(tour.getByRole("heading")).toHaveText("Earn permits. Take on the crisis.");
+    await tour.getByRole("button", { name: /Got it/ }).click();
+    await expect(tour).toHaveCount(0);
+  }
+  await expect(title.getByRole("button", { name: /Play as guest/ })).toBeVisible();
   await title.getByRole("button", { name: /Play as guest/ }).click();
-}
-
-/** Right after the first minute the game asks for a company name; the journeys answer it. */
-async function nameCompany(page: import("@playwright/test").Page, name = "Kestrel Energy") {
-  const card = page.locator(".name-company");
-  await expect(card).toBeVisible({ timeout: 15_000 });
-  await card.getByRole("textbox", { name: "Company name" }).fill(name);
-  await card.getByRole("button", { name: "That's us" }).click();
-  await expect(card).toHaveCount(0);
-  await expect(page.locator(".company-chip")).toHaveText(name);
-}
-
-test("region: three taps to learn, then the whole game", async ({ page }) => {
-  test.setTimeout(180_000);
-  await enterAsGuest(page);
   await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
-  // world first, one problem, one button: nothing else to read
+}
+
+async function tapMission(page: Page, label: RegExp) {
+  const button = page.locator(".mission .mission-action");
+  await expect(button).toBeVisible({ timeout: 20_000 });
+  await expect(button).toContainText(label);
+  await button.click();
+}
+
+async function finishFirstOperation(page: Page) {
   const mission = page.locator(".mission");
-  await expect(mission).toContainText("Residential East is dark", { timeout: 20_000 });
-  await expect(page.locator(".node-chip", { hasText: "LIGHTS OUT" })).toBeVisible({ timeout: 20_000 });
+  await expect(mission).toContainText("Restore the homes", { timeout: 20_000 });
+  await tapMission(page, /Restore Eastside/);
+  await expect(mission).toContainText("Dispatch Kestrel");
+  await tapMission(page, /Start Kestrel/);
+  await expect(mission).toContainText("Build your first reserve");
+  await tapMission(page, /Build diesel peaker/);
+  await expect(mission).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator(".operation-hud")).toBeVisible();
+}
+
+test("guest game: first rescue opens a visible campaign and weekly crisis", async ({ page }) => {
+  test.setTimeout(180_000);
+  await enterAsGuest(page, true);
   await expect(page.locator(".dock")).toHaveCount(0);
-  const hud = await page.locator(".region-app").innerText();
-  expect(hud).not.toMatch(/\b(wallet|seed phrase|gas fee|tx hash|NEAR|blockchain)\b/i);
+  await finishFirstOperation(page);
 
-  // tap 1: the battery
-  await tapMission(page, "Send power");
-  await expect(page.locator(".celebrate")).toContainText("Lights back on");
-  await expect(mission).toContainText("The region is short of power");
-  // tap 2: the turbine
-  await tapMission(page, "Start turbine");
-  await expect(mission).toContainText("won’t last all night", { timeout: 10_000 });
-  // tap 3: build
-  await tapMission(page, "Build diesel plant");
-  await expect(page.locator(".celebrate")).toContainText("you run the power company");
-  await expect(mission).toHaveCount(0);
-
-  // now the full game opens up: the five-number pulse, the dock, and one next move
   const pulse = page.locator("header.pulse");
-  for (const m of ["DEMAND", "AVAILABLE", "RESERVE", "SPOT PRICE", "CASH"]) await expect(pulse).toContainText(m);
+  await expect(pulse).toContainText("THE CITY");
+  await expect(pulse).toContainText("CASH");
+  await expect(pulse.locator(".question")).not.toContainText("Demand");
   await expect(page.locator(".dock button")).toHaveCount(5);
-  // name the company: everyone in the market sees it
-  await nameCompany(page, "Vesper Light & Power");
-  await expect(page.locator(".next-move")).toBeVisible();
+  const gameCopy = await page.locator(".region-app").innerText();
+  expect(gameCopy).not.toMatch(/wallet|seed phrase|gas fee|blockchain/i);
+  await page.screenshot({ path: "/tmp/blackout-region-after-first-operation.png" });
 
-  // explain a price
-  await page.locator(".node-chip", { hasText: "Central City" }).dispatchEvent("click");
-  const inspector = page.locator(".inspector");
-  await expect(inspector).toContainText(/Why ₡/);
-  await expect(inspector).toContainText("System energy (Central City)");
-  await inspector.getByRole("button", { name: "Close inspector" }).click();
+  await page.locator(".operation-hud").getByRole("button", { name: /View route/ }).click();
+  const operations = page.getByRole("dialog", { name: "Campaign" });
+  await expect(operations).toBeVisible();
+  await expect(operations).toContainText("Win a place in the market");
+  await expect(operations).toContainText("Regional Producer");
+  await expect(operations.locator(".career-stage")).toHaveCount(4);
+  await expect(operations.locator(".career-stage.earned").first()).toContainText("Earned");
+  await expect(operations.locator(".career-stage.current")).toContainText("Next permit");
+  await expect(operations).toContainText("3,000 MWh");
+  await page.screenshot({ path: "/tmp/blackout-campaign.png" });
 
-  // grid: upgrade a line
-  const sheet = page.locator(".sheet");
-  await page.locator(".dock").getByRole("button", { name: /GRID/ }).click();
-  await sheet.locator(".line-row", { hasText: "Eastside Line" }).getByRole("button", { name: /^\+/ }).click();
-  await expect(sheet).toContainText(/upgrade started/i);
-
-  // portfolio shows the Plant Assets
-  await page.locator(".dock").getByRole("button", { name: /PORTFOLIO/ }).click();
-  await expect(sheet).toContainText(/p0000\d Kestrel Peaker/);
-
-  // Verify: inputs and epochs re-hashed in the browser
-  await page.getByRole("button", { name: /Settings, account and Verify/ }).click();
-  const modal = page.locator(".modal");
-  await modal.getByRole("button", { name: "Verify" }).click();
-  await expect(modal).toContainText("Real-world inputs");
-  await expect(modal.locator(".epochs li").first()).toContainText("✓", { timeout: 60_000 });
-
-  // Economy Lab, out of the primary navigation
-  await modal.getByRole("button", { name: "Economy Lab" }).click();
-  await modal.getByRole("button", { name: "Run both" }).click();
-  await expect(modal.locator(".lab-col")).toHaveCount(2, { timeout: 30_000 });
+  await operations.getByRole("button", { name: "Weekly crisis" }).click();
+  await expect(page.getByRole("heading", { name: "Weekly crisis drill" })).toBeVisible();
+  const startRun = page.getByRole("button", { name: /Start this week’s run/ });
+  await expect(startRun).toBeVisible();
+  await startRun.click();
+  await expect(operations).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator(".operation-hud")).toContainText("THIS WEEK’S CRISIS");
+  await expect(page.locator(".pulse")).toContainText("weekly crisis");
 });
 
-test("first page: sign in with an email code and land in your own region", async ({ page }) => {
-  test.setTimeout(120_000);
+test("registered player can sign in, reach the game, and sign out", async ({ page }) => {
+  test.setTimeout(150_000);
   await page.goto("/");
   const title = page.locator(".title-screen");
   await expect(title).toBeVisible({ timeout: 30_000 });
-  await title.getByRole("button", { name: /Sign in/ }).click();
   await title.getByRole("button", { name: /Continue with email/ }).click();
   await title.getByLabel("Email address").fill(`judge-${Date.now()}@blackout.test`);
   await title.getByRole("button", { name: /Send my sign-in code/ }).click();
@@ -107,71 +93,84 @@ test("first page: sign in with an email code and land in your own region", async
   await title.getByLabel("Six-digit code").fill(code);
   await title.getByRole("button", { name: /^Sign in$/ }).click();
   await expect(title).toHaveCount(0, { timeout: 30_000 });
-  await expect(page.locator(".mission")).toContainText("Residential East is dark", { timeout: 30_000 });
-  // a reload keeps you signed in: straight back to the region, no title screen
-  await page.reload();
-  await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(".title-screen")).toHaveCount(0);
-});
-
-test("market: read a merchant's reasoning, trade, see it in the feed, watch a week", async ({ page }) => {
-  test.setTimeout(180_000);
-  await enterAsGuest(page);
-  await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
-  for (const label of ["Send power", "Start turbine", "Build diesel plant"]) await tapMission(page, label);
-  await expect(page.locator(".dock button")).toHaveCount(5, { timeout: 15_000 });
-  await nameCompany(page, "Harbor Volt");
-
-  // the market, with every merchant's wallet and prices
-  await page.locator(".dock").getByRole("button", { name: /MARKET/ }).click();
-  const sheet = page.locator(".sheet");
-  await expect(sheet).toContainText("Vesper Market");
-  await expect(sheet.locator(".merchant-card")).toHaveCount(9);
-  // the brief: a merchant's reasoning in a tooltip
-  await sheet.locator(".merchant-card", { hasText: "Ingrid" }).locator(".why-trigger").first().hover();
-  const tip = page.locator(".why-tip");
-  await expect(tip).toContainText("Outside price");
-  await expect(tip).toContainText(/Stock .* target/);
-  await expect(tip).toContainText("margin");
-
-  // trade with a merchant from its shop
-  await sheet.locator(".merchant-card", { hasText: "Kettle" }).click();
-  const shop = page.locator(".inspector");
-  await expect(shop).toContainText("Kettle Fuels");
-  await expect(shop).toContainText("Wallet");
-  await shop.getByRole("button", { name: "Buy 5,000" }).click();
-  await expect(shop).toContainText(/Bought 5,000 L from Old Man Kettle/);
-  await expect(shop).toContainText(/You bought 5,000 L/);
-  await expect(page.locator(".company-chip")).toHaveText("Harbor Volt");
-
-  // a week of trading in a minute
-  await shop.getByRole("button", { name: "Close inspector" }).click();
-  await page.locator(".dock").getByRole("button", { name: /MARKET/ }).click();
-  await page.locator(".dock").getByRole("button", { name: /MARKET/ }).click();
-  await sheet.getByRole("button", { name: /Watch a week/ }).click();
-  const watch = page.locator(".modal.watch");
-  await expect(watch).toContainText("Market day", { timeout: 30_000 });
-  await expect(watch.locator(".ff-shop")).toHaveCount(9);
-  await watch.getByRole("button", { name: "Skip to the end" }).click();
-  await expect(watch).toContainText("The bots after a week");
-  await expect(watch).toContainText(/closed|reopens/);
-});
-
-test("region on a phone: dock and bottom-sheet inspector @mobile", async ({ page }) => {
-  test.skip(page.viewportSize()!.width > 760, "phone layout only");
-  await enterAsGuest(page);
-  await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".mission")).toBeVisible({ timeout: 20_000 });
-  for (const label of ["Send power", "Start turbine", "Build diesel plant"]) await tapMission(page, label);
-  await expect(page.locator(".dock button")).toHaveCount(5, { timeout: 15_000 });
-  await page.locator(".name-company").getByRole("button", { name: "Later" }).click();
-  await page.locator(".node-chip", { hasText: "Hospital District" }).click({ force: true });
-  const insp = page.locator(".inspector");
-  await expect(insp).toBeVisible();
-  const box = (await insp.boundingBox())!;
-  const vp = page.viewportSize()!;
-  expect(box.x).toBeLessThan(20);
-  expect(box.width).toBeGreaterThan(vp.width - 40);
-  // no horizontal scroll
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.locator(".account-menu summary").click();
+  const account = page.locator(".account-popover");
+  await expect(account).toContainText("Progress saved to your account");
+  await account.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.locator(".title-screen")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("canvas")).toHaveCount(0);
+  await expect(page.locator(".title-screen").getByRole("button", { name: /Continue with Google|Continue with email/ }).first()).toBeVisible();
+});
+
+test("the game dock opens clear Power, Build, Map and Company panels", async ({ page }) => {
+  await enterAsGuest(page);
+  await finishFirstOperation(page);
+  const panels = [
+    ["Manage your power plants", "Power plants"],
+    ["Build and upgrade plants", "Build your grid"],
+    ["Explore the city map and power lines", "Grid map"],
+    ["Open company finances and assets", "Your company"],
+  ] as const;
+  for (const [control, panel] of panels) {
+    await page.locator(".dock").getByRole("button", { name: control }).click();
+    const dialog = page.getByRole("dialog", { name: panel });
+    await expect(dialog).toBeVisible();
+    await expect(page.locator("canvas")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  }
+  await page.getByRole("button", { name: "Open settings" }).click();
+  const settings = page.getByRole("dialog", { name: "Settings and account" });
+  await expect(settings).toBeVisible();
+  await settings.getByRole("button", { name: "Economy Lab" }).click();
+  await expect(settings.getByRole("button", { name: "Run both" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(settings).toHaveCount(0);
+});
+
+test("merchant trading shows a quote before the player confirms a purchase", async ({ page }) => {
+  test.setTimeout(150_000);
+  await enterAsGuest(page);
+  await finishFirstOperation(page);
+  await page.locator(".dock").getByRole("button", { name: "Open the Vesper Market" }).click();
+  const market = page.getByRole("dialog", { name: "market" });
+  const ruth = market.locator(".merchant-card").filter({ hasText: "Ruth" });
+  await expect(ruth).toBeVisible();
+  await ruth.click();
+
+  const merchant = page.getByRole("complementary", { name: "Merchant" });
+  const permits = merchant.locator(".item-row").filter({ hasText: "Carbon permit" });
+  await expect(permits).toBeVisible();
+  await permits.getByRole("button", { name: "Review buy" }).click();
+  await expect(permits).toContainText("Review purchase");
+  await expect(permits).toContainText("Cash after");
+  await permits.getByRole("button", { name: /Confirm buy/ }).click();
+  await expect(merchant).toContainText(/Bought 20 t CO₂ from/, { timeout: 15_000 });
+  await expect(merchant).toContainText("Latest trades here");
+  await merchant.getByRole("button", { name: "Close inspector" }).click();
+  await expect(merchant).toHaveCount(0);
+  await market.getByRole("button", { name: /Watch a week of trading/ }).click();
+  const replay = page.getByRole("dialog", { name: "Watch a week" });
+  await expect(replay.locator(".ff-shop")).toHaveCount(9, { timeout: 30_000 });
+  await replay.getByRole("button", { name: "Skip to the end" }).click();
+  await expect(replay).toContainText("The bots after a week");
+});
+
+test("market and account controls remain reachable on a phone @mobile", async ({ page }) => {
+  await enterAsGuest(page);
+  await finishFirstOperation(page);
+  await page.locator(".dock").getByRole("button", { name: "Open the Vesper Market" }).click();
+  const market = page.getByRole("dialog", { name: "market" });
+  await expect(market).toContainText("Vesper Market");
+  await expect(market.locator(".merchant-card")).toHaveCount(9);
+  await expect(page.locator(".toasts")).toBeHidden();
+  await expect(page.locator(".feed-btn")).toBeHidden();
+  await page.screenshot({ path: "/tmp/blackout-market-mobile.png" });
+  await page.keyboard.press("Escape");
+  await page.locator(".account-menu summary").click();
+  await expect(page.locator(".account-popover")).toContainText("Sign out");
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
 });

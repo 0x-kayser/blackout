@@ -1,5 +1,5 @@
-/** The dock (§34): five modes, nothing else. Each opens one sheet; the world stays visible behind it. */
-import { useState } from 'react'
+/** Five familiar game controls; each opens one sheet while the region stays in view. */
+import { useEffect, useState } from 'react'
 import type { NodeId, RegionView, TechId } from '@blackout/shared'
 import { credits, hours, mw, mwh, pct, price } from '../format'
 import type { Selection } from '../scene/World3D'
@@ -9,18 +9,18 @@ import type { Act } from './Inspector'
 export type DockMode = 'dispatch' | 'build' | 'market' | 'grid' | 'portfolio'
 
 const MODES: { id: DockMode; label: string; icon: string }[] = [
-  { id: 'dispatch', label: 'DISPATCH', icon: '⚡' },
-  { id: 'build', label: 'BUILD', icon: '🏗️' },
-  { id: 'market', label: 'MARKET', icon: '📈' },
-  { id: 'grid', label: 'GRID', icon: '🗼' },
-  { id: 'portfolio', label: 'PORTFOLIO', icon: '💼' },
+  { id: 'dispatch', label: 'Power', icon: '⚡' },
+  { id: 'build', label: 'Build', icon: '🏗️' },
+  { id: 'market', label: 'Market', icon: '📈' },
+  { id: 'grid', label: 'Map', icon: '🗼' },
+  { id: 'portfolio', label: 'Company', icon: '🏢' },
 ]
 
 export function Dock({ mode, onMode, badges }: { mode: DockMode | null; onMode: (m: DockMode | null) => void; badges: Partial<Record<DockMode, string>> }) {
   return (
-    <nav className="dock" aria-label="Modes">
+    <nav className="dock" aria-label="Game controls">
       {MODES.map((m) => (
-        <button key={m.id} className={mode === m.id ? 'on' : ''} aria-pressed={mode === m.id} onClick={() => onMode(mode === m.id ? null : m.id)}>
+        <button key={m.id} className={mode === m.id ? 'on' : ''} aria-label={m.id === 'dispatch' ? 'Manage your power plants' : m.id === 'build' ? 'Build and upgrade plants' : m.id === 'market' ? 'Open the Vesper Market' : m.id === 'grid' ? 'Explore the city map and power lines' : 'Open company finances and assets'} aria-pressed={mode === m.id} onClick={() => onMode(mode === m.id ? null : m.id)}>
           <span aria-hidden>{m.icon}</span>
           {m.label}
           {badges[m.id] && <i className="badge">{badges[m.id]}</i>}
@@ -31,8 +31,14 @@ export function Dock({ mode, onMode, badges }: { mode: DockMode | null; onMode: 
 }
 
 export function ModeSheet({ mode, v, act, onClose, onSelect, onMode, building, setBuilding, buildNode }: { mode: DockMode; v: RegionView; act: Act; onClose: () => void; onSelect: (s: Selection) => void; onMode: (m: DockMode | null) => void; building: { tech: TechId; size: number } | null; setBuilding: (b: { tech: TechId; size: number } | null) => void; buildNode: NodeId | null }) {
+  const titles: Record<DockMode, string> = { dispatch: 'Power plants', build: 'Build your grid', market: 'Vesper Market', grid: 'Grid map', portfolio: 'Your company' }
+  useEffect(() => {
+    const closeOnEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
   return (
-    <div className="sheet" role="dialog" aria-label={mode}>
+    <div className="sheet" role="dialog" aria-modal="true" aria-label={titles[mode]}>
       <button className="close" onClick={onClose} aria-label="Close">
         ×
       </button>
@@ -76,7 +82,7 @@ function Dispatch({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s:
   const myKw = mine.reduce((a, p) => a + Math.max(0, p.netKw), 0)
   return (
     <>
-      <h3>Dispatch</h3>
+      <h3>Run your power plants</h3>
       <p className="fine">
         You are supplying <b className="gold">{mw(myKw)}</b> of {mw(v.nodes.reduce((a, n) => a + n.servedKw, 0))} served. Spot {price(v.pulse.spotCcPerMWh)}/MWh.
       </p>
@@ -122,7 +128,7 @@ function Build({ v, act, building, setBuilding, buildNode }: { v: RegionView; ac
   const steel = v.economy.buildCostBps
   return (
     <>
-      <h3>Build</h3>
+      <h3>Expand the grid</h3>
       <p className="fine">
         Pick a plant, then tap where it goes. {steel > 10_200 ? <b className="warn">Steel shortage: everything costs {Math.round(steel / 100 - 100)}% more.</b> : 'Steel prices are normal.'}
       </p>
@@ -183,7 +189,7 @@ function Market({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s: S
   const { busy, msg, run } = useRun(act)
   return (
     <>
-      <h3>Market</h3>
+      <h3>Vesper Market</h3>
       <Section title="Prices by load centre">
         {[...v.nodes].sort((a, b) => b.priceCcPerMWh - a.priceCcPerMWh).map((n) => (
           <button key={n.nodeId} className="list-row" onClick={() => onSelect({ kind: 'node', id: n.nodeId })}>
@@ -251,8 +257,8 @@ function Grid({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s: Sel
   const name = (id: string) => v.nodes.find((n) => n.nodeId === id)!.name
   return (
     <>
-      <h3>Grid</h3>
-      <p className="fine">Lines glow by loading. A full line splits prices: cheap on one side, dear on the other. Whoever owns the capacity collects the difference.</p>
+      <h3>Grid and power lines</h3>
+      <p className="fine">See where power is flowing and which lines are full. Upgrading a line sends more power between districts and can capture price differences.</p>
       {v.corridors.map((c) => (
         <div key={c.corridorId} className={`line-row ${c.congested ? 'crisis' : ''}`}>
           <button className="plant-name" onClick={() => onSelect({ kind: 'corridor', id: c.corridorId })}>
@@ -290,7 +296,7 @@ function Portfolio({ v, act, onSelect, onClose, onMode }: { v: RegionView; act: 
   const saleCandidate = mine.find((p) => p.status !== 'building' && !p.listing)
   return (
     <>
-      <h3>Portfolio</h3>
+      <h3>Your company</h3>
       <div className="stat-grid">
         <Stat label="Cash" value={credits(pl.cashCc)} tone="gold" />
         <Stat label="Net worth" value={credits(pl.netWorthCc)} />

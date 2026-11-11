@@ -2,7 +2,7 @@
  * Region client: REST for decisions, one SSE stream for the live view. Auth is the same as the rest of the game
  * (guest cookie, or a bearer token which the stream sends as ?token=).
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FastForwardResult, InvestQuote, ItemId, RegionAction, RegionView, TownView, TradeQuote } from '@blackout/shared'
 import { bearerHeader } from '../api/client'
 
@@ -110,6 +110,13 @@ export function useRegion(regionId: string | null) {
   const [town, setTown] = useState<TownView | null>(null)
   const [conn, setConn] = useState<Connection>('connecting')
   const esRef = useRef<EventSource | null>(null)
+  const activeRegionRef = useRef(regionId)
+  useLayoutEffect(() => { activeRegionRef.current = regionId }, [regionId])
+  const setActiveView = useCallback((next: RegionView | null) => {
+    // Mark a navigation synchronously, before an old SSE event can race the parent render.
+    activeRegionRef.current = next?.regionId ?? null
+    setView(next)
+  }, [])
 
   useEffect(() => {
     if (!regionId) return
@@ -123,10 +130,19 @@ export function useRegion(regionId: string | null) {
       const es = new EventSource(`/api/region/${encodeURIComponent(regionId)}/stream${qs.toString() ? `?${qs}` : ''}`, { withCredentials: true })
       esRef.current = es
       es.addEventListener('view', (e) => {
-        setView(JSON.parse((e as MessageEvent).data) as RegionView)
+        // A queued event from the previous region can arrive while its stream is closing.
+        // Never let it overwrite a newly opened challenge or the player's saved region.
+        const next = JSON.parse((e as MessageEvent).data) as RegionView
+        if (closed || activeRegionRef.current !== regionId || next.regionId !== regionId) {
+          return
+        }
+        setView(next)
         setConn('live')
       })
-      es.addEventListener('town', (e) => setTown(JSON.parse((e as MessageEvent).data) as TownView))
+      es.addEventListener('town', (e) => {
+        if (closed || activeRegionRef.current !== regionId) return
+        setTown(JSON.parse((e as MessageEvent).data) as TownView)
+      })
       es.onerror = () => {
         setConn('reconnecting')
         if (es.readyState === EventSource.CLOSED) {
@@ -171,5 +187,5 @@ export function useRegion(regionId: string | null) {
     }
   }, [])
 
-  return { view, setView, town, setTown, conn, act, market }
+  return { view, setView, setActiveView, town, setTown, conn, act, market }
 }

@@ -57,8 +57,9 @@ describe("shared exchange (sandbox: no Testnet exchange configured)", () => {
     await buyDiesel(b, alice.token, 10_000);
 
     const view = (await b.app.inject({ method: "GET", url: "/api/exchange", headers: H(alice.token) })).json();
-    expect(view).toMatchObject({ ok: true, mode: "sandbox", canTrade: true, depositableFuelMl: 10_000 });
-    expect(view.note).toMatch(/no transaction hashes/);
+    expect(view).toMatchObject({ ok: true, canTrade: true, depositableFuelMl: 10_000 });
+    expect(view).not.toHaveProperty("mode");
+    expect(JSON.stringify(view)).not.toMatch(/chainId|accountId|txHash|explorerUrl/i);
 
     // starter fuel cannot leave the city; bought fuel can, once per idempotency key
     const fuel0 = fuel(b, alice.runId);
@@ -114,7 +115,7 @@ describe("shared exchange (sandbox: no Testnet exchange configured)", () => {
 
     // Alice sees what happened while she was away
     const mine = (await b.app.inject({ method: "GET", url: "/api/exchange", headers: H(alice.token) })).json().me;
-    expect(mine.recent.map((e: { type: string }) => e.type)).toContain("FILL_SETTLED");
+    expect(mine.fills.some((f: { status: string; seller: { kind: string; id: string } }) => f.status === "settled" && f.seller.kind === "player" && f.seller.id === b.svc.get(alice.runId).ownerId)).toBe(true);
     expect(mine.orders.find((o: { orderId: string }) => o.orderId === orderId).filledMl).toBe(8_000);
     // every city change is a recorded, replayable system action
     const actions = b.db.prepare("SELECT action_json FROM actions WHERE run_id = ? AND source = 'chain_worker'").all(alice.runId) as { action_json: string }[];
@@ -168,7 +169,7 @@ describe("shared exchange (sandbox: no Testnet exchange configured)", () => {
     b.db.prepare("INSERT INTO player_chain_ids (player_id, chain_id, created_at, self_custody) VALUES (?, ?, ?, 1)").run(ownerId, "pabc.vault.testnet", new Date().toISOString());
     const r = await post(b, alice.token, "/api/exchange/deposit", { quantityMl: 1_000, idempotencyKey: key() });
     expect(r.statusCode).toBe(403);
-    expect(r.json().error.message).toMatch(/your own NEAR account/);
+    expect(r.json().error.message).toMatch(/no longer managed in the game/);
   });
 
   it("rejects a purchase that cannot be filled without touching the buyer's credits", async () => {
@@ -264,7 +265,9 @@ describe("shared exchange on Testnet (fake RPC)", () => {
     const fuel0 = fuel(built!, p.runId);
     const dep = await post(built!, p.token, "/api/exchange/deposit", { quantityMl: 10_000, idempotencyKey: key() });
     expect(dep.statusCode).toBe(200);
-    expect(dep.json().exchange).toMatchObject({ mode: "testnet", me: { warehouseMl: 0, pendingDepositMl: 10_000, chainId: expect.stringMatching(/\.vault\.blackout-test\.testnet$/) } });
+    expect(dep.json().exchange).toMatchObject({ me: { warehouseMl: 0, pendingDepositMl: 10_000 } });
+    expect(dep.json().exchange).not.toHaveProperty("mode");
+    expect(dep.json().exchange.me).not.toHaveProperty("chainId");
     expect(fuel(built!, p.runId)).toBe(fuel0 - 10_000);
     const job = built!.db.prepare("SELECT op, status, payload_json FROM exchange_jobs").get() as { op: string; status: string; payload_json: string };
     expect(job).toMatchObject({ op: "deposit", status: "pending" });
@@ -346,8 +349,8 @@ describe("shared exchange on Testnet (fake RPC)", () => {
     const bad = await reconcileExchange(built!.db, built!.xsvc, cfg, balance);
     expect(bad.inBalance).toBe(false);
     expect(bad.mismatches).toEqual([{ label: "player warehouse", accountId: pid, expectedMl: 10_000, onChainMl: 9_000 }]);
-    const status = (await built!.app.inject({ method: "GET", url: "/api/chain/status" })).json();
-    expect(status.exchange).toMatchObject({ mode: "testnet", traderAccounts: expect.arrayContaining([expect.objectContaining({ name: "Kettle & Sons", accountId: "kettle.blackout-test.testnet" })]) });
+    const status = await built!.app.inject({ method: "GET", url: "/api/chain/status" });
+    expect(status.statusCode).toBe(403);
   });
 
   it("never lets a sandbox exchange continue as a Testnet one", async () => {
@@ -359,8 +362,8 @@ describe("shared exchange on Testnet (fake RPC)", () => {
     built = await buildServer({ dbPath: path, chain: loadChainConfig(fakeEnv as NodeJS.ProcessEnv), allowedOrigins: [], webDist: null });
     expect(built.xsvc.sandbox).toBe(true);
     expect(built.xsvc.modeConflict).toMatch(/created in sandbox mode but this server is configured for testnet/);
-    const status = (await built.app.inject({ method: "GET", url: "/api/chain/status" })).json();
-    expect(status.exchange.mode).toBe("sandbox");
+    const status = await built.app.inject({ method: "GET", url: "/api/chain/status" });
+    expect(status.statusCode).toBe(403);
     await built.app.close();
     built.db.close();
     built = null;

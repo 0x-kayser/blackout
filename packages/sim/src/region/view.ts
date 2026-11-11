@@ -184,14 +184,22 @@ export function toRegionView(s: RegionState, opts: ViewOptions = {}): RegionView
   const reserve = avail - demand;
   const shortfall = Math.max(0, -reserve);
   const status = s.pulse.shedKw > 0 ? "blackout" : shortfall > 0 ? "shortfall" : reserve < demand * 0.08 ? "tight" : "normal";
+  const affected = nodes.filter((n) => n.shedKw > 0).sort((a, b) => b.shedKw - a.shedKw);
+  const darkDistricts = affected.filter((n) => n.dark);
+  const namedPlaces = (darkDistricts.length ? darkDistricts : affected).map((n) => n.name);
+  const placeList = namedPlaces.length < 2
+    ? namedPlaces[0] ?? "Vesper"
+    : `${namedPlaces.slice(0, -1).join(", ")} and ${namedPlaces.at(-1)}`;
   const question =
     status === "blackout"
-      ? `Demand ${gw(demand)} vs ${gw(avail)} available: ${mw(s.pulse.shedKw)} is dark right now.`
+      ? darkDistricts.length
+        ? `The lights are out in ${placeList}. ${mw(s.pulse.shedKw)} of demand is going unserved.`
+        : `Power is being cut in ${placeList}. ${mw(s.pulse.shedKw)} is going unserved.`
       : status === "shortfall"
-        ? `Demand ${gw(demand)} vs ${gw(avail)} available: ${mw(shortfall)} short. Customers are switching off at ${cr(s.pulse.spotCc)}/MWh.`
+        ? `Vesper is short ${mw(shortfall)}. Customers are pulling back as power reaches ${cr(s.pulse.spotCc)}/MWh.`
         : status === "tight"
-          ? `Demand ${gw(demand)} vs ${gw(avail)} available: only ${mw(reserve)} in reserve.`
-          : `Demand ${gw(demand)}, ${gw(avail)} available: ${mw(reserve)} in reserve.`;
+          ? `Every district is lit, but only ${mw(reserve)} spare. One setback could darken the city.`
+          : `Vesper is holding. Every district is lit, with ${mw(reserve)} spare for the next surge.`;
 
   const techs: TechView[] = TECH_IDS.map((tech) => {
     const t = TECHS[tech];

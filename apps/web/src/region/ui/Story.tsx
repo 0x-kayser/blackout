@@ -57,7 +57,7 @@ export function Feed({ v, onSelect, onClose }: { v: RegionView; onSelect: (s: Se
         ×
       </button>
       <h3>What happened</h3>
-      <p className="fine">Every event links to what caused it. Tap one to see the chain.</p>
+      <p className="fine">Every event links to what caused it. Tap one to follow the cause.</p>
       <ol className="feed-list">
         {[...v.events].reverse().filter((e) => e.type !== 'DAY_STARTED').map((e) => (
           <li key={e.seq} className={e.severity}>

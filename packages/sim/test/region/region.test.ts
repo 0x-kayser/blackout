@@ -43,6 +43,12 @@ describe("regional engine", () => {
     expect(new Set([fuelA.input.gasUsdPerMMBtu, heat.input.tempC, carbon.input.carbonUsdPerT]).size).toBe(3);
   });
 
+  it("starts a weekly crisis in the shared scenario without replaying the guest tutorial", () => {
+    const s = createRegion({ regionId: "weekly-start", seed: 72, mode: "challenge" });
+    expect(s.onboarding).toEqual({ step: 3, done: true });
+    expect(toRegionView(s).onboarding).toMatchObject({ done: true, target: null });
+  });
+
   it("conserves every asset: credits, gas and diesel sum to zero across accounts", () => {
     const { s } = run(5, 600, ONBOARD);
     expect(rsum(s, "cc")).toBe(0);
@@ -60,6 +66,7 @@ describe("regional engine", () => {
     const re = v.nodes.find((n) => n.nodeId === "residential_east")!;
     expect(re.shedKw).toBeGreaterThan(30_000);
     expect(re.dark).toBe(true);
+    expect(v.question).toContain("The lights are out in Residential East");
     expect(v.nodes.filter((n) => n.shedKw > 0).map((n) => n.nodeId)).toEqual(["residential_east"]);
     expect(v.onboarding).toMatchObject({ step: 0, target: "plant:eastside" });
     // tap 1: the battery brings the lights back

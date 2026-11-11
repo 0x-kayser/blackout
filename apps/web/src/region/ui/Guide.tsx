@@ -26,17 +26,21 @@ export function missionFor(v: RegionView): Mission | null {
 
 export const CELEBRATE = ['Lights back on in Residential East', 'Your turbine is running — you’re earning', 'Construction started — you run the power company now']
 
-export function MissionBanner({ m }: { m: Mission }) {
+export function MissionBanner({ m, onAction }: { m: Mission; onAction: () => void }) {
   return (
-    <div className="mission" role="status" aria-live="polite">
-      <div className="mission-dots" aria-label={`Step ${m.step + 1} of 3`}>
-        {[0, 1, 2].map((i) => (
-          <i key={i} className={i < m.step ? 'done' : i === m.step ? 'now' : ''} />
-        ))}
+    <section className="mission" aria-label={`First night, step ${m.step + 1} of 3`}>
+      <header className="mission-topline">
+        <span>THE FIRST NIGHT</span>
+        <span>STEP {m.step + 1} / 3</span>
+      </header>
+      <div className="mission-dots" aria-hidden>
+        {[0, 1, 2].map((i) => <i key={i} className={i < m.step ? 'done' : i === m.step ? 'now' : ''} />)}
       </div>
-      <b>{m.title}</b>
-      <span>{m.hint} Tap the glowing button.</span>
-    </div>
+      <b aria-live="polite">{m.title}</b>
+      <p>{m.hint}</p>
+      <button className="btn primary mission-action" onClick={onAction}>{m.label}</button>
+      <small>Or tap the glowing marker in the city.</small>
+    </section>
   )
 }
 
@@ -88,7 +92,7 @@ export function nextMove(v: RegionView, town: TownView | null = null): Move {
   if (town) {
     const ruth = town.merchants.find((m) => m.merchantId === 'ruth')
     const burning = mine.some((p) => p.fuel && p.status === 'online' && p.outputKw > 0)
-    if (burning && v.player.permitsT < 5 && ruth?.open && ruth.items[0].askCc) return { tone: 'warn', text: `Your plants are out of carbon permits, so the regulator charges 25% extra for every tonne. Ruth sells them at ${price(ruth.items[0].askCc * 1)}/t.`, button: 'Buy 100 permits', trade: { merchantId: 'ruth', item: 'permit:carbon', side: 'buy', qty: 100 } }
+    if (burning && v.player.permitsT < 5 && ruth?.open && ruth.items[0].askCc) return { tone: 'warn', text: `Your permits are nearly gone. Without them, the regulator adds 25% to your carbon charge. Ruth has more at ${price(ruth.items[0].askCc)} per tonne.`, button: 'Shop at Ruth’s', trade: { merchantId: 'ruth', item: 'permit:carbon', side: 'buy', qty: 100 } }
     const lena = town.merchants.find((m) => m.merchantId === 'lena')
     const room = lena ? lena.items[0].target * 4 - lena.items[0].stock : 0
     if (v.player.certificates >= 25 && lena?.open && lena.items[0].bidCc && room > 0) {

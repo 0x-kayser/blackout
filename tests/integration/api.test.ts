@@ -95,6 +95,7 @@ describe("Cold Room vertical slice over HTTP", () => {
     expect(acc.status).toBe(200);
     expect(acc.body.ok).toBe(true);
     if (!acc.body.ok) return;
+    expect(acc.body.result.contractId).toEqual(expect.any(String));
     const contractId = acc.body.result.contractId as string;
     expect(acc.body.events.map((e) => e.type)).toContain("CONTRACT_ACCEPTED");
     const as = await act(t, runId, { type: "ASSIGN_CONTRACT", contractId, generatorId: "gen_1" });
