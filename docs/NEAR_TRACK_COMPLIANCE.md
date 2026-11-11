@@ -6,11 +6,10 @@ settled and 6 submitted operations at the time checked. Chain status and transac
 player interface; operators use the protected `/api/admin/chain-audit` endpoint. The distinct NEP-245 player-resource
 adapter was disabled, so no live player-resource trade is claimed. A separate power-economy Testnet contract and
 standalone transactions are documented in [`TESTNET_DEMO.md`](TESTNET_DEMO.md). Commit `7dea163` was pushed to the
-private `0x-kayser/blackout` repository on 2026-11-11. Railway reports production online at
-https://blackout-production-c7fc.up.railway.app (deployment `2df6dd5f-a09c-42d9-8c7e-82c3c0916511`). A live browser
-check confirmed the welcome screen, four-step optional product tour, guest and Google entry choices, and campaign
-route. A public-config read reports guest and Google sign-in enabled and email disabled; this confirms configuration,
-not a real Google consent round-trip.
+private `0x-kayser/blackout` repository on 2026-11-11. After the push, Railway reported production online at
+https://blackout-production-c7fc.up.railway.app. A live browser check confirmed the welcome screen, four-step optional
+product tour, guest and Google entry choices, and campaign route. A public-config read reports guest and Google
+sign-in enabled and email disabled; this confirms configuration, not a real Google consent round-trip.
 
 ## NEP-245 resource-market deployment preflight and hard blockers
 
