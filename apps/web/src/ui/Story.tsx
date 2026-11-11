@@ -25,9 +25,9 @@ export function voiceLine(b: BusinessPublic): string {
 }
 
 const INTRO = [
-  { art: '🌃', title: 'Vesper City', text: 'The grid has been failing for months. When a street loses power, freezers warm, ovens stop, and shops lose customers.' },
+  { art: '🌃', title: 'Act I: Vesper City (2026)', text: 'Caught between Strait of Hormuz tanker delays and the COP31 Carbon Accord, debt-ridden monopoly VoltLine is failing. When a street loses power, freezers warm, ovens stop, and shops lose customers.' },
   { art: '🛖', title: "Mama Ade's shed", text: 'Mama Ade lent you a shed, a 5 kW diesel generator, and twenty litres of fuel. “Keep this street lit,” she says. “The shops will pay for power they can afford.”' },
-  { art: '⚡', title: 'Your power company', text: 'When the grid drops, shops ask for power. Set a fair rate, assign a generator, and watch the fuel market. VoltLine is competing for the same customers.' },
+  { art: '⚡', title: 'From Street to Region', text: 'When the grid drops, set a fair rate, assign a generator, and watch the fuel and carbon markets. Prove yourself here, and the Vesper Regulator will draft you to command the 7-district Regional Grid.' },
 ]
 
 export function IntroOverlay({ onDone }: { onDone: () => void }) {

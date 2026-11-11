@@ -12,28 +12,28 @@ interface RegionChallenge {
 /** Fixed weekly opening conditions for the regional power challenge. */
 export const REGION_CHALLENGES: Record<RegionChallengeCondition, RegionChallenge> = {
   disruption: {
-    name: "Fuel supply shock",
-    description: "Gas and diesel-linked crude open sharply higher, with weak wind and heavy cloud. Protect cash and keep a reserve before the next outage.",
+    name: "Strait fuel supply shock",
+    description: "Gulf shipping disruptions send LNG and Brent-linked diesel sharply higher, with weak wind and heavy cloud. Protect cash and keep a reserve before the next outage.",
     input: { gasUsdPerMMBtu: 6.2, brentUsdPerBbl: 108, carbonUsdPerT: 38, tempC: 35, cloudPct: 55, windKph: 8 },
   },
   recovery: {
-    name: "Recovery window",
-    description: "Fuel opens below its usual cost and demand is moderate. Use the margin to repair, refuel, or improve reliability before the next seeded incident.",
+    name: "Shipping corridor recovery",
+    description: "Tanker convoys clear the strait: fuel opens below its usual cost and demand is moderate. Use the margin to repair, refuel, or improve reliability before the next seeded incident.",
     input: { gasUsdPerMMBtu: 3.0, brentUsdPerBbl: 65, carbonUsdPerT: 32, tempC: 27, cloudPct: 45, windKph: 20 },
   },
   demand_surge: {
-    name: "Heatwave demand surge",
-    description: "A 41°C opening drives cooling demand while fuel is elevated. Cover the evening peak without exhausting your cash or fuel reserve.",
+    name: "41°C climate heatwave",
+    description: "An extreme 41°C heat dome drives cooling demand across Vesper while imported fuel stays elevated. Cover the evening peak without exhausting your cash or fuel reserve.",
     input: { gasUsdPerMMBtu: 4.2, brentUsdPerBbl: 78, carbonUsdPerT: 32, tempC: 41, cloudPct: 10, windKph: 10 },
   },
   carbon_tightening: {
-    name: "Carbon cost squeeze",
-    description: "Carbon opens at $128/t and fuel is elevated. Compare the cost of gas and diesel against low-carbon supply, then keep reliability above the permit threshold.",
+    name: "COP31 carbon floor squeeze",
+    description: "Following the COP31 Sovereign Grid Accord, carbon opens at $128/t while fuel is elevated. Compare gas and diesel against low-carbon supply and hold reliability above the permit threshold.",
     input: { gasUsdPerMMBtu: 4.5, brentUsdPerBbl: 82, carbonUsdPerT: 128, tempC: 31, cloudPct: 20, windKph: 14 },
   },
   solar_boom: {
-    name: "Clear-sky fuel crunch",
-    description: "Expensive fuel and carbon meet a clear, windy opening. Solar and storage can protect the margin, but evening reliability still depends on dispatch and reserves.",
+    name: "COP31 transition & fuel crunch",
+    description: "Expensive Gulf fuel ($95 Brent) and $80/t COP31 carbon meet a clear, windy opening. Solar and storage can protect your margin, but evening reliability still depends on dispatch and reserves.",
     input: { gasUsdPerMMBtu: 5.2, brentUsdPerBbl: 95, carbonUsdPerT: 80, tempC: 29, cloudPct: 5, windKph: 25 },
   },
 };

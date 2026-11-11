@@ -1,10 +1,33 @@
 # BLACKOUT — Every Light Changes the Economy
 
-A regional power-system strategy game for the NEAR Hackathon **Games With Real Economies** track. You run a power
-company in the Vesper region: seven load centres, six transmission lines, a gigawatt of demand and never quite enough
-cheap generation. Every five game minutes, the simulated merit-order market clears. When supply runs short, prices
-spike, customers switch off, then the lights go out — and businesses with their own balance sheets lose money, lay
-people off and close. You decide what runs, what gets built, where, and with whose money.
+A regional power-system strategy game for the NEAR Hackathon **Games With Real Economies** track.
+
+**The story (fiction).** It is November 2026. Gulf shipping disruptions have pushed imported gas and diesel sharply
+higher just as a new carbon rule makes unpermitted emissions dearer. The Strait of Hormuz disruption and the
+"COP31 Sovereign Grid Accord" are a *fictional scenario* inspired by real 2026 events, not a record of them. Vesper's
+monopoly utility, **VoltLine Energy** (Victor Lane, ₡15M in debt), lets its turbines trip and Residential East goes
+dark. **Mama Ade** lends you a shed and a diesel generator. Then the Regulator hands you the region's idle Kestrel
+Peaker. You keep Vesper lit. Full story: [docs/STORYLINE_AND_PITCH.md](docs/STORYLINE_AND_PITCH.md).
+
+**What you play.** One crisis at two scales:
+* **Act I, Street Microgrid (`/city`):** a 5 kW diesel set behind Mama Ade's shop, 44 local businesses, 9 story
+  chapters, and fuel prices that follow a bundled U.S. EIA Brent crude dataset.
+* **Act II, Regional Command (`/`):** the 120 MW Kestrel Peaker and the 80 MW / 160 MWh Eastside Battery, seven load
+  centres, six transmission lines and about a gigawatt of demand. Every five game minutes a merit-order market clears.
+  When supply runs short, prices spike, customers switch off, then the lights go out, and businesses with their own
+  balance sheets lose money, lay people off and close. You decide what runs, what gets built, where, and with whose money.
+
+**Why it fits the track.** The economy runs without developer input and you can watch it:
+
+| Track ask | Where to see it |
+|---|---|
+| NPCs with wallets | Nine merchants, four rival power companies (`VoltLine`, `Northwind Co-op`, `Eastbank Energy`, `Harbor Diesel`), and twelve regional actors each hold their own cash and stock — visible in **Vesper Market** and the **Who's Who** board |
+| Prices from stock and demand | One readable rule, [`merchantPricing.ts`](packages/sim/src/town/merchantPricing.ts); the tooltip names the news story behind a move |
+| Economy that evolves without a patch | A news story about once a minute, an incident at least every 2½ minutes, a weekly seeded crisis, plus **98.4 Vesper FM**, **The Vesper Chronicle**, and deterministic **Hot Desk** dilemma calls |
+| Player-owned markets | Invest in a closed shop, buy VoltLine's plants, sell power to the region |
+| Players never notice the chain | No wallet, seed phrase or gas in normal play; settlement runs behind the game |
+
+> **Narrative & character features vs. chain scope:** **98.4 Vesper FM & The Vesper Chronicle** (reactive radio call-ins and front-page dispatches), the **Operator Certificate & Who's Who board** (live rival and civic balance sheets plus cosmetic company charter badges), and **Hot Desk Calls** (deterministic, double-entry credit transfers with Dr. Nadia Petrov, Marta Ivanova, Rosa Delgado, and Amara Obi) are simulation and presentation layers. They add story and choices while keeping the engine deterministic and zero-sum (`rsum === 0`); they do not add separate on-chain contract methods beyond the existing epoch settlement flow.
 
 > **Live game:** [blackout-production-c7fc.up.railway.app](https://blackout-production-c7fc.up.railway.app). Production currently offers guest play and Google sign-in. Email sign-in is not configured.
 >
@@ -46,7 +69,7 @@ Open **http://localhost:5173**. This command enables guest play and local email-
 code is shown on screen. To enable Google locally, set `GOOGLE_CLIENT_ID` and add
 `http://localhost:5173` to that OAuth client's Authorized JavaScript origins. Do not set
 `AUTH_LOCAL_EMAIL_SHOW_CODE=true` in production. The original city game is still playable at **/city**. Node ≥ 22.5,
-pnpm 10. Set `WORLD_INPUTS=off` to skip live weather.
+pnpm 10. Set `WORLD_INPUTS=off` to skip live weather. On Windows, set those variables in PowerShell (`$env:ALLOW_GUEST_PLAY="true"`) before `pnpm dev`.
 
 ## Your first night in Vesper
 You enter through a rescue briefing. The first three steps each have a short explanation, a direct action button, and

@@ -24,6 +24,7 @@ import { NearGateway, type ChainGateway } from "./economy/gateway.ts";
 import { EconomyService } from "./economy/service.ts";
 import { PlantMarket } from "./economy/plantMarket.ts";
 import { LiveWorldInputs, StaticWorldInputs, type WorldInputProvider } from "./world.ts";
+import { pathToFileURL } from "node:url";
 
 export interface BuildOptions {
   dbPath?: string;
@@ -158,7 +159,7 @@ async function main() {
   process.on("SIGTERM", shutdown);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((e) => {
     console.error(e);
     process.exit(1);

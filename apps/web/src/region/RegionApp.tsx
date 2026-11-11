@@ -36,8 +36,8 @@ const loadPrefs = (): Prefs => {
   }
 }
 
-const CUE_FOR: Record<string, Cue> = { BLACKOUT: 'siren', RESTORED: 'restore', PLANT_TRIPPED: 'fail', PRICE_SPIKE: 'ping', BUILD_STARTED: 'coin', PLANT_COMMISSIONED: 'restore', TENDER_MET: 'coin', LICENCE: 'coin', PLANT_SOLD: 'coin', BUSINESS_CLOSED: 'fail', VOLTLINE_MOTHBALL: 'fail' }
-const TOAST_TYPES = new Set(['BLACKOUT', 'PLANT_TRIPPED', 'PRICE_SPIKE', 'HEATWAVE', 'STORM', 'RATIONING', 'SUPPLY_DISRUPTION', 'CONGESTION', 'BUSINESS_DISTRESS', 'BUSINESS_CLOSED', 'LAYOFFS', 'STEEL_SHORTAGE', 'VOLTLINE_DISTRESS', 'VOLTLINE_MOTHBALL', 'VOLTLINE_BUILDS', 'ASSET_FOR_SALE', 'TENDER_POSTED', 'TENDER_MET', 'TENDER_MISSED', 'LICENCE', 'PLANT_COMMISSIONED', 'LINE_UPGRADED', 'REGULATOR_FINE', 'REGULATOR_MITIGATION', 'BLACKOUT_IMPACT', 'DEMAND_RESPONSE', 'CHALLENGE_ENDED', 'FORECLOSURE', 'BUSINESS_REOPENED'])
+const CUE_FOR: Record<string, Cue> = { BLACKOUT: 'siren', RESTORED: 'restore', PLANT_TRIPPED: 'fail', PRICE_SPIKE: 'ping', BUILD_STARTED: 'coin', PLANT_COMMISSIONED: 'restore', TENDER_MET: 'coin', LICENCE: 'coin', PLANT_SOLD: 'coin', BUSINESS_CLOSED: 'fail', VOLTLINE_MOTHBALL: 'fail', HOT_DESK_RESOLVED: 'coin' }
+const TOAST_TYPES = new Set(['BLACKOUT', 'PLANT_TRIPPED', 'PRICE_SPIKE', 'HEATWAVE', 'STORM', 'RATIONING', 'SUPPLY_DISRUPTION', 'CONGESTION', 'BUSINESS_DISTRESS', 'BUSINESS_CLOSED', 'LAYOFFS', 'STEEL_SHORTAGE', 'VOLTLINE_DISTRESS', 'VOLTLINE_MOTHBALL', 'VOLTLINE_BUILDS', 'ASSET_FOR_SALE', 'TENDER_POSTED', 'TENDER_MET', 'TENDER_MISSED', 'LICENCE', 'PLANT_COMMISSIONED', 'LINE_UPGRADED', 'REGULATOR_FINE', 'REGULATOR_MITIGATION', 'BLACKOUT_IMPACT', 'DEMAND_RESPONSE', 'CHALLENGE_ENDED', 'FORECLOSURE', 'BUSINESS_REOPENED', 'HOT_DESK_RESOLVED'])
 
 export default function RegionApp() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
@@ -435,7 +435,7 @@ export default function RegionApp() {
       </Suspense>
       <PulseBar v={view} simple={simple} company={player?.companyNamed ? player.displayName : null} onCompany={() => setRenaming(true)} player={player} conn={conn} onSettings={() => { setOperations(false); setSettingsTab('account'); setSettings(true) }} onSignOut={signOut} onHome={() => { setSelection(null); setFocus({ kind: 'home', id: '', nonce: Date.now() }) }} sound={prefs.sound} onSound={() => setPrefs({ ...prefs, sound: !prefs.sound })} />
       {simple && mission && <MissionBanner m={mission} onAction={runMission} />}
-      {!simple && !mode && !selection && !renaming && <LoopGoals v={view} challenge={challengeInfo} move={move} onCareer={showOperations} onChallenge={() => showOperations('weekly')} onLive={() => void returnToLive()} onDoMove={() => void doMove()} />}
+      {!simple && !mode && !selection && !renaming && <LoopGoals v={view} challenge={challengeInfo} move={move} onCareer={showOperations} onChallenge={() => showOperations('weekly')} onLive={() => void returnToLive()} onDoMove={() => void doMove()} onHotDesk={(callId, choice) => doAct({ type: 'ANSWER_HOT_DESK', callId, choice })} />}
       {!simple && !mode && !selection && <NewsTicker town={town} onMerchant={(id) => select({ kind: 'merchant', id })} />}
       {celebrate && <Celebration text={celebrate} />}
       {renaming && !mode && (
@@ -459,7 +459,7 @@ export default function RegionApp() {
       )}
       {watching && <WatchAWeek onClose={() => setWatching(false)} />}
       {mode && mode !== 'market' && <ModeSheet mode={mode} v={view} act={doAct} onClose={() => { setMode(null); setBuildNode(null) }} onSelect={select} onMode={setMode} building={building} setBuilding={(b) => { setBuilding(b); if (!b) setBuildNode(null) }} buildNode={buildNode} />}
-      {feed && !mode && <Feed v={view} onSelect={select} onClose={() => setFeed(false)} />}
+      {feed && !mode && <Feed v={view} town={town} companyName={player?.companyNamed ? player.displayName : null} onSelect={select} onClose={() => setFeed(false)} />}
       {selection?.kind === 'merchant' && town ? (
         <aside className="inspector" aria-label="Merchant">
           <button className="close" onClick={() => setSelection(null)} aria-label="Close inspector">
@@ -474,7 +474,7 @@ export default function RegionApp() {
       {!simple && (
         <>
           <button className="feed-btn" onClick={() => { setFeed(!feed); setMode(null) }} aria-pressed={feed}>
-            📰 News & events
+            📻 98.4 FM · News & Chronicle
           </button>
           <Dock mode={mode} onMode={(m) => { setMode(m); setFeed(false); if (m !== 'build') setBuildNode(null) }} badges={badges} />
         </>
@@ -492,6 +492,7 @@ export default function RegionApp() {
           v={view}
           challenge={challengeInfo}
           initialTab={operationsTab}
+          companyName={player?.companyNamed ? player.displayName : null}
           onClose={() => setOperations(false)}
           onChallenge={async () => {
             const r = await regionApi.create('challenge')

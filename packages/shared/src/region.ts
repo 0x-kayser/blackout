@@ -100,6 +100,7 @@ export const RegionActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ACCEPT_BID"), plantId: id(), bidId: id() }),
   z.object({ type: z.literal("BUY_LISTED_PLANT"), plantId: id() }),
   z.object({ type: z.literal("REPAIR_PLANT"), plantId: id() }),
+  z.object({ type: z.literal("ANSWER_HOT_DESK"), callId: id(), choice: z.enum(["accept", "decline"]) }),
   z.object({ type: z.literal("PAUSE") }),
   z.object({ type: z.literal("RESUME") }),
 ]);
@@ -351,6 +352,40 @@ export interface SettlementEpochView {
   transfers: number;
 }
 
+export interface RivalView {
+  ownerId: string;
+  name: string;
+  person: string;
+  face: string;
+  cashCc: number;
+  debtCc: number;
+  capacityKw: number;
+  outputKw: number;
+  plantCount: number;
+  revenueCcToday: number;
+  marginPct: number;
+  state: "healthy" | "strained" | "distressed";
+  quote: string;
+}
+
+export interface HotDeskCallView {
+  callId: string;
+  person: string;
+  face: string;
+  role: string;
+  actorId: string | null;
+  nodeId: NodeId;
+  title: string;
+  message: string;
+  acceptLabel: string;
+  acceptEffect: string;
+  declineLabel: string;
+  declineEffect: string;
+  canAccept: boolean;
+  cannotAcceptReason: string | null;
+  expiresAtInterval: number;
+}
+
 export interface RegionView {
   regionId: string;
   version: number;
@@ -371,6 +406,8 @@ export interface RegionView {
   techs: TechView[];
   tenders: TenderView[];
   voltline: { cashCc: number; debtCc: number; marginPct: number; state: "healthy" | "strained" | "distressed"; capacityKw: number; person: string; note: string };
+  rivals: RivalView[];
+  hotDesk: HotDeskCallView | null;
   regulator: { priceCapCcPerMWh: number; carbonCcPerT: number; fundCc: number; warnings: number; note: string };
   player: {
     cashCc: number;

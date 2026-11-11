@@ -1,5 +1,7 @@
 # Implementation audit — 2026-11-08
 
+> **Historical snapshot.** This audit describes the repository on 2026-11-08, before the frontend, auth, regional game, town market and NEAR economy existed. Findings A1–A9 were resolved; do not read this as current status. See [ARCHITECTURE.md](ARCHITECTURE.md) and [TEST_REPORT.md](TEST_REPORT.md).
+
 Scope: the whole repository at the start of the "master end-to-end" pass. Sources: code, `git log`
 (two "Update Site source" commits by the frontend workstream), docs/, a production build of `apps/web`.
 
