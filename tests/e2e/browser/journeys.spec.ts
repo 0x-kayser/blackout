@@ -50,7 +50,7 @@ test("persistence + reconnection: reload restores the same city without duplicat
   await expect(page.locator(".conn.live")).toBeVisible();
 });
 
-test("market: buy reads as delivery; chain records stay in the optional verify panel", async ({ page }) => {
+test("market: buy reads as delivery; the player UI never shows chain wording", async ({ page }) => {
   await startGuest(page);
   await page.getByRole("button", { name: /Market/ }).click();
   const lantern = page.locator(".merchant-card").filter({ hasText: "Lantern" });
@@ -65,8 +65,9 @@ test("market: buy reads as delivery; chain records stay in the optional verify p
   await expect(page.locator(".trade-row").first()).toContainText("delivered");
   await expect(page.getByRole("dialog")).not.toContainText(/NEAR|blockchain|wallet|gas/i);
   await page.getByRole("button", { name: "Close" }).click();
-  await page.getByRole("button", { name: /Verify/ }).click();
-  await expect(page.getByRole("dialog")).toContainText("NEAR");
+  // chain evidence lives only behind the protected operator endpoint, never in the player interface
+  await expect(page.getByRole("button", { name: /Verify/ })).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText(/blockchain|wallet|gas fee/i);
 });
 
 test("infrastructure: installing solar adds a real generator to the plant", async ({ page }) => {

@@ -257,15 +257,17 @@ function Lab() {
 function About(p: SettingsProps) {
   return (
     <>
-      <h3>About BLACKOUT</h3>
-      <p>You run a power company in the Vesper region. Seven load centres, six transmission lines, a dozen businesses and households with their own balance sheets, six fuel suppliers, two banks, a regulator and a rival, VoltLine. Every five game minutes the market clears: cheapest power first, line limits respected, one price per load centre.</p>
-      <p>When there isn’t enough power, customers who can switch off do; when even that isn’t enough, the lights go out. Businesses lose money, lay people off and close; steel stops and every new plant costs more. Your plants, lines and batteries change all of that.</p>
+      <h3>About BLACKOUT — The Twin Squeeze of 2026</h3>
+      <p>It is November 2026. Caught between <b>Strait of Hormuz fuel shipping shocks</b> and the <b>COP31 Sovereign Grid Accord</b>, debt-laden monopoly VoltLine Energy has begun to fail. After proving yourself on Mama Ade’s street microgrid in Act I (<code>/city</code>), the Vesper Regulator has drafted you to command the regional grid in Act II.</p>
+      <p>Seven load centres, six transmission lines, a dozen businesses and households with their own balance sheets, nine Vesper Market merchants, two banks, a regulator and rival Victor Lane (VoltLine). Every five game minutes the market clears: cheapest power first, line limits respected, one price per load centre.</p>
+      <p>When there isn’t enough power, customers who can switch off do; when even that isn’t enough, the lights go out. Businesses lose money, lay people off and close; Ivanova Steel slows down and Pavel’s steel yard raises construction costs for everyone. Your plants, lines and batteries change all of that.</p>
       <Section title="Controls">
         <p className="fine">Drag to pan · scroll or pinch to zoom · right-drag or two fingers to rotate · tap anything to inspect it.</p>
       </Section>
-      <Section title="Elsewhere">
+      <Section title="Act I — Street Microgrid">
+        <p className="fine">Experience where your company started: Mama Ade’s 5 kW shed, 44 neighborhood shops, and the real 2026 EIA Brent crude oil shock.</p>
         <a className="btn ghost" href="/city">
-          Classic city mode
+          Classic city mode (/city)
         </a>
       </Section>
       <p className="fine">{p.v.regionId} · interval {p.v.interval}</p>

@@ -104,7 +104,7 @@ export const CHAPTERS: Chapter[] = [
     title: "Grid Independent",
     goal: "Complete 3 contracts powered by solar and battery alone.",
     character: "rosa",
-    beat: "Rosa's ovens ran on stored sunshine. “Three contracts without diesel. You did it.”",
+    beat: "Rosa's ovens ran on stored sunshine—zero Hormuz diesel, zero COP31 carbon penalties. “Three contracts without diesel. You're ready for the Regional Grid.”",
     done: (s) => (t(s).solarContractsCompleted ?? 0) >= 3,
   },
 ];

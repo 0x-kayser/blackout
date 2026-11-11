@@ -273,10 +273,65 @@ function PlantInspector({ v, p, act }: { v: RegionView; p: PlantView; act: Act }
   )
 }
 
+function districtStreetLife(v: RegionView, n: NodeView) {
+  const dark = n.shedKw > 0
+  const squeezed = !dark && (n.curtailedKw > 0 || n.priceCcPerMWh > 25_000)
+
+  const SCENES: Record<string, { lit: string; squeezed: string; dark: string }> = {
+    residential_east: {
+      lit: '“Up light!” echoes across the Eastside compounds. Backup petrol generators fall silent, ceiling fans hum, and night amala and suya stalls glow along the roundabout while yellow danfo minibuses unload evening commuters.',
+      squeezed: 'Mains power is on, but peak tariffs have Eastside compounds switching off air-conditioners and sharing metered extension cords along the street.',
+      dark: '“They took light!” Streetlights are out across Residential East. Smoky portable generators roar on every balcony, danfo buses honk through dark junctions by headlight, and cold-room ice blocks are melting fast.',
+    },
+    central_city: {
+      lit: 'Barbershops, tailors, and cold rooms from Market Quarter to Central City are running on clean grid power. Streetlamps light the evening bazaar and shopkeepers keep their shutters open late.',
+      squeezed: 'Grid power holds in Central City, but high spot prices have workshops and malls throttling chillers while small kiosks ration outlets.',
+      dark: 'Rolling blackouts have darkened Central City blocks. Shopkeepers are cranking backup diesel sets on the pavement and serving customers by rechargeable lantern.',
+    },
+    industrial_south: {
+      lit: 'Arc furnaces at Ivanova Steel and assembly lines at Delta Components are running full shifts. Flatbed trucks queue at Pavel’s yard while roadside canteens serve the night crew.',
+      squeezed: 'High wholesale power prices have forced Marta’s furnaces to step back flexible pours; half the yard crews are waiting on standby for prices to cool.',
+      dark: 'Industrial South feeders are shedding load. Factory sirens sounded at the shift change and heavy mill lines are locked down on emergency lighting.',
+    },
+    port: {
+      lit: 'Quayside gantry cranes swing containers off rerouted Cape-route ships under bright floodlights, and Harbor Cold Chain’s refrigerated stacks hum steadily.',
+      squeezed: 'Port cranes keep moving essential cargo, but cold-store operators are rationing auxiliary chillers as nodal power prices spike.',
+      dark: 'Harbour feeders are short of power! Standby diesel packs are coughing black smoke along the jetty to keep frozen cargo from spoiling.',
+    },
+    tech_corridor: {
+      lit: 'Halcyon Data Center chillers and Tech Corridor startup labs are humming smoothly on grid power, with late-night engineers filling the campus cafés.',
+      squeezed: 'Spot prices are biting in the Tech Corridor; campus facilities have dimmed non-essential floors to protect server rack budgets.',
+      dark: 'UPS battery alarms are chirping across the Tech Corridor as backup diesel generators spin up to save Halcyon’s server racks.',
+    },
+    hospital: {
+      lit: 'St. Aurelia General’s surgical wing, dialysis machines, and vaccine cold lockers are running on steady mains power. Ambulance bays and night pharmacies are brightly lit.',
+      squeezed: 'Hospital Row remains protected on priority power, though surrounding clinics and homes are watching every kilowatt.',
+      dark: 'Emergency alert in Hospital District! St. Aurelia General has switched to backup diesel tanks to keep operating theatres and incubators alive.',
+    },
+    north_solar: {
+      lit: v.clock.isNight
+        ? 'Solar fields rest under the night sky while North Belt farmhouses and grain stores draw quiet power over the 220 kV trunk.'
+        : 'Sunlight glints off thousands of North Belt panels, powering local irrigation pumps and exporting cheap clean megawatts south to the city.',
+      squeezed: 'North Belt towns are trimming farm machinery loads while regional wholesale prices run hot.',
+      dark: 'The North Belt line is short after dark—farmsteads and rural cooperatives have fallen back on tractor generators and lanterns.',
+    },
+  }
+
+  const scene = SCENES[n.nodeId] ?? SCENES.central_city
+  if (dark) {
+    return { badge: '🔴 They took light!', tone: 'crisis', text: scene.dark }
+  }
+  if (squeezed) {
+    return { badge: '🟡 Tariff squeeze', tone: 'warn', text: scene.squeezed }
+  }
+  return { badge: '🟢 Up light!', tone: 'ok', text: scene.lit }
+}
+
 function NodeInspector({ v, n, onFocus, onBuildHere }: { v: RegionView; n: NodeView; onFocus: (s: Selection) => void; onBuildHere: (nodeId: string) => void }) {
   const plants = v.plants.filter((p) => p.nodeId === n.nodeId)
   const actors = v.actors.filter((a) => a.nodeId === n.nodeId)
   const tenders = v.tenders.filter((t) => t.nodeId === n.nodeId && t.status === 'open')
+  const street = districtStreetLife(v, n)
   return (
     <>
       <p className="eyebrow">Load centre</p>
@@ -286,6 +341,9 @@ function NodeInspector({ v, n, onFocus, onBuildHere }: { v: RegionView; n: NodeV
         <small>/MWh</small>
         <em>avg today {price(n.avgPriceCcPerMWh)}</em>
       </div>
+      <Section title="Street life & district pulse" aside={<span className={`pill ${street.tone}`}>{street.badge}</span>}>
+        <p className="fine" style={{ margin: 0 }}>{street.text}</p>
+      </Section>
       <Section title={`Why ${price(n.priceCcPerMWh)}?`}>
         <p className="fine">Set by <b>{n.marginal.name}</b>.</p>
         {n.buildUp.map((c) => (
