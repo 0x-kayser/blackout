@@ -16,7 +16,7 @@ const MODES: { id: DockMode; label: string; icon: string }[] = [
   { id: 'portfolio', label: 'Company', icon: '🏢' },
 ]
 
-export function Dock({ mode, onMode, badges }: { mode: DockMode | null; onMode: (m: DockMode | null) => void; badges: Partial<Record<DockMode, string>> }) {
+export function Dock({ mode, onMode, badges, onCampaign, campaignOpen }: { mode: DockMode | null; onMode: (m: DockMode | null) => void; badges: Partial<Record<DockMode, string>>; onCampaign: () => void; campaignOpen: boolean }) {
   return (
     <nav className="dock" aria-label="Game controls">
       {MODES.map((m) => (
@@ -26,6 +26,10 @@ export function Dock({ mode, onMode, badges }: { mode: DockMode | null; onMode: 
           {badges[m.id] && <i className="badge">{badges[m.id]}</i>}
         </button>
       ))}
+      <button className={`dock-campaign ${campaignOpen ? 'on' : ''}`} aria-label="Open campaign goals and weekly crisis" aria-pressed={campaignOpen} onClick={onCampaign}>
+        <span aria-hidden>🏆</span>
+        Goals
+      </button>
     </nav>
   )
 }
@@ -226,6 +230,7 @@ function Market({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s: S
               </div>
               <Bar value={s.stock} max={s.capacity} tone={s.rationing ? 'crisis' : s.stock < s.capacity * 0.3 ? 'warn' : 'teal'} />
               <small className={s.rationing ? 'crisis' : 'fine'}>{s.rationing ? 'Rationing. ' : ''}{s.note}</small>
+              {s.scarcityPremiumPct > 0 && <small className="crisis">Price includes a {s.scarcityPremiumPct}% low-stock premium.</small>}
               <div className="row">
                 {lots.map((q) => (
                   <button key={q} className="btn small" disabled={busy || s.stock <= 0} onClick={() => run({ type: 'BUY_FUEL', supplierId: s.supplierId, quantity: q })}>

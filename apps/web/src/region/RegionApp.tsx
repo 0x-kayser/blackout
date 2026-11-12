@@ -42,6 +42,7 @@ const TOAST_TYPES = new Set(['BLACKOUT', 'PLANT_TRIPPED', 'PRICE_SPIKE', 'HEATWA
 export default function RegionApp() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [player, setPlayer] = useState<{ playerId: string; displayName: string; kind: string; companyNamed: boolean } | null>(null)
+  const [tutorialSkippedFor, setTutorialSkippedFor] = useState<string | null>(null)
   const [desk, setDesk] = useState<DeskView | null>(null)
   const [challengeInfo, setChallengeInfo] = useState<ChallengeInfo | null>(null)
   const [renaming, setRenaming] = useState(false)
@@ -51,12 +52,32 @@ export default function RegionApp() {
   const [entry, setEntry] = useState(true)
   const [entryLoading, setEntryLoading] = useState(true)
   const { view, setActiveView, town, conn, act, market } = useRegion(regionId)
+  const tutorialSkipped = !!player && tutorialSkippedFor === player.playerId
+  useEffect(() => {
+    if (!player) {
+      setTutorialSkippedFor(null)
+      return
+    }
+    try {
+      setTutorialSkippedFor(localStorage.getItem(`bo_first_night_skip:${player.playerId}`) === '1' ? player.playerId : null)
+    } catch {
+      setTutorialSkippedFor(null)
+    }
+  }, [player?.playerId])
   const [watching, setWatching] = useState(false)
   const viewRef = useRef<RegionView>(null as unknown as RegionView)
   if (view) viewRef.current = view
 
   const [selection, setSelection] = useState<Selection | null>(null)
   const [mode, setMode] = useState<DockMode | null>(null)
+  useEffect(() => {
+    if (mode !== 'market') return
+    const closeMarketOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMode(null)
+    }
+    window.addEventListener('keydown', closeMarketOnEscape)
+    return () => window.removeEventListener('keydown', closeMarketOnEscape)
+  }, [mode])
   const [building, setBuilding] = useState<{ tech: TechId; size: number } | null>(null)
   const [buildNode, setBuildNode] = useState<NodeId | null>(null)
   const [focus, setFocus] = useState<FocusCmd | null>(null)
@@ -288,7 +309,7 @@ export default function RegionApp() {
   // each first-minute step: fly to the thing to tap; each step done: celebrate what just changed
   const [celebrate, setCelebrate] = useState<string | null>(null)
   const lastStep = useRef<number | null>(null)
-  const step = view ? (view.onboarding.done ? 3 : view.onboarding.step) : null
+  const step = view ? (view.onboarding.done ? 3 : tutorialSkipped ? null : view.onboarding.step) : null
   useEffect(() => {
     if (step === null || !view) return
     const prev = lastStep.current
@@ -300,14 +321,14 @@ export default function RegionApp() {
       setSelection(null)
       if (step >= 3) setFocus({ kind: 'home', id: '', nonce: Date.now() })
     }
-    const t = view.onboarding.done ? null : view.onboarding.target
+    const t = view.onboarding.done || tutorialSkipped ? null : view.onboarding.target
     if (t) {
       // frame the whole district around the thing to tap, so you see the problem and the fix together
       const [kind, id] = t.split(':') as [Selection['kind'], string]
       // centre on the button's spot (a plant, or the build pad's district), pulled back to show what's around it
       setTimeout(() => setFocus({ kind, id, nonce: Date.now(), dist: kind === 'plant' ? 135 : 150 }), prev === null ? 600 : 1_400)
     }
-  }, [step])
+  }, [step, tutorialSkipped])
 
   const badges = useMemo(() => {
     if (!view) return {}
@@ -378,9 +399,10 @@ export default function RegionApp() {
       return { ok: false, message: (e as Error).message }
     }
   }
-  const highlight = view.onboarding.done ? null : view.onboarding.target
-  const mission = missionFor(view)
-  const simple = !view.onboarding.done
+  const pendingMission = missionFor(view)
+  const simple = !view.onboarding.done && !tutorialSkipped && pendingMission !== null
+  const highlight = simple ? view.onboarding.target : null
+  const mission = simple ? pendingMission : null
   const move = simple ? null : nextMove(view, town)
   const runMission = () => {
     if (!mission) return
@@ -403,7 +425,30 @@ export default function RegionApp() {
   const showOperations = (tab: OperationTab = 'campaign') => {
     setOperationsTab(tab)
     setSettings(false)
+    setMode(null)
+    setSelection(null)
+    setFeed(false)
+    setRenaming(false)
     setOperations(true)
+  }
+  const skipFirstNight = () => {
+    if (!player) return
+    try {
+      localStorage.setItem(`bo_first_night_skip:${player.playerId}`, '1')
+    } catch {
+      /* The current session can still enter free play if storage is unavailable. */
+    }
+    setTutorialSkippedFor(player.playerId)
+  }
+  const resumeFirstNight = () => {
+    if (player) {
+      try {
+        localStorage.removeItem(`bo_first_night_skip:${player.playerId}`)
+      } catch {
+        /* Resuming the guide still works for this session. */
+      }
+    }
+    setTutorialSkippedFor(null)
   }
   const returnToLive = async () => {
     const r = await regionApi.live()
@@ -434,8 +479,8 @@ export default function RegionApp() {
         />
       </Suspense>
       <PulseBar v={view} simple={simple} company={player?.companyNamed ? player.displayName : null} onCompany={() => setRenaming(true)} player={player} conn={conn} onSettings={() => { setOperations(false); setSettingsTab('account'); setSettings(true) }} onSignOut={signOut} onHome={() => { setSelection(null); setFocus({ kind: 'home', id: '', nonce: Date.now() }) }} sound={prefs.sound} onSound={() => setPrefs({ ...prefs, sound: !prefs.sound })} />
-      {simple && mission && <MissionBanner m={mission} onAction={runMission} />}
-      {!simple && !mode && !selection && !renaming && <LoopGoals v={view} challenge={challengeInfo} move={move} onCareer={showOperations} onChallenge={() => showOperations('weekly')} onLive={() => void returnToLive()} onDoMove={() => void doMove()} />}
+      {simple && mission && <MissionBanner m={mission} onAction={runMission} onSkip={skipFirstNight} />}
+      {!simple && !mode && !selection && !renaming && <LoopGoals v={view} challenge={challengeInfo} move={move} onCareer={showOperations} onChallenge={() => showOperations('weekly')} onLive={() => void returnToLive()} onDoMove={() => void doMove()} tutorialIncomplete={!view.onboarding.done} onResumeTutorial={resumeFirstNight} onOpenMarket={() => { setFeed(false); setMode('market') }} onOpenDispatch={() => { setFeed(false); setMode('dispatch') }} onToggleAutoFuel={(fuel, enabled) => void doAct({ type: 'SET_AUTO_FUEL', fuel, enabled })} />}
       {!simple && !mode && !selection && <NewsTicker town={town} onMerchant={(id) => select({ kind: 'merchant', id })} />}
       {celebrate && <Celebration text={celebrate} />}
       {renaming && !mode && (
@@ -476,7 +521,7 @@ export default function RegionApp() {
           <button className="feed-btn" onClick={() => { setFeed(!feed); setMode(null) }} aria-pressed={feed}>
             📰 News & events
           </button>
-          <Dock mode={mode} onMode={(m) => { setMode(m); setFeed(false); if (m !== 'build') setBuildNode(null) }} badges={badges} />
+          <Dock mode={mode} onMode={(m) => { setMode(m); setFeed(false); if (m !== 'build') setBuildNode(null) }} badges={badges} onCampaign={() => showOperations('campaign')} campaignOpen={operations} />
         </>
       )}
       {view.ended && (

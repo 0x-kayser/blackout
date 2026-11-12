@@ -26,7 +26,7 @@ export function missionFor(v: RegionView): Mission | null {
 
 export const CELEBRATE = ['Lights back on in Residential East', 'Your turbine is running — you’re earning', 'Construction started — you run the power company now']
 
-export function MissionBanner({ m, onAction }: { m: Mission; onAction: () => void }) {
+export function MissionBanner({ m, onAction, onSkip }: { m: Mission; onAction: () => void; onSkip: () => void }) {
   return (
     <section className="mission" aria-label={`First night, step ${m.step + 1} of 3`}>
       <header className="mission-topline">
@@ -39,7 +39,10 @@ export function MissionBanner({ m, onAction }: { m: Mission; onAction: () => voi
       <b aria-live="polite">{m.title}</b>
       <p>{m.hint}</p>
       <button className="btn primary mission-action" onClick={onAction}>{m.label}</button>
-      <small>Or tap the glowing marker in the city.</small>
+      <div className="mission-footer">
+        <small>Or tap the glowing marker in the city.</small>
+        <button className="mission-skip" onClick={onSkip}>Skip guide · explore freely</button>
+      </div>
     </section>
   )
 }

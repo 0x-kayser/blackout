@@ -7,7 +7,7 @@ import { ACTORS, BANKS, BATTERY_EFF_BPS, CORRIDORS, EPOCH_INTERVALS, LICENCES, N
 import { batteryThresholds, corridorLimitKw, loanOffer, ONBOARDING, regionOutputBps, regionScore, reliabilityBps, assetIdOf, marginalName } from "./engine.ts";
 import { bookValue, buildCostBps, fuelMarketCc, playerBookValue } from "./economy.ts";
 import { cr, mw } from "./events.ts";
-import { burnPerKwInterval, clockOf, marginalCost, solarFactorBps, sunElevation } from "./physics.ts";
+import { burnPerKwInterval, clockOf, marginalCost, solarFactorBps, sunElevation, worldFuelCc } from "./physics.ts";
 import { RACC, fuelAsset, rbal, type RPlant, type RegionState } from "./state.ts";
 
 const ownerName = (id: string) => (id === "player" ? "You" : (OWNERS.find((o) => o.ownerId === id)?.name ?? id));
@@ -24,6 +24,7 @@ export function toRegionView(s: RegionState, opts: ViewOptions = {}): RegionView
   const sun = sunElevation(clk.minuteOfDay);
   const solarBps = solarFactorBps(s, clk.minuteOfDay);
   const ref = s.nodes[REFERENCE_NODE].priceCc;
+  const anyRationing = Object.values(s.suppliers).some((supplier) => supplier.rationing);
 
   const plantMc = (p: RPlant) => marginalCost(s, p, TECHS[p.tech].fuel ? fuelMarketCc(s, TECHS[p.tech].fuel!) : 0);
 
@@ -235,7 +236,12 @@ export function toRegionView(s: RegionState, opts: ViewOptions = {}): RegionView
     actors,
     suppliers: SUPPLIERS.map((c) => {
       const sp = s.suppliers[c.supplierId];
-      return { supplierId: c.supplierId, name: c.name, person: c.person, face: c.face, fuel: c.fuel, stock: Math.round(sp.stock / 1000), capacity: Math.round(c.capacity / 1000), priceCcPerUnit: sp.priceCc, rationing: sp.rationing, importPerInterval: Math.round(sp.importPerInterval / 1000), cashCc: rbal(s, "cc", RACC.supplier(c.supplierId)), note: s.interval < sp.disruptionUntil ? `Imports disrupted for ${Math.round(((sp.disruptionUntil - s.interval) * 5) / 60)} more game hours.` : c.note };
+      const fill = sp.stock / c.capacity;
+      const markupBps = c.markupBps + (c.supplierId === "okafor" && anyRationing && fill > 0.5 ? 2_500 : 0);
+      const basePrice = Math.round(worldFuelCc(s, c.fuel) * (1 + markupBps / 10_000));
+      const scarcityPremiumPct = Math.max(0, Math.round((sp.priceCc / Math.max(1, basePrice) - 1) * 100));
+      const disrupted = s.interval < sp.disruptionUntil;
+      return { supplierId: c.supplierId, name: c.name, person: c.person, face: c.face, fuel: c.fuel, stock: Math.round(sp.stock / 1000), capacity: Math.round(c.capacity / 1000), priceCcPerUnit: sp.priceCc, scarcityPremiumPct, rationing: sp.rationing, disrupted, importPerInterval: Math.round(sp.importPerInterval / 1000), cashCc: rbal(s, "cc", RACC.supplier(c.supplierId)), note: disrupted ? `Imports disrupted for ${Math.round(((sp.disruptionUntil - s.interval) * 5) / 60)} more game hours.` : c.note };
     }),
     banks: BANKS.map((b) => {
       const o = loanOffer(s, b.bankId);

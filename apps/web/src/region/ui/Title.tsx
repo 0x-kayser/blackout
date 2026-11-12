@@ -50,7 +50,7 @@ const TOUR = [
   },
   {
     label: 'THE MARKET', icon: '🏪', title: 'Trade with living merchants',
-    detail: 'Buy fuel, permits, or parts from merchants with limited stock. Offer spare electricity to three power companies; each weighs its budget, the weather, and your price.',
+    detail: 'Ship delays and rationing tighten stock and move fuel prices. Buy a reserve, let automatic top-ups spend, or hold cash and risk a plant running short. Your choice changes what Vesper can sell.',
   },
   {
     label: 'YOUR CAMPAIGN', icon: '🏆', title: 'Earn permits. Take on the crisis.',
@@ -178,7 +178,7 @@ export function Title(p: TitleProps) {
           <p className="route-weekly"><span aria-hidden>↻</span> Each week brings a shared regional crisis to solve and score.</p>
         </section>
 
-        <p className="title-loop">Your company keeps its progress between visits. Every week, the region opens with a new crisis to solve.</p>
+        <p className="title-loop">Read the warning → choose where your cash and fuel go → watch prices, the grid and businesses react → earn the next permit. Your company keeps its progress between visits.</p>
         <label className="title-music">
           <input type="checkbox" checked={p.music} onChange={(e) => p.onMusic(e.target.checked)} /> ♪ Music
         </label>

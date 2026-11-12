@@ -430,6 +430,13 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
   const [err, setErr] = useState<string | null>(null)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+  useEffect(() => {
     regionApi.fastForward(42).then((r) => setWeek(r.week), (e) => setErr((e as Error).message))
   }, [])
   useEffect(() => {

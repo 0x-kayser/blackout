@@ -269,7 +269,10 @@ export interface SupplierView {
   stock: number;
   capacity: number;
   priceCcPerUnit: number;
+  /** Current quote premium over the supplier's cost-plus margin, caused by low stock. */
+  scarcityPremiumPct: number;
   rationing: boolean;
+  disrupted: boolean;
   importPerInterval: number;
   cashCc: number;
   note: string;

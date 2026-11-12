@@ -46,6 +46,11 @@ export function Toasts({ items, onOpen, onDismiss }: { items: RegionEvent[]; onO
 
 export function Feed({ v, onSelect, onClose }: { v: RegionView; onSelect: (s: Selection) => void; onClose: () => void }) {
   const [open, setOpen] = useState<number | null>(null)
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
   const bySeq = new Map(v.events.map((e) => [e.seq, e]))
   const time = (interval: number) => {
     const total = 17 * 60 + 10 + interval * 5

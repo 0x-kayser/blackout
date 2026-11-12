@@ -3,16 +3,33 @@ package-lock.json
 dist/
 coverage/
 *.log
+*.tsbuildinfo
+.vite/
+.turbo/
 .env
 .env.*
 !.env.example
 **/data/*.sqlite*
+*.sqlite
+*.sqlite3
+*.db
 **/data/replays/
 contracts/near/target/
 contracts/near/res/*.wasm
 .near-credentials/
 **/*.key.json
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+secrets/
+credentials/
+service-account*.json
 .DS_Store
+.claude/
+.codex/
+.openai/
 
 # local test artifacts
 test-results/
