@@ -1,12 +1,13 @@
 /**
  * RegionState → RegionView: everything the 3D client shows, already explained in words.
  */
-import type { ActorView, CorridorView, NodeView, PlantView, PriceComponent, RegionView, SettlementEpochView, TechView } from "@blackout/shared";
+import type { ActorView, CorridorView, NodeView, PlantView, PriceComponent, RegionView, RivalView, SettlementEpochView, TechView } from "@blackout/shared";
 import { TECH_IDS } from "@blackout/shared";
 import { ACTORS, BANKS, BATTERY_EFF_BPS, CORRIDORS, EPOCH_INTERVALS, LICENCES, NODES, OWNERS, PARTS_FOR_REPAIR, PRICE_CAP_CC, REFERENCE_NODE, SUPPLIERS, TECHS, creditsForCc, steelForCc } from "./config.ts";
 import { batteryThresholds, corridorLimitKw, loanOffer, ONBOARDING, regionOutputBps, regionScore, reliabilityBps, assetIdOf, marginalName } from "./engine.ts";
 import { bookValue, buildCostBps, fuelMarketCc, playerBookValue } from "./economy.ts";
 import { cr, mw } from "./events.ts";
+import { toHotDeskView } from "./hotDesk.ts";
 import { burnPerKwInterval, clockOf, marginalCost, solarFactorBps, sunElevation } from "./physics.ts";
 import { RACC, fuelAsset, rbal, type RPlant, type RegionState } from "./state.ts";
 
@@ -253,6 +254,60 @@ export function toRegionView(s: RegionState, opts: ViewOptions = {}): RegionView
       person: "Victor Lane",
       note: s.voltline.state === "distressed" ? "Selling assets to cover its debt." : s.voltline.state === "strained" ? "Cash is thin; margins rising." : `Offers at cost + ${Math.round(s.voltline.marginBps / 100)}%, more when the system is tight.`,
     },
+    rivals: OWNERS.map((o): RivalView => {
+      const owned = s.plants.filter((p) => p.ownerId === o.ownerId);
+      const rCash = rbal(s, "cc", RACC.owner(o.ownerId));
+      const rDebt = s.loans.filter((l) => l.borrower === RACC.owner(o.ownerId)).reduce((a, l) => a + l.principalCc, 0);
+      const capKw = owned.filter((p) => p.status !== "mothballed").reduce((a, p) => a + p.capacityKw, 0);
+      const outKw = owned.reduce((a, p) => a + p.outputKw, 0);
+      const revToday = owned.reduce((a, p) => a + p.revenueCcToday, 0);
+      const marginPct = o.ownerId === "voltline" ? Math.round(s.voltline.marginBps / 100) : Math.round(o.markupBps / 100);
+      const rState: RivalView["state"] =
+        o.ownerId === "voltline"
+          ? s.voltline.state
+          : owned.some((p) => p.status === "tripped") || rCash < o.cashCc * 0.35
+            ? "strained"
+            : "healthy";
+      let quote = `Offering ${mw(capKw)} into the Vesper pool at cost + ${marginPct}%.`;
+      if (o.ownerId === "voltline") {
+        quote =
+          s.voltline.state === "distressed"
+            ? "Meridian Capital is breathing down our neck—we are auctioning plants to service our ₡15M debt."
+            : s.voltline.state === "strained"
+              ? "Hormuz gas spikes and COP31 carbon penalties are eating our CCGT margins."
+              : `We still command ${mw(capKw)} across Vesper. Scarcity is where a legacy utility makes its margin.`;
+      } else if (o.ownerId === "northwind") {
+        quote =
+          outKw > 0
+            ? `North Belt solar is pouring ${mw(outKw)} of zero-carbon power into the grid at marginal cost.`
+            : "Sun is down over the North Belt. Waiting for dawn while thermal plants fight over fuel.";
+      } else if (o.ownerId === "eastbank") {
+        quote = owned.some((p) => p.status === "tripped")
+          ? "Our Eastside gas engines tripped on a transformer fault—crews are working around the clock."
+          : `Running ${mw(outKw)} in Residential East to keep the evening peak covered.`;
+      } else if (o.ownerId === "harbor_diesel") {
+        quote =
+          outKw > 0
+            ? `Burning harbour diesel at ${mw(outKw)} to catch the peak spread while tankers queue offshore.`
+            : "Peakers standing by at the Port. We only light the stacks when the spot price clears our diesel burn.";
+      }
+      return {
+        ownerId: o.ownerId,
+        name: o.name,
+        person: o.person,
+        face: o.face,
+        cashCc: rCash,
+        debtCc: rDebt,
+        capacityKw: capKw,
+        outputKw: outKw,
+        plantCount: owned.length,
+        revenueCcToday: revToday,
+        marginPct,
+        state: rState,
+        quote,
+      };
+    }),
+    hotDesk: toHotDeskView(s),
     regulator: { priceCapCcPerMWh: PRICE_CAP_CC, carbonCcPerT: s.regulator.carbonCcPerT, fundCc: rbal(s, "cc", RACC.regulator), warnings: s.regulator.warnings, note: s.regulator.lastNote },
     player: {
       cashCc: cash,

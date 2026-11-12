@@ -66,6 +66,115 @@ export function WhyPrice({ why, children }: { why: PriceWhy; children: React.Rea
 
 const trend = (it: MerchantItemView) => (it.askCc && it.askAnHourAgoCc ? (it.askCc > it.askAnHourAgoCc * 1.02 ? '▲' : it.askCc < it.askAnHourAgoCc * 0.98 ? '▼' : '') : '')
 
+const ROUTINES: Record<string, { morning: string; afternoon: string; night: string }> = {
+  ingrid: {
+    morning: 'Checking Cape-route LNG tanker manifests at the harbour jetty',
+    afternoon: 'Reviewing cryogenic boil-off gauges with the port tug crews',
+    night: 'Grabbing roasted plantain by the berth while night barges unload',
+  },
+  bayo: {
+    morning: 'Sipping hot zobo at the Northline pressure manifold desk',
+    afternoon: 'Watching pipeline pack levels and rationing industrial off-takes',
+    night: 'Walking the valve station under floodlights to check for pressure drops',
+  },
+  kettle: {
+    morning: 'Rolling 200-litre diesel drums under the corrugated yard awning',
+    afternoon: 'Haggling with danfo drivers and neighbourhood generator mechanics',
+    night: 'Counting cash notes by rechargeable lantern in the back shed',
+  },
+  dayo: {
+    morning: 'Dispatching Swift road tankers past port traffic before the rush',
+    afternoon: 'Waving coastal product barges into the creek jetty to undercut rivals',
+    night: 'Topping up night-shift peaker trucks from the fast-fill gantry',
+  },
+  chioma: {
+    morning: 'Auditing diesel dip-stick readings in her fan-cooled depot office',
+    afternoon: 'Holding reserve tanks tight while watching spot power prices climb',
+    night: 'Locking the main depot gate and quoting premium night-surge rates',
+  },
+  lena: {
+    morning: 'Verifying North Belt solar meter receipts over morning coffee',
+    afternoon: 'Matching COP31 corporate buyers with clean-energy certificates',
+    night: 'Closing the Greenline ledger while solar farms wait for sunrise',
+  },
+  ruth: {
+    morning: 'Clearing COP31 carbon allowance lots at the Regulator counter',
+    afternoon: 'Advising thermal plant operators on avoiding the +25% unpermitted penalty',
+    night: 'Reconciling daily emissions surrenders before the midnight audit',
+  },
+  pavel: {
+    morning: 'Unloading fresh structural steel coils from his sister Marta’s mill',
+    afternoon: 'Loading crane girders onto flatbeds for substation and plant builds',
+    night: 'Checking Industrial South power prices to see if the night pour ran',
+  },
+  nkechi: {
+    morning: 'Rewinding burned alternator coils on the Sparks & Sons workbench',
+    afternoon: 'Crating emergency turbine repair kits for tripped peakers',
+    night: 'Keeping the night-call repair van fuelled and ready for grid faults',
+  },
+}
+
+function daysOfCashFor(m: MerchantView) {
+  return m.fixedCcPerDay > 0 ? m.cashCc / m.fixedCcPerDay : 9
+}
+
+export function merchantLife(m: MerchantView, clock: string) {
+  const hourMatch = clock.match(/(\d{1,2}):\d{2}/)
+  const hour = hourMatch ? Number(hourMatch[1]) : 12
+  const slot = hour >= 5 && hour < 12 ? 'morning' : hour >= 12 && hour < 19 ? 'afternoon' : 'night'
+  const routine = ROUTINES[m.merchantId]?.[slot] ?? 'Tending the stall in Vesper Market'
+  const daysOfCash = m.fixedCcPerDay > 0 ? m.cashCc / m.fixedCcPerDay : 9
+  const mainItem = m.items[0]
+  if (!mainItem && m.open) {
+    return { moodBadge: '🔵 Steady', moodTone: 'info', cashWorry: `${daysOfCashFor(m).toFixed(1)} days of daily costs in the bank`, routine, voiceLine: 'Quiet day at the stall.' }
+  }
+  const stockRatio = mainItem && mainItem.target > 0 ? mainItem.stock / mainItem.target : 1
+
+  if (!m.open) {
+    return {
+      moodBadge: '🔴 Shuttered',
+      moodTone: 'crisis',
+      cashWorry: `Out of working capital (needs ${credits(m.reopenCc)} to reopen)`,
+      routine: 'Padlock on the stall gate; waiting for an investor rescue',
+      voiceLine: `Working cash fell below daily overhead (${credits(m.fixedCcPerDay)}/day). Back the stall and we split the profits.`,
+    }
+  }
+  if (daysOfCash < 1.6 || m.profitCcToday < -m.fixedCcPerDay * 0.4) {
+    return {
+      moodBadge: '🟠 Cash-worried',
+      moodTone: 'warn',
+      cashWorry: `Tight buffer: ${daysOfCash.toFixed(1)} days of overhead (${credits(m.fixedCcPerDay)}/day)`,
+      routine: `${routine} (cutting hours to save cash)`,
+      voiceLine: `Daily overhead is ${credits(m.fixedCcPerDay)} and cash is down to ${credits(m.cashCc)}. I’m pricing to protect the till today.`,
+    }
+  }
+  if (stockRatio < 0.45) {
+    return {
+      moodBadge: '🟡 Stock tight',
+      moodTone: 'warn',
+      cashWorry: `Healthy cash (${daysOfCash.toFixed(1)} days), but inventory is at ${Math.round(stockRatio * 100)}% of target`,
+      routine,
+      voiceLine: `Shelves are down to ${mainItem.stock.toLocaleString('en-US')} ${ITEMS[mainItem.item].units} and deliveries running thin, so prices reflect the shortage.`,
+    }
+  }
+  if (m.profitCcToday > 0 && daysOfCash >= 2.5) {
+    return {
+      moodBadge: '🟢 Thriving',
+      moodTone: 'ok',
+      cashWorry: `Comfortable reserve: ${daysOfCash.toFixed(1)} days of overhead covered`,
+      routine,
+      voiceLine: `Up ${credits(m.profitCcToday)} today with ${mainItem.stock.toLocaleString('en-US')} ${ITEMS[mainItem.item].units} in stock. Ready for bulk orders.`,
+    }
+  }
+  return {
+    moodBadge: '🔵 Steady',
+    moodTone: 'info',
+    cashWorry: `${daysOfCash.toFixed(1)} days of daily costs (${credits(m.fixedCcPerDay)}/day) in the bank`,
+    routine,
+    voiceLine: `Steady trade today. Holding ${mainItem.stock.toLocaleString('en-US')} ${ITEMS[mainItem.item].units} against a target of ${mainItem.target.toLocaleString('en-US')}.`,
+  }
+}
+
 export function Inventory({ v }: { v: RegionView }) {
   return (
     <div className="inventory">
@@ -221,6 +330,22 @@ export function MerchantInspector({ m, v, town, trade, invest }: { m: MerchantVi
       </p>
       <p className={`state-pill ${m.open ? 'ok' : 'crisis'}`}>{m.open ? 'open' : 'closed'}</p>
       {!m.open && <p className="warn-line">{m.closedReason}. Nobody can trade here until someone invests {credits(m.reopenCc)}.</p>}
+      {(() => {
+        const life = merchantLife(m, town.clock)
+        return (
+          <Section title="Mood & daily routine" aside={<span className={`pill ${life.moodTone}`}>{life.moodBadge}</span>}>
+            <p className="fine" style={{ margin: '0 0 4px' }}>
+              <b>Now:</b> {life.routine}.
+            </p>
+            <p className="fine" style={{ margin: '0 0 6px' }}>
+              <b>Cash worry:</b> {life.cashWorry}.
+            </p>
+            <blockquote className="quote" style={{ margin: 0 }}>
+              {m.face} “{life.voiceLine}”
+            </blockquote>
+          </Section>
+        )
+      })()}
       <Section title="Business finances">
         <Stat label="Cash" value={credits(m.cashCc)} tone={m.cashCc < m.fixedCcPerDay ? 'crisis' : undefined} />
         <Stat label="Costs a day" value={credits(m.fixedCcPerDay)} />
@@ -335,28 +460,34 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, d
       </p>
       <Section title="Choose a stall to trade">
         <p className="fine">Tap a merchant to review a quote, check your cash and confirm a buy or sale.</p>
-        {town.merchants.map((m) => (
-          <button key={m.merchantId} type="button" className={`merchant-card ${m.open ? '' : 'closed'}`} onClick={() => onMerchant(m.merchantId)}>
-            <span className="mc-head">
-              <span>
-                {m.face} <b>{m.person}</b> <small>{m.name}</small>
-              </span>
-              {!m.open ? <span className="pill-closed">CLOSED</span> : <small className="fine">{credits(m.cashCc)}</small>}
-            </span>
-            {m.items.map((it) => (
-              <span key={it.item} className="mc-item">
+        {town.merchants.map((m) => {
+          const life = merchantLife(m, town.clock)
+          return (
+            <button key={m.merchantId} type="button" className={`merchant-card ${m.open ? '' : 'closed'}`} onClick={() => onMerchant(m.merchantId)}>
+              <span className="mc-head">
                 <span>
-                  {ITEMS[it.item].icon} {ITEMS[it.item].name}
+                  {m.face} <b>{m.person}</b> <small>{m.name}</small>
                 </span>
-                <span>
-                  {it.askCc !== null && <span className="mc-ask">{unitPrice(it.askCc)} {trend(it)}</span>}
-                  {it.bidCc !== null && <small className="bid-price"> buys {unitPrice(it.bidCc)}</small>}
-                </span>
+                {!m.open ? <span className="pill-closed">CLOSED</span> : <small className="fine">{credits(m.cashCc)} · {life.moodBadge}</small>}
               </span>
-            ))}
-            <span className="mc-action">{m.open ? 'Shop this stall →' : 'See why it closed →'}</span>
-          </button>
-        ))}
+              <small className="fine" style={{ display: 'block', textAlign: 'left', margin: '2px 0 4px', opacity: 0.88 }}>
+                {life.routine} — “{life.voiceLine}”
+              </small>
+              {m.items.map((it) => (
+                <span key={it.item} className="mc-item">
+                  <span>
+                    {ITEMS[it.item].icon} {ITEMS[it.item].name}
+                  </span>
+                  <span>
+                    {it.askCc !== null && <span className="mc-ask">{unitPrice(it.askCc)} {trend(it)}</span>}
+                    {it.bidCc !== null && <small className="bid-price"> buys {unitPrice(it.bidCc)}</small>}
+                  </span>
+                </span>
+              ))}
+              <span className="mc-action">{m.open ? 'Shop this stall →' : 'See why it closed →'}</span>
+            </button>
+          )
+        })}
       </Section>
       <Section title="What you hold">
         <Inventory v={v} />

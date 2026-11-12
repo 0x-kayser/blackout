@@ -30,7 +30,7 @@ export function Welcome({ g, onPlay, onChallenge, onLab, onHelp, reducedMotion, 
         <CityCanvas state={null} attract reducedMotion={reducedMotion} label="City skyline" />
       </div>
       <div className="welcome-card">
-        <p className="eyebrow amber">EMERGENCY POWER FOR A CITY THAT KEEPS GOING DARK</p>
+        <p className="eyebrow amber">ACT I: STREET MICROGRID · STRAIT OIL SHOCK & COP31</p>
         <h1>BLACK<span>OUT</span></h1>
         <p className="tagline">Every light changes the economy.</p>
         {g.booting ? (
@@ -42,7 +42,7 @@ export function Welcome({ g, onPlay, onChallenge, onLab, onHelp, reducedMotion, 
           </>
         ) : (
           <>
-            <p className="intro">The grid keeps failing. You own the generator. Keep the town's lights on, make money doing it, and beat VoltLine to every customer.</p>
+            <p className="intro">Strait of Hormuz tanker delays and the COP31 Carbon Accord have pushed Vesper’s grid to the breaking point. Starting from Mama Ade’s 5 kW shed, keep Market Quarter lit, beat VoltLine to every customer, and earn your promotion to the Regional Grid (<a href="/" style={{ color: 'inherit' }}>Act II</a>).</p>
             <ol className="howto3" aria-label="How you play">
               <li><b>⚡ Sell power</b><span>A shop goes dark. Take its call, plug it into your generator, get paid for every kWh.</span></li>
               <li><b>⛽ Run on diesel</b><span>Buy fuel before prices jump. Every merchant prices from its own stock and real 2026 oil.</span></li>
@@ -64,6 +64,7 @@ export function Welcome({ g, onPlay, onChallenge, onLab, onHelp, reducedMotion, 
             <div className="welcome-links">
               <button onClick={onLab}>Economy Lab</button>
               <button onClick={onHelp}>How to play</button>
+              <a className="button mini" href="/" style={{ textDecoration: 'none' }}>Act II: Regional Grid →</a>
               {onToggleMusic && <button onClick={onToggleMusic} aria-pressed={!!music}>{music ? '🎵 Music on' : '🎶 Music off'}</button>}
               {p && <button onClick={() => void g.logout()}>Log out</button>}
             </div>

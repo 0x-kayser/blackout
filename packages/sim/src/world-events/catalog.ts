@@ -133,8 +133,8 @@ export const FICTIONAL_TEMPLATES: FictionalTemplate[] = [
   {
     templateId: "carbon_tightening",
     category: "policy",
-    headline: "Vesper City council tightens the carbon cap (fictional local policy)",
-    explanation: "Inspired by international climate talks, the city's own council issues fewer permits. This is a fictional municipal rule.",
+    headline: "COP31 Sovereign Grid Accord: Vesper tightens the carbon cap (fictional local policy)",
+    explanation: "Following the COP31 climate summit, Vesper's council enforces a stricter carbon cap and issues 30% fewer daily permits. This is a fictional municipal rule.",
     assumption: "Daily permit supply −30%.",
     region: "Vesper City council",
     effects: { permitSupplyBps: -3_000 },

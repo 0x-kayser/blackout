@@ -145,7 +145,7 @@ describe("market news", () => {
     const news = run(true);
     expect(news.stock).toBeLessThan(calm.stock * 0.8);
     expect(news.q.askCc).toBeGreaterThan(calm.q.askCc * 1.1);
-    expect(news.q.why.lines.map((l) => l.label).join(" ")).toMatch(/News: LNG tanker stuck/);
+    expect(news.q.why.lines.map((l) => l.label).join(" ")).toMatch(/News: Hormuz rerouting/);
   });
   it("an outside-price story moves every seller of that item at once", () => {
     const t = createTown({ seed: 9 });

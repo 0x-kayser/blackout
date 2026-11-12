@@ -1,16 +1,17 @@
 import type { RegionView } from '@blackout/shared'
-import { credits, pct } from '../format'
-import { Section } from './Bits'
+import { credits, mw, pct } from '../format'
+import { Section, Stat } from './Bits'
 import type { ChallengeInfo } from '../api'
 import type { Move } from './Guide'
 import { useEffect, useState } from 'react'
 import { WeeklyChallenge } from './Settings'
+import { HotDeskCard } from './HotDesk'
 
 const PERMITS = [
-  { rank: 1, name: 'Independent Generator', call: 'First Light', goal: 'Restore Eastside, bring the Kestrel turbine online, and build emergency capacity.', unlock: 'Starter generation and storage builds' },
-  { rank: 2, name: 'Regional Producer', call: 'Win a place in the market', goal: 'Deliver 3,000 MWh to earn a place in Vesper’s regional market.', unlock: 'Combined-cycle generation and larger turbine and solar builds' },
-  { rank: 3, name: 'System Partner', call: 'Hold the line', goal: 'Deliver 15,000 MWh while keeping reliability at or above 97%.', unlock: 'The largest combined-cycle plant and 200 MW battery build' },
-  { rank: 4, name: 'Grid Anchor', call: 'Become the reserve', goal: 'Deliver 45,000 MWh while keeping reliability at or above 98%.', unlock: 'The region’s highest operating permit' },
+  { rank: 1, name: 'Independent Generator', call: 'First Light', goal: 'Hormuz tanker delays and VoltLine’s debt spiral cut off Eastside. Restore the homes, bring the Kestrel turbine online, and build emergency reserve capacity.', unlock: 'Starter generation and storage builds' },
+  { rank: 2, name: 'Regional Producer', call: 'Win a place in the market', goal: 'Break Vesper’s fuel-import vulnerability. Deliver 3,000 MWh to keep Ivanova Steel and the Port running and earn a full seat in the regional market.', unlock: 'Combined-cycle generation and larger turbine and solar builds' },
+  { rank: 3, name: 'System Partner', call: 'Hold the line', goal: 'Navigate the COP31 Sovereign Grid Accord: deliver 15,000 MWh while keeping regional reliability at or above 97% amid carbon floor hikes and supply shocks.', unlock: 'The largest combined-cycle plant and 200 MW battery build' },
+  { rank: 4, name: 'Grid Anchor', call: 'Become the reserve', goal: 'Achieve energy sovereignty: deliver 45,000 MWh while keeping reliability at or above 98% to insulate Vesper from foreign oil shocks and VoltLine’s defaults.', unlock: 'The region’s highest operating permit' },
 ] as const
 
 function campaignObjective(v: RegionView) {
@@ -31,7 +32,7 @@ function campaignObjective(v: RegionView) {
   }
 }
 
-export function LoopGoals({ v, challenge, move, onCareer, onChallenge, onLive, onDoMove }: { v: RegionView; challenge: ChallengeInfo | null; move: Move | null; onCareer: (tab: OperationTab) => void; onChallenge: () => void; onLive: () => void; onDoMove: () => void }) {
+export function LoopGoals({ v, challenge, move, onCareer, onChallenge, onLive, onDoMove, onHotDesk }: { v: RegionView; challenge: ChallengeInfo | null; move: Move | null; onCareer: (tab: OperationTab) => void; onChallenge: () => void; onLive: () => void; onDoMove: () => void; onHotDesk?: (callId: string, choice: 'accept' | 'decline') => Promise<unknown> }) {
   const operation = campaignObjective(v)
   const isChallenge = v.mode === 'challenge'
   const progress = isChallenge ? Math.min(100, (v.clock.day / 3) * 100) : operation.progress
@@ -56,21 +57,22 @@ export function LoopGoals({ v, challenge, move, onCareer, onChallenge, onLive, o
           {move.button && <button className="btn primary small" onClick={onDoMove}>{move.button} <span aria-hidden>→</span></button>}
         </div>
       )}
+      {v.hotDesk && onHotDesk && <HotDeskCard call={v.hotDesk} onAnswer={onHotDesk} />}
       <button className="operation-weekly" onClick={isChallenge ? onLive : onChallenge}>{isChallenge ? '← Return to your company' : `Play this week’s crisis · ${challenge?.name ?? '3-day run'} →`}</button>
     </section>
   )
 }
 
-export type OperationTab = 'campaign' | 'weekly'
+export type OperationTab = 'campaign' | 'weekly' | 'whos_who' | 'certificate'
 
-export function OperationCenter({ v, challenge, initialTab, onClose, onChallenge, onLive }: { v: RegionView; challenge: ChallengeInfo | null; initialTab: OperationTab; onClose: () => void; onChallenge: () => Promise<void>; onLive: () => Promise<void> }) {
+export function OperationCenter({ v, challenge, initialTab, companyName = null, onClose, onChallenge, onLive }: { v: RegionView; challenge: ChallengeInfo | null; initialTab: OperationTab; companyName?: string | null; onClose: () => void; onChallenge: () => Promise<void>; onLive: () => Promise<void> }) {
   const [activeTab, setActiveTab] = useState<OperationTab>(initialTab)
   useEffect(() => {
     const closeOnEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [onClose])
-  useEffect(() => { if (v.mode === 'challenge') setActiveTab('weekly') }, [v.mode])
+  useEffect(() => { if (v.mode === 'challenge' && initialTab === 'campaign') setActiveTab('weekly') }, [v.mode, initialTab])
   return (
     <div className="ops-backdrop" onMouseDown={onClose}>
       <section className="ops-center" role="dialog" aria-modal="true" aria-labelledby="ops-title" onMouseDown={(e) => e.stopPropagation()}>
@@ -81,17 +83,32 @@ export function OperationCenter({ v, challenge, initialTab, onClose, onChallenge
         <nav className="ops-tabs" aria-label="Operations">
           <button className={activeTab === 'campaign' ? 'on' : ''} aria-current={activeTab === 'campaign' ? 'page' : undefined} onClick={() => setActiveTab('campaign')}>Campaign</button>
           <button className={activeTab === 'weekly' ? 'on' : ''} aria-current={activeTab === 'weekly' ? 'page' : undefined} onClick={() => setActiveTab('weekly')}>Weekly crisis</button>
+          <button className={activeTab === 'whos_who' ? 'on' : ''} aria-current={activeTab === 'whos_who' ? 'page' : undefined} onClick={() => setActiveTab('whos_who')}>Who’s Who</button>
+          <button className={activeTab === 'certificate' ? 'on' : ''} aria-current={activeTab === 'certificate' ? 'page' : undefined} onClick={() => setActiveTab('certificate')}>Certificate</button>
         </nav>
         <div className="ops-body">
-          {activeTab === 'campaign' ? (
+          {activeTab === 'campaign' && (
             <>
-          <p className="ops-intro">Build a company the region can rely on. Keep the lights on, grow your power business, and earn stronger plants as you rise through the permits.</p>
+              <p className="ops-intro">Build a company the region can rely on. Keep the lights on, grow your power business, and earn stronger plants as you rise through the permits.</p>
               <Career v={v} />
             </>
-          ) : (
+          )}
+          {activeTab === 'weekly' && (
             <>
               <p className="ops-intro">A fresh regional condition changes the opening market each week. Solve the three-day crisis, then compare your score with other operators.</p>
               <WeeklyChallenge v={v} onChallenge={onChallenge} onLive={onLive} />
+            </>
+          )}
+          {activeTab === 'whos_who' && (
+            <>
+              <p className="ops-intro">Every generator and major employer in Vesper runs on the same double-entry ledger. Compare your cash, active capacity, and market standing against the region’s cast.</p>
+              <WhosWho v={v} companyName={companyName} />
+            </>
+          )}
+          {activeTab === 'certificate' && (
+            <>
+              <p className="ops-intro">Your official Vesper Grid Authority Operating Certificate under the COP31 Sovereign Grid Accord, with a customizable charter origin and shareable dispatch summary.</p>
+              <OperatorCertificate v={v} companyName={companyName} />
             </>
           )}
         </div>
@@ -155,8 +172,205 @@ export function Career({ v }: { v: RegionView }) {
         })}
       </ol>
 
-      <Section title="A fresh challenge every week">
-        <p className="fine">The crisis drill gives every operator the same starting conditions for a three-day run. Your saved company stays separate, and there is no penalty for missing a week or stepping away.</p>
+      <Section title="Two acts · one economy">
+        <p className="fine">Your company began in Act I behind Mama Ade’s corner shop (/city), keeping Market Quarter alive through the 2026 Strait of Hormuz oil shock. Now in Act II, the Regulator has drafted you to command Vesper’s 7-district regional grid under the COP31 Sovereign Grid Accord.</p>
+        <p className="fine">The weekly crisis drill gives every operator the same starting conditions for a three-day run. Your saved company stays separate, and there is no penalty for missing a week or stepping away.</p>
+      </Section>
+    </>
+  )
+}
+
+const ORIGINS = [
+  {
+    id: 'eastside_shed',
+    badge: '⚡ Market Quarter Shed Alumni',
+    motto: 'From a 5 kW diesel shed behind Mama Ade’s shop to the regional dispatch desk.',
+  },
+  {
+    id: 'harbor_syndicate',
+    badge: '⚓ Harbour Marine Engineers',
+    motto: 'Keeping dockside cranes and cold-chain reefers running through the Strait fuel squeeze.',
+  },
+  {
+    id: 'northbelt_coop',
+    badge: '☀️ North Belt Solar Syndicate',
+    motto: 'Zero-carbon noon power paired with grid-scale storage under the COP31 Accord.',
+  },
+  {
+    id: 'civic_trust',
+    badge: '🏥 St. Aurelia Civic Power Trust',
+    motto: 'Sworn to critical hospital uptime, fair household tariffs, and sovereign reserve.',
+  },
+] as const
+
+type OriginId = (typeof ORIGINS)[number]['id']
+
+function loadOrigin(): OriginId {
+  try {
+    const saved = localStorage.getItem('bo_origin_id') as OriginId | null
+    if (saved && ORIGINS.some((o) => o.id === saved)) return saved
+  } catch {
+    /* ignore storage errors */
+  }
+  return 'eastside_shed'
+}
+
+export function WhosWho({ v, companyName = null }: { v: RegionView; companyName?: string | null }) {
+  const myPlants = v.plants.filter((p) => p.mine)
+  const myCapKw = myPlants.reduce((a, p) => a + p.capacityKw, 0)
+  const myOutKw = myPlants.reduce((a, p) => a + Math.max(0, p.netKw), 0)
+  const totalOutKw = v.plants.reduce((a, p) => a + Math.max(0, p.netKw), 0)
+  const mySharePct = totalOutKw > 0 ? Math.round((myOutKw / totalOutKw) * 100) : 0
+
+  const generators = [
+    {
+      id: 'player',
+      name: companyName || 'Your Power Company',
+      person: `You · ${v.player.licenceName}`,
+      face: '⚡',
+      cashCc: v.player.cashCc,
+      debtCc: v.player.debtCc,
+      capacityKw: myCapKw,
+      outputKw: myOutKw,
+      plantCount: myPlants.length,
+      state: 'healthy' as const,
+      quote: `Supplying ${mySharePct}% of active regional generation (${v.player.deliveredMWh.toLocaleString('en-US')} MWh delivered at ${pct(v.player.reliabilityBps)} reliability).`,
+      mine: true,
+    },
+    ...(v.rivals ?? []).map((r) => ({ ...r, id: r.ownerId, mine: false })),
+  ].sort((a, b) => b.cashCc - a.cashCc)
+
+  return (
+    <>
+      <p className="eyebrow">VESPER DIRECTORY · POWER GENERATORS</p>
+      <h3>Who’s Who on the Vesper Grid</h3>
+      <p className="fine">Ranked by live company cash on the regional ledger. Every generator competes in the same 5-minute nodal pool.</p>
+      <ol className="career-ladder">
+        {generators.map((g, idx) => (
+          <li key={g.id} className={`career-stage ${g.mine ? 'current' : 'earned'}`}>
+            <span className="career-stage-mark" aria-hidden>{idx + 1}</span>
+            <div style={{ width: '100%' }}>
+              <div className="career-stage-title">
+                <b>{g.face} {g.name} <small className="fine">· {g.person}</small></b>
+                <small>{g.state === 'distressed' ? 'Distressed' : g.state === 'strained' ? 'Strained' : g.mine ? 'Your company' : 'Active rival'}</small>
+              </div>
+              <div className="stat-grid" style={{ marginTop: 6, marginBottom: 6 }}>
+                <Stat label="Cash" value={credits(g.cashCc)} tone={g.mine ? 'gold' : undefined} />
+                <Stat label="Debt" value={credits(g.debtCc)} tone={g.debtCc > 0 ? 'warn' : undefined} />
+                <Stat label="Fleet" value={`${mw(g.capacityKw)} (${g.plantCount})`} />
+                <Stat label="Dispatch now" value={mw(g.outputKw)} />
+              </div>
+              <p className="fine" style={{ margin: 0 }}>“{g.quote}”</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <Section title="Civic & Industrial Leaders">
+        <p className="fine">Major employers and community anchors across the seven districts, with their live cash reserves and operating status.</p>
+        {v.actors.slice(0, 8).map((a) => (
+          <div key={a.actorId} className="supplier" style={{ marginBottom: 8 }}>
+            <div className="sup-head">
+              <span>{a.face} <b>{a.person}</b> <small>{a.name}</small></span>
+              <b>{credits(a.cashCc)}</b>
+            </div>
+            <small className="fine">
+              Load {mw(a.servedKw)} / {mw(a.demandKw)} · Output {pct(a.productionBps)} · Health {pct(a.healthBps)} · Status: <b>{a.state}</b>
+            </small>
+            <p className="fine" style={{ margin: '4px 0 0' }}>“{a.quote}”</p>
+          </div>
+        ))}
+      </Section>
+    </>
+  )
+}
+
+export function OperatorCertificate({ v, companyName = null }: { v: RegionView; companyName?: string | null }) {
+  const [originId, setOriginId] = useState<OriginId>(loadOrigin)
+  const [copied, setCopied] = useState(false)
+  const origin = ORIGINS.find((o) => o.id === originId) ?? ORIGINS[0]
+  const myPlants = v.plants.filter((p) => p.mine)
+  const myCapKw = myPlants.reduce((a, p) => a + p.capacityKw, 0)
+  const co = companyName || 'Vesper Independent Utility'
+
+  const selectOrigin = (id: OriginId) => {
+    setOriginId(id)
+    try {
+      localStorage.setItem('bo_origin_id', id)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const copySummary = async () => {
+    const text = [
+      `=== VESPER GRID AUTHORITY · OPERATING CERTIFICATE ===`,
+      `Company: ${co}`,
+      `Charter: ${origin.badge} — "${origin.motto}"`,
+      `Permit Rank: Level ${v.player.licence}/4 · ${v.player.licenceName}`,
+      `Delivered Energy: ${v.player.deliveredMWh.toLocaleString('en-US')} MWh`,
+      `Regional Reliability: ${pct(v.player.reliabilityBps)}`,
+      `Company Cash: ${credits(v.player.cashCc)} · Net Worth: ${credits(v.player.netWorthCc)}`,
+      `Installed Fleet: ${myPlants.length} plants (${mw(myCapKw)})`,
+      `Cumulative CO₂: ${v.player.emissionsT.toLocaleString('en-US')} t · Score: ${v.scores.score.toLocaleString('en-US')} pts`,
+      `Verified Settlement Epochs: ${v.settlement.epochs.length}`,
+    ].join('\n')
+    try {
+      await navigator.clipboard?.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 3_000)
+    } catch {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 3_000)
+    }
+  }
+
+  return (
+    <>
+      <section className="campaign-brief campaign-complete" aria-label="Operating certificate">
+        <div className="campaign-brief-top">
+          <span>VESPER GRID AUTHORITY · COP31 SOVEREIGN GRID ACCORD</span>
+          <b>PERMIT LEVEL {v.player.licence} / 4</b>
+        </div>
+        <h3 style={{ margin: '6px 0 2px' }}>{co}</h3>
+        <p className="fine" style={{ margin: '0 0 8px' }}>
+          <b>{origin.badge}</b> — <em>“{origin.motto}”</em>
+        </p>
+        <div className="stat-grid" style={{ marginBottom: 10 }}>
+          <Stat label="Permit class" value={v.player.licenceName} tone="gold" />
+          <Stat label="Delivered" value={`${v.player.deliveredMWh.toLocaleString('en-US')} MWh`} />
+          <Stat label="Grid reliability" value={pct(v.player.reliabilityBps)} tone={v.player.reliabilityBps >= 9_700 ? 'ok' : 'warn'} />
+          <Stat label="Net worth" value={credits(v.player.netWorthCc)} />
+          <Stat label="Company cash" value={credits(v.player.cashCc)} />
+          <Stat label="Active fleet" value={`${mw(myCapKw)} (${myPlants.length})`} />
+          <Stat label="CO₂ emissions" value={`${v.player.emissionsT.toLocaleString('en-US')} t`} />
+          <Stat label="Operator score" value={v.scores.score.toLocaleString('en-US')} />
+        </div>
+        <div className="campaign-unlock">
+          <span>SETTLEMENT RECORD</span>
+          <b>{v.settlement.epochs.length} verified epochs · Day {v.clock.day} ({v.clock.label})</b>
+        </div>
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="btn primary small" onClick={() => void copySummary()}>
+            {copied ? '✓ Certificate copied to clipboard' : '📋 Copy official certificate summary'}
+          </button>
+        </div>
+      </section>
+
+      <Section title="Company charter & origin badge (cosmetic)">
+        <p className="fine">Choose the background story printed on your Operating Certificate. Charter badges are purely cosmetic so weekly crisis leaderboards stay strictly fair.</p>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+          {ORIGINS.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              className={`btn small ${originId === o.id ? 'primary' : 'ghost'}`}
+              onClick={() => selectOrigin(o.id)}
+            >
+              {o.badge}
+            </button>
+          ))}
+        </div>
       </Section>
     </>
   )

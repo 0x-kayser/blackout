@@ -1,16 +1,31 @@
-# Test report — 2026-11-08
+# Test report — 2026-11-11
+
+Run on Windows 11, Node 24, pnpm 10.33.4, against upstream `main` at `9b29530` plus the local story edits.
 
 | Suite | Command | Result |
 |---|---|---|
-| Engine + economy (vitest) | `pnpm test` | **65 passed** (incl. API, auth, chain worker, SSE below) |
-| NEP-245 contract (Rust) | `pnpm test:contract` | **19 passed** (includes escrow primitive tests) |
-| Browser journeys (Playwright, Chromium) | `pnpm test:e2e` | **7 passed** (6 desktop + 1 Pixel 7), after aligning selectors to the current intro, market and replay UI |
-| Type check | `pnpm typecheck` + `apps/web` tsc | clean |
-| Contract WASM build | `pnpm build:contract` | passed with plain Cargo fallback; `cargo-near` absent, so Testnet compatibility not verified |
-| Container | `docker build` + run | health, web at `/`, SPA fallback, JSON 404, guest session, JSON logs ✓ |
-| Log redaction | inject request with bearer + cookie | 0 secret occurrences in logs ✓ |
+| Unit + integration (vitest) | `pnpm test` | **206 passed**, 22 files |
+| Type check | `pnpm typecheck` | clean |
+| Browser journeys (Playwright, Chromium) | `pnpm test:e2e` | **14 tests** (12 desktop + 2 mobile); the last run had 13 passing and one stale test, now fixed (it clicked a "Verify" button that the player UI no longer has). The "Watch a week" test timed out once in a full run on a slow machine and passes on its own. |
+| NEP-245 / NEP-171 contract (Rust) | `pnpm test:contract` | **not run in this pass** (no Rust toolchain on the test machine). The source has 54 `#[test]` functions across `tests.rs`, `economy_tests.rs` and `plant_tests.rs`. |
+| Web build | `pnpm build:web` | passes; Vite warns about chunks over 900 kB (the lazy 3D scene) |
+| Live NEAR Testnet | n/a | not exercised here; see [NEAR_TRACK_COMPLIANCE.md](NEAR_TRACK_COMPLIANCE.md) |
 
-## What the suites cover
+Windows notes: `playwright.config.ts` uses POSIX shell syntax (`rm -f`, inline `VAR=x`), so on Windows start the API
+yourself and point Playwright at it. The API entry guard in `apps/api/src/server.ts` now uses `pathToFileURL`, which
+fixed a silent exit on Windows paths.
+
+## Vitest files
+| Area | Files (tests) |
+|---|---|
+| Region engine | `region/region.test.ts` (17), `region/market.test.ts` (6) |
+| Town market | `town/town.test.ts` (15), `town/firms.test.ts` (9) |
+| City engine and economy | `engine.test.ts` (21), `economy.test.ts` (18), `goals.test.ts` (4), `grid.test.ts` (6), `marketplace.test.ts` (4) |
+| Fuel exchange engine | `exchange.test.ts` (14) |
+| API integration | `region` (19), `economy` (18), `exchange` (12), `api` (10), `auth` (8), `chain` (8), `relay` (6), `google` (4), `local-auth` (2), `plants` (2), `signin-first` (1) |
+| Server-sent events | `e2e/sse.test.ts` (2) |
+
+## What the older city-mode suites cover (still true; the region and town suites above are newer)
 **Unit (packages/sim):** starting kit; 0.3 L/kWh and 2.68 kg/L (32 kWh → 9.6 L → 25.728 kg); Cold Room tutorial exact
 accounting; continuous clock (rollover every 240 ticks, 8 waves/day, no phase stops, contracts cross midnight, market
 open mid-day); tutorial patience and lapse; capacity across overlapping contracts (`CAPACITY_EXCEEDED`, no fuel
