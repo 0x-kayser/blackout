@@ -95,7 +95,7 @@ Also fix the approval deviations found in the audit (`mt_is_approved` signature,
 
 **Engine (pure, deterministic, `packages/sim/src/exchange/`)**
 - `state.ts`: the order book, trader inventories and cash, the exchange ledger (double-entry), and the price history.
-- `matching.ts`: price-time priority, partial fills, the price band (0.5× to 3× replacement cost) that blocks credit
+- `engine.ts` (matching): price-time priority, partial fills, the price band (0.5× to 3× replacement cost) that blocks credit
   laundering between accounts.
 - `policies/exchangeTraders.ts`: one file, with every decision returning a `reasons` object for the tooltip (as
   `merchantPricing.ts` does).

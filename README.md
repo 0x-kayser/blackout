@@ -1,10 +1,52 @@
 # BLACKOUT — Every Light Changes the Economy
 
-A regional power-system strategy game for the NEAR Hackathon **Games With Real Economies** track. You run a power
-company in the Vesper region: seven load centres, six transmission lines, a gigawatt of demand and never quite enough
-cheap generation. Every five game minutes, the simulated merit-order market clears. When supply runs short, prices
-spike, customers switch off, then the lights go out — and businesses with their own balance sheets lose money, lay
-people off and close. You decide what runs, what gets built, where, and with whose money.
+A regional power-system strategy game for the NEAR Hackathon **Games With Real Economies** track.
+
+**The story (fiction).** It is November 2026. Gulf shipping disruptions have pushed imported gas and diesel sharply
+higher just as a new carbon rule makes unpermitted emissions dearer. The Strait of Hormuz disruption and the
+"COP31 Sovereign Grid Accord" are a *fictional scenario* inspired by real 2026 events, not a record of them. Vesper's
+monopoly utility, **VoltLine Energy** (Victor Lane, ₡15M in debt), lets its turbines trip and Residential East goes
+dark. **Mama Ade** lends you a shed and a diesel generator. Then the Regulator hands you the region's idle Kestrel
+Peaker. You keep Vesper lit. Full story: [docs/STORYLINE_AND_PITCH.md](docs/STORYLINE_AND_PITCH.md).
+
+**What you play.** One crisis at two scales:
+* **Act I, Street Microgrid (`/city`):** a 5 kW diesel set behind Mama Ade's shop, 44 local businesses, 9 story
+  chapters, and fuel prices that follow a bundled U.S. EIA Brent crude dataset.
+* **Act II, Regional Command (`/`):** the 120 MW Kestrel Peaker and the 80 MW / 160 MWh Eastside Battery, seven load
+  centres, six transmission lines and about a gigawatt of demand. Every five game minutes a merit-order market clears.
+  When supply runs short, prices spike, customers switch off, then the lights go out, and businesses with their own
+  balance sheets lose money, lay people off and close. You decide what runs, what gets built, where, and with whose money.
+
+**Why it fits the track.** The economy runs without developer input and you can watch it:
+
+| Track ask | Where to see it |
+|---|---|
+| NPCs with wallets | Nine merchants and four rival power companies (VoltLine, Northwind Co-op, Eastbank Energy, Harbor Diesel) each hold their own cash and stock, and twelve regional actors (hospital, steel works, port, data centre, households…) have their own balance sheets. See them in **Vesper Market** and the **Who's Who** board |
+| Prices from stock and demand | One readable rule, [`merchantPricing.ts`](packages/sim/src/town/merchantPricing.ts); the tooltip names the news story behind a move |
+| Economy that evolves without a patch | A news story about once a minute, an incident at least every 2½ minutes, a weekly seeded crisis, and four **Hot Desk** calls from the region's people |
+| Player-owned markets | Invest in a closed shop, buy VoltLine's plants, sell power to the region |
+| Players never notice the chain | No wallet, seed phrase or gas in normal play; settlement runs behind the game |
+
+## A living Vesper: the people layer
+These four additions give the economy a voice. They are presentation and simulation, and they add no on-chain
+functionality.
+
+* **Hot Desk.** After the first-night rescue, four people phone with a yes-or-no decision: Dr. Nadia Petrov
+  (hospital voltage), Marta Ivanova (steel retainer), Rosa Delgado (port cold chain) and Amara Obi (evening market).
+  Each shows its exact cost and payoff before you answer. Outcomes move credits and the health or output of the actor
+  involved. They never move merchant items, so they do not touch the NEP-245 flow.
+* **98.4 Vesper FM and The Vesper Chronicle.** Open **📻 98.4 FM · News & Chronicle** for a radio host, call-ins from
+  the cast and a daily front page. Every line is generated from the live game state (reserve, prices, closures,
+  your delivered energy), so it changes as the grid changes.
+* **Who's Who and the Operating Certificate.** The Company view and the Operations view list the four rival
+  generators with live cash, debt, capacity and output, and show your permit rank and reliability on a certificate.
+* **Merchant mood.** Each of the nine merchants shows a mood (🟢 thriving, 🔵 steady, 🟡 stock tight, 🟠 cash-worried,
+  🔴 shuttered), what they are doing at this hour, how many days of overhead their cash covers, and a line of their
+  own. The mood is computed from the merchant's real cash, daily costs and stock, so a squeezed shop looks squeezed.
+
+How they stay honest: the engine remains deterministic and zero-sum (every asset still sums to zero, and settlement
+epochs still verify), Hot Desk answers are recorded actions so saves and replays reproduce them, and Hot Desk is
+switched off in the shared weekly challenge so its leaderboard stays fair.
 
 > **Live game:** [blackout-production-c7fc.up.railway.app](https://blackout-production-c7fc.up.railway.app). Production currently offers guest play and Google sign-in. Email sign-in is not configured.
 >
@@ -46,7 +88,7 @@ Open **http://localhost:5173**. This command enables guest play and local email-
 code is shown on screen. To enable Google locally, set `GOOGLE_CLIENT_ID` and add
 `http://localhost:5173` to that OAuth client's Authorized JavaScript origins. Do not set
 `AUTH_LOCAL_EMAIL_SHOW_CODE=true` in production. The original city game is still playable at **/city**. Node ≥ 22.5,
-pnpm 10. Set `WORLD_INPUTS=off` to skip live weather.
+pnpm 10. Set `WORLD_INPUTS=off` to skip live weather. On Windows, set those variables in PowerShell (`$env:ALLOW_GUEST_PLAY="true"`) before `pnpm dev`.
 
 ## Your first night in Vesper
 You enter through a rescue briefing. The first three steps each have a short explanation, a direct action button, and
@@ -62,7 +104,7 @@ map and company controls open.
 Then the campaign stays in view while you play: it shows the next city goal, progress toward it, what new builds it
 will unlock, and a field note with the best available action. The bottom dock opens **Power**, **Build**, **Market**,
 **Map**, or **Company** without taking you away from the city. Select a plant, district, or merchant to see what
-it is doing and why its price is what it is. **News & events** tells the region's story, cause by cause.
+it is doing and why its price is what it is. **📻 98.4 FM · News & Chronicle** tells the region's story, cause by cause.
 
 ## The brief, requirement by requirement
 | The brief asks | In BLACKOUT |
@@ -86,6 +128,10 @@ certificates), Ruth (carbon permits), Pavel (steel) and Nkechi (turbine kits). T
 what you hold, before news and replay details. Each stall says **Shop this stall** and opens its stock, buy and sell
 prices with the reasoning, a reviewable quote, recent trades, investors, and trade or invest actions. MARKET also
 shows the live feed of who's trading.
+
+**Merchants have moods.** Open a stall and a *Mood & daily routine* panel shows how the merchant is doing and what
+they are doing right now (morning, afternoon or night). A shuttered shop says what it needs to reopen; a stressed one
+says why it is pricing to protect the till.
 
 **Every financial action is reviewable.** Before a market order, the game shows the estimated average price, total,
 cash and inventory after the order, and whether the merchant can fill it. Investments show the projected share of
@@ -186,6 +232,7 @@ empty transaction log is reported as such, not as a successful on-chain trade.
 | NEAR Testnet contract and standalone demo | **Deployed and demonstrated** as documented in [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md). |
 | Root NEP-245 player-resource settlement | **Implemented and pushed in `bf3dd76`; the exact Railway release and a real player trade are still pending verification.** |
 | Legacy fuel-listing adapter | **Disabled** in Railway; it is a separate contract flow. |
+| Hot Desk, Vesper FM and Chronicle, Who's Who, merchant moods | **In this repository** (branch `feat/living-vesper`); they appear on the live site after the next Railway deploy. Credits and health only; none of it settles on chain. |
 | Seven-day market replay | Available through **Watch a week** in MARKET; sandbox replay is distinct from Testnet settlement. |
 | Classic city game | Available at **/city**. |
 
@@ -194,9 +241,12 @@ empty transaction log is reported as such, not as a successful on-chain trade.
 2. Start Kestrel, discharge the battery: the shortfall closes on screen.
 3. Tap the Residential East price: *why* it costs what it costs.
 4. Build a peaker on the pad; open GRID and upgrade the Eastside Line.
-5. Open **What happened**: follow one causal chain from a trip to a layoff.
-6. Open **MARKET** and **Watch a week** to show the evolving simulated economy.
-7. For chain evidence, use the separate [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) walkthrough and its explorer links. Do not present it as a live player resource-market transaction from the Railway game.
+5. Open **📻 98.4 FM · News & Chronicle**: the host and the front page describe the grid you just changed.
+6. When a **Hot Desk** call appears (shortly after the rescue), read the cost and payoff, then answer it.
+7. Open **MARKET**, pick a merchant and show the *Mood & daily routine* panel and the price reasoning.
+8. Open **Company** to show **Who's Who**: VoltLine and the other three generators with live cash and capacity.
+9. Back in MARKET, choose **Watch a week** to show the evolving simulated economy.
+10. For chain evidence, use the separate [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) walkthrough and its explorer links. Do not present it as a live player resource-market transaction from the Railway game.
 
 ## Commands
 | | |

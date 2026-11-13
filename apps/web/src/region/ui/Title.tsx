@@ -33,16 +33,16 @@ function useSkyline() {
 }
 
 const ROUTE = [
-  { number: '01', title: 'Bring Eastside back', detail: 'Restore the homes, start Kestrel and build your first reserve.' },
-  { number: '02', title: 'Earn Regional Producer', detail: 'Deliver 3,000 MWh to open larger plant builds.' },
-  { number: '03', title: 'Become System Partner', detail: 'Deliver 15,000 MWh and maintain 97% reliability.' },
-  { number: '04', title: 'Earn Grid Anchor', detail: 'Reach 45,000 MWh and maintain 98% reliability.' },
+  { number: '01', title: 'Bring Eastside back', detail: 'Hormuz tanker delays and VoltLine’s debt crisis cut off Eastside. Restore the homes, start Kestrel, and build your first reserve.' },
+  { number: '02', title: 'Earn Regional Producer', detail: 'Break the import trap: deliver 3,000 MWh to keep Vesper’s steel mill and port running and unlock CCGT and utility solar.' },
+  { number: '03', title: 'Become System Partner', detail: 'Navigate the COP31 Carbon Accord: deliver 15,000 MWh at 97% reliability while balancing carbon permits and green certificates.' },
+  { number: '04', title: 'Earn Grid Anchor', detail: 'Energy sovereignty: reach 45,000 MWh and 98% reliability to insulate Vesper from global oil shocks and rival defaults.' },
 ]
 
 const TOUR = [
   {
     label: 'THE FIRST NIGHT', icon: '🌃', title: 'Bring Eastside back',
-    detail: 'Your opening rescue is guided step by step: restore the battery, start Kestrel, then build a reserve. Each prompt points to the exact action in the city.',
+    detail: 'Strait shipping delays and VoltLine’s ₡15M debt crisis have plunged Residential East into darkness. After proving yourself on Mama Ade’s street microgrid, the Regulator hands you Kestrel Peaker: restore the battery, start Kestrel, then build a reserve.',
   },
   {
     label: 'RUN THE GRID', icon: '⚡', title: 'Keep power ahead of demand',
@@ -50,11 +50,11 @@ const TOUR = [
   },
   {
     label: 'THE MARKET', icon: '🏪', title: 'Trade with living merchants',
-    detail: 'Ship delays and rationing tighten stock and move fuel prices. Buy a reserve, let automatic top-ups spend, or hold cash and risk a plant running short. Your choice changes what Vesper can sell.',
+    detail: 'Buy fuel, carbon permits, steel, or parts from nine merchants. Fixed resource reserves, tanker delays, and stock levels move prices. Secure a supply, let automatic top-ups spend, or hold cash and risk a plant running short. Sell spare electricity to three power companies.',
   },
   {
     label: 'YOUR CAMPAIGN', icon: '🏆', title: 'Earn permits. Take on the crisis.',
-    detail: 'Deliver power and protect reliability to earn four operating permits and unlock stronger builds. Each week brings a shared three-day crisis; your saved city stays separate.',
+    detail: 'Deliver power and protect reliability to earn four operating permits and unlock stronger builds. Each week brings a shared three-day crisis—from Strait fuel shocks to COP31 carbon squeezes.',
   },
 ] as const
 
@@ -112,12 +112,15 @@ export function Title(p: TitleProps) {
       <main className="title-card">
         <div className="title-main">
           <section className="title-intro">
-            <p className="title-overline">VESPER REGION · EMERGENCY SHIFT 01</p>
+            <p className="title-overline">VESPER REGION · EMERGENCY SHIFT 01 · TWIN SQUEEZE OF 2026</p>
             <h1 className="title-logo">BLACK<span>OUT</span></h1>
             <h2 className="title-claim">The lights are out in Eastside.</h2>
-            <p className="title-tag">Take control of the grid. Restore the homes, bring Kestrel online, and build enough reserve to carry Vesper through the night.</p>
+            <p className="title-tag">Strait of Hormuz tanker delays and the COP31 Carbon Accord have pushed debt-ridden VoltLine Energy to the brink. Drafted from Mama Ade’s street microgrid, you now command Kestrel Peaker and the Eastside Battery—restore the homes and carry Vesper through the night.</p>
             <div className="title-signal"><span className="title-signal-dot" /> <b>FIRST OPERATION</b><span>Restore Eastside</span></div>
-            <button className="title-tour-launch" onClick={() => setTourStep(0)}>🎮 &nbsp;How to play · 1 minute <span aria-hidden>→</span></button>
+            <div className="row" style={{ marginTop: 12, gap: 14 }}>
+              <button className="title-tour-launch" style={{ marginTop: 0 }} onClick={() => setTourStep(0)}>🎮 &nbsp;How to play · 1 minute <span aria-hidden>→</span></button>
+              <a className="title-tour-launch" style={{ marginTop: 0, color: 'var(--mute)', textDecoration: 'none' }} href="/city">🛖 &nbsp;Play Act I: Street Microgrid (/city) <span aria-hidden>→</span></a>
+            </div>
           </section>
 
           <section className="title-launch" aria-label="Enter the game">

@@ -244,9 +244,11 @@ function Market({ v, act, onSelect }: { v: RegionView; act: Act; onSelect: (s: S
         <Msg msg={msg} />
       </Section>
       <Section title="Who else is in the market">
-        <p className="fine">
-          <b>VoltLine</b> ({v.voltline.person}): {mw(v.voltline.capacityKw)}, {credits(v.voltline.cashCc)} cash, {credits(v.voltline.debtCc)} debt. {v.voltline.note}
-        </p>
+        {(v.rivals ?? []).map((r) => (
+          <p key={r.ownerId} className="fine">
+            {r.face} <b>{r.name}</b> ({r.person}): {mw(r.capacityKw)}, {credits(r.cashCc)} cash{r.debtCc > 0 ? `, ${credits(r.debtCc)} debt` : ''}. {r.quote}
+          </p>
+        ))}
         <p className="fine">
           <b>Regulator</b>: cap {price(v.regulator.priceCapCcPerMWh)}/MWh, carbon {price(v.regulator.carbonCcPerT)}/t, fund {credits(v.regulator.fundCc)}. {v.regulator.note}
         </p>
@@ -404,6 +406,19 @@ function Portfolio({ v, act, onSelect, onClose, onMode }: { v: RegionView; act: 
         <Stat label="Business output" value={pct(v.economy.regionOutputBps)} />
         <Stat label="Jobs" value={`${v.economy.employment.toLocaleString('en-US')} / ${v.economy.baseEmployment.toLocaleString('en-US')}`} />
         <Stat label="Household health" value={pct(v.economy.householdHealthBps)} />
+      </Section>
+      <Section title="Who's Who · Rival Generators">
+        {(v.rivals ?? []).map((r) => (
+          <div key={r.ownerId} className="supplier" style={{ marginBottom: 6 }}>
+            <div className="sup-head">
+              <span>{r.face} <b>{r.name}</b> <small>{r.person}</small></span>
+              <b>{credits(r.cashCc)}</b>
+            </div>
+            <small className="fine">
+              {mw(r.outputKw)} / {mw(r.capacityKw)} online · {r.plantCount} {r.plantCount === 1 ? 'plant' : 'plants'}{r.debtCc > 0 ? ` · ${credits(r.debtCc)} debt` : ''} · {r.state}
+            </small>
+          </div>
+        ))}
       </Section>
       <Msg msg={msg} />
     </>

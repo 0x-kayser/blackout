@@ -7,3 +7,4 @@ export { newRCtx, rsum, rbal, RACC, type RegionState, type RCtx, type REpoch } f
 export * as regionConfig from "./config.ts";
 export { runRegionLab, type RegionLabResult, type RegionLabStrategy } from "./lab.ts";
 export { REGION_CHALLENGES, regionChallengeSnapshot, type RegionChallengeCondition } from "./challenge.ts";
+export { HOT_DESK_CALLS, HOT_DESK_TTL_INTERVALS } from "./hotDesk.ts";

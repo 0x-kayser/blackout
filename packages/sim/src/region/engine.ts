@@ -22,6 +22,7 @@ import { actorsStep, buyFuel, disruptSupplier, financeStep, fuelMarketCc, listin
 import { close, cooled, cr, emit, mw, open, openKeys } from "./events.ts";
 import { clearMarket, type ClearingResult } from "./market.ts";
 import { burnPerKwInterval, clockOf, co2KgPerMWh, isNewDay, marginalCost, solarFactorBps, stepWeather } from "./physics.ts";
+import { answerHotDesk, ensureHotDesk, hotDeskStep } from "./hotDesk.ts";
 import { maybeCloseEpoch } from "./settlement.ts";
 import { RACC, fuelAsset, rbal, rtransfer, rtransferUpTo, type RCtx, type RPlant, type RegionState } from "./state.ts";
 
@@ -71,6 +72,7 @@ export function createRegion(opts: { regionId: string; seed: number; mode?: "liv
     epochs: [],
     epochStart: { interval: 0, balances: {} },
     scripted: { firstTripDone: false },
+    hotDesk: { activeCallId: null, activeSince: 0, resolved: [] },
     ended: false,
   };
   s.weather.condition = input.tempC >= 34 ? "heatwave" : input.cloudPct >= 80 ? "rain" : input.cloudPct >= 45 ? "cloudy" : "clear";
@@ -193,6 +195,7 @@ export function ensureRegion(s: RegionState): RegionState {
     }
     s.resourceLedger = { totals, legacy: true, noticeBps: {} };
   }
+  ensureHotDesk(s);
   return s;
 }
 
@@ -471,6 +474,9 @@ export function regionAct(s: RegionState, ctx: RCtx, action: AnyRegionAction): {
       transferPlant(s, ctx, p, "player", l.askCc);
       return { message: `${p.name} is yours.` };
     }
+    case "ANSWER_HOT_DESK": {
+      return answerHotDesk(s, ctx, action.callId, action.choice);
+    }
     case "PAUSE":
     case "RESUME":
       return { message: "ok" };
@@ -702,6 +708,7 @@ export function regionTick(s: RegionState, ctx: RCtx): void {
   detectGridEvents(s, ctx, r);
   licenceStep(s, ctx);
   onboardingStep(s, ctx);
+  hotDeskStep(s, ctx);
   maybeCloseEpoch(s);
   // keep finished power contracts long enough for the server to read what was delivered
   if (s.exports?.length) s.exports = s.exports.filter((x) => s.interval - x.untilInterval < 300);

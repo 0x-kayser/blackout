@@ -92,7 +92,7 @@ Verification run for this audit:
 
 - `pnpm typecheck` — **passed** after the resource accounting and settlement changes.
 - `pnpm exec vitest run tests/integration/economy.test.ts tests/integration/region.test.ts --maxWorkers=2 --minWorkers=1` — **37/37 passed**. This includes player wallet bootstrapping, market buy/sell transfers, consumption reconciliation, settlement ordering, and region epoch verification on the fake chain.
-- The latest full-suite attempt ran 203 tests successfully but one test failed before the settlement-ordering fix. The SSE suite was also blocked by the sandbox's `listen EPERM` restriction. The full suite has not been rerun after the fix; do not label it as passing.
+- Full suite: an earlier attempt ran 203 tests with one failure (before the settlement-ordering fix), and the SSE suite was blocked by the sandbox's `listen EPERM` restriction. Rerun on 2026-11-11 against upstream `9b29530` on a normal machine: **206/206 passed** (see [TEST_REPORT.md](TEST_REPORT.md)).
 - `pnpm build:web` — **passed**; Vite still warns that the lazy 3D chunk is 948 kB. The focused server/simulation changes do not alter that chunk.
 - `git diff --check` — **passed** after the source and documentation edits.
 - A previous Playwright `tests/e2e/browser/region.spec.ts` run passed **6 desktop/mobile checks**. A later rerun timed out waiting for Playwright's managed API healthcheck. That previous pass did not verify the latest tour copy or this NEP-245 accounting change.

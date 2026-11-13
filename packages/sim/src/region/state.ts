@@ -210,6 +210,8 @@ export interface RegionState {
   scripted: { firstTripDone: boolean };
   /** The market's fuel prices (cc per MMBtu / L), set by TOWN_PRICES. */
   townPrices?: { gas: number | null; diesel: number | null };
+  /** Deterministic Hot Desk dilemma calls from city characters (live mode after onboarding). */
+  hotDesk?: { activeCallId: string | null; activeSince: number; resolved: string[] };
   ended: boolean;
 }
 

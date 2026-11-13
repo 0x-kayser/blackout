@@ -20,8 +20,8 @@ upgrades owned by whoever pays for them.
 ### Fleet at start
 | Plant | Owner | MW |
 |---|---|---|
-| Kestrel Peaker (OCGT) | you | 120 |
-| Riverside Battery | you | 60 / 120 MWh |
+| Kestrel Peaker (OCGT, Industrial South; starts offline: you start it) | you | 120 |
+| Eastside Battery (Residential East; starts 80% charged) | you | 80 MW / 160 MWh |
 | Harbor CCGT, Southgate CCGT, Ridge OCGT, Cityline OCGT, Solar Belt | VoltLine | 420, 260, 140, 130, 180 |
 | Northwind Co-op Solar | Northwind | 150 |
 | Eastbank Gas Engines | Eastbank | 140 |

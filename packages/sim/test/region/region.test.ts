@@ -231,4 +231,52 @@ describe("regional engine", () => {
     expect(at.length).toBeGreaterThanOrEqual(4);
     for (let k = 1; k < at.length; k++) expect(at[k] - at[k - 1]).toBeLessThanOrEqual(region.INCIDENT_GAP + 6);
   });
+
+  it("exposes all four rival generators in Who's Who with live ledger cash and capacity", () => {
+    const s = createRegion({ regionId: "rivals", seed: 14 });
+    const v = toRegionView(s);
+    expect(v.rivals.map((r) => r.ownerId)).toEqual(["voltline", "northwind", "eastbank", "harbor_diesel"]);
+    expect(v.rivals.map((r) => r.person)).toEqual(["Victor Lane", "Hanna Lindqvist", "Omar Haddad", "Gus Moreau"]);
+    for (const r of v.rivals) {
+      expect(r.cashCc).toBe(rbal(s, "cc", RACC.owner(r.ownerId)));
+      expect(r.capacityKw).toBeGreaterThan(0);
+      expect(r.quote.length).toBeGreaterThan(10);
+    }
+  });
+
+  it("Hot Desk calls are deterministic, conserve every asset, verify across epochs, and stay out of weekly challenges", () => {
+    const script: Record<number, AnyRegionAction[]> = {
+      ...ONBOARD,
+      20: [{ type: "ANSWER_HOT_DESK", callId: "petrov_stabilizer", choice: "accept" }],
+      56: [{ type: "ANSWER_HOT_DESK", callId: "marta_furnace_retainer", choice: "accept" }],
+      98: [{ type: "ANSWER_HOT_DESK", callId: "delgado_cold_berth", choice: "accept" }],
+      146: [{ type: "ANSWER_HOT_DESK", callId: "obi_night_market", choice: "decline" }],
+    };
+    const a = run(19, 180, script).s;
+    const b = run(19, 180, script).s;
+    expect(sha256(canonical(a))).toBe(sha256(canonical(b)));
+    expect(a.hotDesk?.resolved).toEqual([
+      "petrov_stabilizer",
+      "marta_furnace_retainer",
+      "delgado_cold_berth",
+      "obi_night_market",
+    ]);
+    for (const asset of ["cc", "gas", "diesel", "permit", "cert", "steel", "parts"] as const) {
+      expect(rsum(a, asset)).toBe(0);
+    }
+    for (const [acct, val] of Object.entries(a.balances.cc)) {
+      if (!acct.startsWith("ext:")) expect(val).toBeGreaterThanOrEqual(0);
+    }
+    for (const e of a.epochs) {
+      expect(verifyEpoch(e)).toBe(true);
+      expect(e.transfers.reduce((sum, t) => sum + t.deltaCc, 0)).toBe(0);
+    }
+
+    // Weekly challenge runs never spawn or accept Hot Desk calls
+    const ch = createRegion({ regionId: "ch-hd", seed: 19, mode: "challenge" });
+    const ctx = newRCtx();
+    for (let i = 0; i < 60; i++) regionTick(ch, ctx);
+    expect(toRegionView(ch).hotDesk).toBeNull();
+    expect(() => regionAct(ch, ctx, { type: "ANSWER_HOT_DESK", callId: "petrov_stabilizer", choice: "accept" })).toThrow(/disabled/);
+  });
 });
