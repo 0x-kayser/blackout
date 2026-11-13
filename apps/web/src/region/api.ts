@@ -60,6 +60,9 @@ export const regionApi = {
   listPlant: (plantId: string, priceCc: number) => call<{ ok: true; sales: PlantSale[] }>('POST', '/api/plants/list', { plantId, priceCc }),
   cancelPlant: (saleId: string) => call<{ ok: true; sales: PlantSale[] }>('POST', '/api/plants/cancel', { saleId }),
   buyPlant: (saleId: string) => call<{ ok: true; sales: PlantSale[] }>('POST', '/api/plants/buy', { saleId }),
+  resourceSales: () => call<{ ok: true; sales: ResourceSale[] }>('GET', '/api/resources/market'),
+  listResource: (item: ItemId, quantity: number, unitPriceCc: number) => call<{ ok: true; sale: ResourceSale; sales: ResourceSale[] }>('POST', '/api/resources/list', { item, quantity, unitPriceCc, idempotencyKey: newKey() }),
+  cancelResource: (saleId: string) => call<{ ok: true; sale: ResourceSale; sales: ResourceSale[] }>('POST', '/api/resources/cancel', { saleId }),
 }
 
 export interface DeskView { sell: boolean; markupBps: number }
@@ -75,6 +78,20 @@ export interface PlantSale {
   capacityKw: number
   priceCc: number
   status: 'listing' | 'listed' | 'buying' | 'sold' | 'cancelled' | 'failed'
+}
+
+export interface ResourceSale {
+  saleId: string
+  sellerName: string
+  mine: boolean
+  item: ItemId
+  quantity: number
+  unitPriceCc: number
+  totalCc: number
+  status: 'listing' | 'listed' | 'buying' | 'cancelling' | 'sold' | 'cancelled' | 'failed'
+  buyerName: string | null
+  decision: string
+  createdAt: string
 }
 
 export interface LeaderboardRow {

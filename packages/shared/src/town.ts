@@ -123,6 +123,8 @@ export interface TownTrade {
   quantity: number;
   priceCc: number;
   totalCc: number;
+  /** Present only for the confirmed fill of a player-owned resource listing. */
+  listingId?: string;
 }
 
 export interface TownEvent {

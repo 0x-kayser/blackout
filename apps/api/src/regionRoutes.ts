@@ -3,7 +3,7 @@
  * prices or outcomes, only decisions (RegionActionSchema).
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { CreateRegionRequestSchema, InvestQuoteRequestSchema, InvestRequestSchema, RegionActionEnvelopeSchema, TradeQuoteRequestSchema, TradeRequestSchema, type ErrorCode } from "@blackout/shared";
+import { CreateRegionRequestSchema, InvestQuoteRequestSchema, InvestRequestSchema, ItemIdSchema, RegionActionEnvelopeSchema, TradeQuoteRequestSchema, TradeRequestSchema, type ErrorCode } from "@blackout/shared";
 import { region } from "@blackout/sim";
 import type { AuthedUser } from "./auth.ts";
 import { openSse } from "./events.ts";
@@ -12,6 +12,7 @@ import type { Relayer } from "./relayer.ts";
 import type { GameIdentity } from "./identity.ts";
 import type { EconomyService } from "./economy/service.ts";
 import type { PlantMarket } from "./economy/plantMarket.ts";
+import type { ResourceMarket } from "./economy/resourceMarket.ts";
 import { z } from "zod";
 import { ApiError } from "./services.ts";
 
@@ -26,6 +27,7 @@ export interface RegionRouteDeps {
   identity?: (u: AuthedUser) => GameIdentity;
   economy?: EconomyService;
   plants?: PlantMarket;
+  resourceMarket?: ResourceMarket;
 }
 
 const DeskSchema = z.object({ sell: z.boolean(), markupBps: z.number().int().min(0).max(20_000) });
@@ -95,6 +97,39 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
     d.writeGuard(req, u.sessionId);
     d.plants!.buy(u.userId, d.parse(z.object({ saleId: z.string().min(1).max(40) }), req.body).saleId);
     return { ok: true, sales: d.plants!.view(u.userId) };
+  });
+
+  /* ---------------------------------------------------------- player resource exchange */
+
+  app.get("/api/resources/market", async (req) => {
+    let viewer: string | null = null;
+    try {
+      viewer = (await d.requireUser(req)).userId;
+    } catch {
+      /* anyone can inspect offers */
+    }
+    return { ok: true, sales: d.resourceMarket?.view(viewer) ?? [] };
+  });
+  app.post("/api/resources/list", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    if (!d.resourceMarket) throw new ApiError("NOT_FOUND", "The resource market isn't running on this server.");
+    const body = d.parse(z.object({
+      item: ItemIdSchema,
+      quantity: z.number().int().min(1).max(1_000_000_000),
+      unitPriceCc: z.number().int().min(1).max(1_000_000_000),
+      idempotencyKey: z.string().min(8).max(80),
+    }), req.body);
+    const sale = await d.resourceMarket.list(u.userId, rsvc.liveFor(u.userId), body);
+    return { ok: true, sale, sales: d.resourceMarket.view(u.userId) };
+  });
+  app.post("/api/resources/cancel", async (req) => {
+    const u = await d.requireUser(req);
+    d.writeGuard(req, u.sessionId);
+    if (!d.resourceMarket) throw new ApiError("NOT_FOUND", "The resource market isn't running on this server.");
+    const body = d.parse(z.object({ saleId: z.string().min(1).max(40) }), req.body);
+    const sale = d.resourceMarket.cancel(u.userId, body.saleId);
+    return { ok: true, sale, sales: d.resourceMarket.view(u.userId) };
   });
 
   // emergency stop for NPC spending (contract switch + server switch); needs ECONOMY_ADMIN_TOKEN

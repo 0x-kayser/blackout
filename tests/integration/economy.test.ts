@@ -72,7 +72,13 @@ describe("player wallets and starting capital", () => {
     const playerWallet = requireWallet(e);
     expect(playerWallet.status).toBe("active");
     expect(chain.accounts.has(playerWallet.accountId)).toBe(true);
+    expect(chain.registered.has(playerWallet.accountId)).toBe(true);
     expect(playerWallet.accountId).toMatch(/^p[0-9a-f]{20}\.players\.game\.testnet$/);
+    const storageCall = chain.calls.find((c) => c.method === "storage_deposit" && c.args.account_id === playerWallet.accountId)!;
+    const grantCall = chain.calls.find((c) => c.method === "treasury_grant" && c.args.receiver_id === playerWallet.accountId)!;
+    expect(storageCall.signer).toBe("players.game.testnet");
+    expect(storageCall.depositYocto).toBe("10000000000000000000000");
+    expect(chain.calls.indexOf(storageCall)).toBeLessThan(chain.calls.indexOf(grantCall));
     // exactly one grant, from the players' bucket, of the game's own starting capital
     const grants = [...chain.grants.values()].filter((g) => g.receiver === playerWallet.accountId);
     expect(grants).toEqual([{ bucket: "players", receiver: playerWallet.accountId, amount: STARTER_GRANT_CC }]);
@@ -134,6 +140,83 @@ describe("player wallets and starting capital", () => {
     expect(chain.supply()).toBe(TREASURY_PLAN.totalSupply);
   });
 
+  it("escrows a player's real resource, lets an NPC buy it atomically, and returns a withdrawn listing", async () => {
+    const p = await player();
+    await economy(p.token);
+    await drain(8);
+    const h = built.rsvc.liveFor(p.userId);
+    const wallet = built.economy.activeAccount(p.userId)!;
+    const token = "fuel:diesel";
+
+    built.tsvc.trade({ userId: p.userId, name: "Test Co" }, h, built.rsvc, { merchantId: "kettle", item: token, side: "buy", quantity: 20 }, "resource-market-buy");
+    for (let i = 0; i < 72; i++) built.tsvc.tick();
+    built.db.prepare("UPDATE settlement_epochs SET created_at = ? WHERE region_id = 'town' AND status = 'pending'").run(new Date(Date.now() - 600_000).toISOString());
+    await drain(4);
+    expect(chain.balance(wallet, token)).toBe(built.tsvc.held(h, token));
+
+    const beforeResource = chain.balance(wallet, token);
+    const beforeCredits = chain.balance(wallet);
+    const listed = await built.app.inject({
+      method: "POST", url: "/api/resources/list", headers: auth(p.token),
+      payload: { item: token, quantity: 4, unitPriceCc: 50, idempotencyKey: "chain-resource-sale-1" },
+    });
+    expect(listed.statusCode).toBe(200);
+    const saleId = listed.json().sale.saleId as string;
+    await drain(3);
+    expect(built.resourceMarket.view(p.userId).find((sale) => sale.saleId === saleId)?.status).toBe("listed");
+    expect(chain.resourceListings.get(saleId)?.status).toBe("active");
+    expect(chain.balance(wallet, token)).toBe(beforeResource - 4);
+
+    built.db.prepare("UPDATE resource_sales SET updated_at = ? WHERE sale_id = ?").run(new Date(Date.now() - 10_000).toISOString(), saleId);
+    await built.resourceMarket.tick();
+    expect(built.resourceMarket.view(p.userId).find((sale) => sale.saleId === saleId)?.status).toBe("buying");
+    const firstFill = built.economy.op(`resource-fill:${saleId}:1`)!;
+    const firstBuyer = String(JSON.parse(firstFill.args_json).buyer_id);
+    chain.failNextMethod = { method: "resource_listing_fill", detail: "Smart contract panicked: Unknown listing" };
+    await drain(2);
+    expect(built.resourceMarket.view(p.userId).find((sale) => sale.saleId === saleId)?.status).toBe("listed");
+    expect(chain.resourceListings.get(saleId)?.status).toBe("active");
+
+    // If another NPC is chosen after a final refusal, it must get a new operation id and the matching cash reservation.
+    chain.bal.set(`credit:vesper|${firstBuyer}`, 0);
+    built.db.prepare("UPDATE resource_sales SET updated_at = ? WHERE sale_id = ?").run(new Date(Date.now() - 10_000).toISOString(), saleId);
+    await built.resourceMarket.tick();
+    const secondFill = built.economy.op(`resource-fill:${saleId}:2`)!;
+    expect(JSON.parse(secondFill.args_json).buyer_id).not.toBe(firstBuyer);
+    await drain(3);
+    const sold = built.resourceMarket.view(p.userId).find((sale) => sale.saleId === saleId)!;
+    expect(sold.status).toBe("sold");
+    expect(chain.resourceListings.get(saleId)?.status).toBe("filled");
+    expect(chain.balance(wallet, token)).toBe(beforeResource - 4);
+    expect(chain.balance(wallet)).toBe(beforeCredits + 200);
+    expect(built.economy.op(`resource-fill:${saleId}:2`)?.tx_hash).toBeTruthy();
+    const buyerAccount = chain.resourceListings.get(saleId)?.buyer;
+    expect(buyerAccount).toBeTruthy();
+    expect(chain.balance(buyerAccount!, token)).toBeGreaterThan(0);
+
+    const heldBeforeCancel = built.tsvc.held(h, token);
+    const second = await built.app.inject({
+      method: "POST", url: "/api/resources/list", headers: auth(p.token),
+      payload: { item: token, quantity: 1, unitPriceCc: 1_000_000, idempotencyKey: "chain-resource-sale-cancel-1" },
+    });
+    expect(second.statusCode).toBe(200);
+    const cancelId = second.json().sale.saleId as string;
+    await drain(2);
+    const cancel = await built.app.inject({ method: "POST", url: "/api/resources/cancel", headers: auth(p.token), payload: { saleId: cancelId } });
+    expect(cancel.json().sale.status).toBe("cancelling");
+    chain.failNextMethod = { method: "resource_listing_cancel", detail: "Smart contract panicked: Unknown listing" };
+    await drain(2);
+    expect(built.resourceMarket.view(p.userId).find((sale) => sale.saleId === cancelId)?.status).toBe("listed");
+    expect(built.economy.op(`resource-cancel:${cancelId}:1`)?.status).toBe("failed");
+    const retryCancel = await built.app.inject({ method: "POST", url: "/api/resources/cancel", headers: auth(p.token), payload: { saleId: cancelId } });
+    expect(retryCancel.json().sale.status).toBe("cancelling");
+    expect(built.economy.op(`resource-cancel:${cancelId}:2`)).toBeTruthy();
+    await drain(3);
+    expect(built.resourceMarket.view(p.userId).find((sale) => sale.saleId === cancelId)?.status).toBe("cancelled");
+    expect(chain.resourceListings.get(cancelId)?.status).toBe("cancelled");
+    expect(built.tsvc.held(h, token)).toBe(heldBeforeCancel);
+  });
+
   it("settles gameplay resource consumption back to world custody in a batched region epoch", async () => {
     const p = await player();
     await economy(p.token);
@@ -187,6 +270,23 @@ describe("player wallets and starting capital", () => {
     expect(w.opening_cash_cc).not.toBe(STARTER_GRANT_CC);
     expect(w.resource_opened_interval).not.toBeNull();
     expect(chain.balance(w.account_id, "certificate:renewable")).toBe(40);
+  });
+
+  it("registers a legacy active wallet before queueing more NEP-245 settlement", async () => {
+    const p = await player();
+    await economy(p.token);
+    await drain();
+    const wallet = built.economy.wallet(p.userId)!;
+    chain.registered.delete(wallet.account_id);
+    built.db.prepare("UPDATE player_wallets SET storage_verified_at = NULL WHERE player_id = ?").run(p.userId);
+    built.db.prepare("DELETE FROM chain_ops WHERE op_id = ?").run(`storage:${p.userId}`);
+
+    await built.economy.queueSettlement();
+    const registration = built.economy.op(`storage:${p.userId}`)!;
+    expect(registration.status).toBe("created");
+    await built.economy.processOps(50);
+    expect(chain.registered.has(wallet.account_id)).toBe(true);
+    expect(built.economy.wallet(p.userId)?.storage_verified_at).not.toBeNull();
   });
 });
 

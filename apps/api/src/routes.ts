@@ -120,6 +120,7 @@ export interface RouteDeps {
   /** Let visitors play without signing in (development, tests). Off: everyone signs in first. */
   guestPlay?: boolean;
   plants?: import("./economy/plantMarket.ts").PlantMarket;
+  resourceMarket?: import("./economy/resourceMarket.ts").ResourceMarket;
 }
 
 
@@ -706,6 +707,6 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!deps.guestPlay && u.kind === "guest") throw new ApiError("UNAUTHORIZED", "Sign in with Google or email to play.");
     return u;
   };
-  if (deps.rsvc) registerRegionRoutes(app, { rsvc: deps.rsvc, requireUser: requirePlayer, writeGuard, parse, originFor, httpStatus, relayer: deps.relayer, identity: (u) => gameIdentity(auth, chain, u, !!deps.relayer?.cfg.enabled), economy: deps.economy, plants: deps.plants });
+  if (deps.rsvc) registerRegionRoutes(app, { rsvc: deps.rsvc, requireUser: requirePlayer, writeGuard, parse, originFor, httpStatus, relayer: deps.relayer, identity: (u) => gameIdentity(auth, chain, u, !!deps.relayer?.cfg.enabled), economy: deps.economy, plants: deps.plants, resourceMarket: deps.resourceMarket });
   if (deps.xsvc) registerExchangeRoutes(app, { xsvc: deps.xsvc, svc, auth, allowGuests: !!deps.exchangeAllowGuests, requireUser, writeGuard, parse, activeRun });
 }

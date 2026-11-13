@@ -7,7 +7,7 @@ import type { FastForwardResult, InvestQuote, ItemId, MerchantItemView, Merchant
 import { CompaniesSection } from './Companies'
 import { PlantSales } from './PlantSales'
 import { ITEMS, ITEM_IDS } from '@blackout/shared'
-import { regionApi, type DeskView } from '../api'
+import { regionApi, type DeskView, type ResourceSale } from '../api'
 import { credits } from '../format'
 import { Bar, Section, Spark, Stat } from './Bits'
 
@@ -531,6 +531,7 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, d
           )
         })}
       </Section>
+      <ResourceExchange v={v} town={town} />
       <Section title="What you hold">
         <Inventory v={v} />
         <div className="row">
@@ -577,6 +578,130 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, d
       <CompaniesSection c={town.companies} desk={desk} onDesk={onDesk} />
       <TradeFeed town={town} />
     </>
+  )
+}
+
+function resourceSaleStatus(sale: ResourceSale): string {
+  if (sale.status === 'listing') return 'Opening offer…'
+  if (sale.status === 'listed') return 'Open · waiting for a merchant decision'
+  if (sale.status === 'buying') return `Purchase in progress${sale.buyerName ? ` · ${sale.buyerName}` : ''}`
+  if (sale.status === 'cancelling') return 'Withdrawal in progress · stock stays reserved until it clears'
+  if (sale.status === 'sold') return `Sold${sale.buyerName ? ` to ${sale.buyerName}` : ''}`
+  if (sale.status === 'cancelled') return 'Withdrawn · stock returned'
+  return 'Could not open · stock returned'
+}
+
+function ResourceExchange({ v, town }: { v: RegionView; town: TownView }) {
+  const [sales, setSales] = useState<ResourceSale[]>([])
+  const [item, setItem] = useState<ItemId>(() => ITEM_IDS.find((id) => town.merchants.some((m) => m.items.some((x) => x.item === id && x.bidCc !== null))) ?? ITEM_IDS[0])
+  const [quantity, setQuantity] = useState(1)
+  const [askCredits, setAskCredits] = useState(() => {
+    const merchant = town.merchants.find((m) => m.items.some((x) => x.item === item && x.bidCc !== null))
+    return Math.max(0.01, ((merchant?.items.find((x) => x.item === item)?.bidCc ?? 100) / 100))
+  })
+  const [busy, setBusy] = useState(false)
+  const [canceling, setCanceling] = useState<string | null>(null)
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  const availableItems = ITEM_IDS.filter((id) => town.merchants.some((m) => m.items.some((x) => x.item === id && x.bidCc !== null)))
+  const amountHeld = held(v, item)
+  const totalCc = Math.round(askCredits * 100) * quantity
+  const safeTotal = Number.isSafeInteger(totalCc)
+
+  useEffect(() => {
+    let live = true
+    let loaded = false
+    const refresh = async () => {
+      try {
+        const result = await regionApi.resourceSales()
+        if (live) {
+          loaded = true
+          setSales(result.sales)
+        }
+      } catch (error) {
+        if (live && !loaded) setMessage({ ok: false, text: (error as Error).message })
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 5_000)
+    return () => { live = false; window.clearInterval(timer) }
+  }, [])
+
+  const defaultAsk = (next: ItemId) => {
+    const buyer = town.merchants.find((m) => m.items.some((x) => x.item === next && x.bidCc !== null))
+    return Math.max(0.01, (buyer?.items.find((x) => x.item === next)?.bidCc ?? 100) / 100)
+  }
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setBusy(true)
+    setMessage(null)
+    try {
+      const result = await regionApi.listResource(item, quantity, Math.round(askCredits * 100))
+      setSales(result.sales)
+      setQuantity(1)
+      setMessage({ ok: true, text: result.sale.status === 'listed' ? 'Offer is open. Merchants will review it against their current stock, cash and buying rules.' : 'Offer is being reserved for the market.' })
+    } catch (error) {
+      setMessage({ ok: false, text: (error as Error).message || 'The offer could not be opened. Try again.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const cancel = async (saleId: string) => {
+    setCanceling(saleId)
+    setMessage(null)
+    try {
+      const result = await regionApi.cancelResource(saleId)
+      setSales(result.sales)
+      setMessage({ ok: true, text: result.sale.status === 'cancelled' ? 'Offer withdrawn; the stock is back in your inventory.' : 'Withdrawal requested. The stock returns after the current market action resolves.' })
+    } catch (error) {
+      setMessage({ ok: false, text: (error as Error).message || 'The offer could not be withdrawn. Try again.' })
+    } finally {
+      setCanceling(null)
+    }
+  }
+
+  return (
+    <Section title="Player exchange" aside={<span className="resource-exchange-count">{sales.filter((sale) => ['listing', 'listed', 'buying', 'cancelling'].includes(sale.status)).length} open</span>}>
+      <p className="fine">Set your own ask for resources you hold. Vesper’s merchants decide whether to buy based on their budgets, stock room and current market price. Game credits stay inside BLACKOUT.</p>
+      {availableItems.length === 0 ? <p className="fine">No merchants are buying resources right now.</p> : (
+        <form className="resource-market-form" onSubmit={submit}>
+          <label>Resource
+            <select value={item} onChange={(event) => { const next = event.target.value as ItemId; setItem(next); setAskCredits(defaultAsk(next)); setQuantity(1) }}>
+              {availableItems.map((id) => <option key={id} value={id}>{ITEMS[id].icon} {ITEMS[id].name} · {held(v, id).toLocaleString('en-US')} {ITEMS[id].units}</option>)}
+            </select>
+          </label>
+          <label>Quantity <small>Available: {amountHeld.toLocaleString('en-US')} {ITEMS[item].units}</small>
+            <input type="number" min={1} max={amountHeld} step={1} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} required />
+          </label>
+          <label>Ask per unit <small>in game credits · ₡</small>
+            <input type="number" min={0.01} max={10_000_000} step={0.01} value={askCredits} onChange={(event) => setAskCredits(Number(event.target.value))} required />
+          </label>
+          <div className="resource-market-total"><span>Offer total</span><b>{safeTotal ? unitPrice(totalCc) : '—'}</b></div>
+          <button className="btn primary" type="submit" disabled={busy || amountHeld < 1 || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > amountHeld || !Number.isFinite(askCredits) || askCredits <= 0 || !safeTotal}>
+            {busy ? 'Opening offer…' : 'List resource'}
+          </button>
+        </form>
+      )}
+      {message && <p className={message.ok ? 'ok-line' : 'warn-line'} role="status">{message.text}</p>}
+      <div className="resource-sale-list" aria-live="polite">
+        {sales.length === 0 && <p className="fine">No player offers yet. Set an ask above to open the first one.</p>}
+        {sales.slice(0, 12).map((sale) => (
+          <article className={`resource-sale ${sale.mine ? 'mine' : ''}`} key={sale.saleId}>
+            <div className="resource-sale-main">
+              <b>{ITEMS[sale.item].icon} {ITEMS[sale.item].name} · {sale.quantity.toLocaleString('en-US')} {ITEMS[sale.item].units}</b>
+              <span>{sale.mine ? 'Your offer' : sale.sellerName}</span>
+              <small className="fine">{unitPrice(sale.unitPriceCc)} each · {unitPrice(sale.totalCc)} total</small>
+            </div>
+            <div className="resource-sale-state">
+              <span className={`resource-sale-status ${sale.status}`}>{resourceSaleStatus(sale)}</span>
+              <small className="fine">{sale.decision}</small>
+            </div>
+            {sale.mine && ['listing', 'listed', 'buying'].includes(sale.status) && <button type="button" className="btn small" disabled={canceling === sale.saleId} onClick={() => void cancel(sale.saleId)}>{canceling === sale.saleId ? 'Withdrawing…' : 'Withdraw'}</button>}
+          </article>
+        ))}
+      </div>
+    </Section>
   )
 }
 

@@ -334,6 +334,47 @@ export class TownService {
     }
     return this.ff.get(k)!;
   }
+
+  reserveResourceListingCash(listingId: string, merchantId: string, totalCc: number): void {
+    town.reserveListingCash(this.state, listingId, merchantId, totalCc);
+    this.checkpoint();
+    this.broadcast();
+  }
+
+  hasResourceListingCash(listingId: string, totalCc: number): boolean {
+    return town.tbal(this.state, "cc", `ext:resource-listing:${listingId}`) >= totalCc;
+  }
+
+  releaseResourceListingCash(listingId: string, merchantId: string, totalCc: number): void {
+    const key = `resource-listing-release:${listingId}`;
+    if (this.db.prepare("SELECT 1 FROM town_actions WHERE user_id = 'resource-market' AND idempotency_key = ?").get(key)) return;
+    town.releaseListingCash(this.state, listingId, merchantId, totalCc);
+    this.checkpoint();
+    this.db.prepare("INSERT INTO town_actions (user_id, idempotency_key, kind, request_json, result_json, created_at) VALUES ('resource-market', ?, 'resource-release', ?, '{}', ?)").run(key, JSON.stringify({ listingId, merchantId, totalCc }), nowIso());
+    this.checkpoint();
+    this.broadcast();
+  }
+
+  /** Apply the local side after the matching on-chain resource + credit transfer is final. */
+  settleResourceListing(
+    who: Trader,
+    h: RegionHandle,
+    rsvc: RegionService,
+    input: { listingId: string; merchantId: string; item: ItemId; quantity: number; unitPriceCc: number; totalCc: number },
+  ): void {
+    const key = `resource-listing-fill:${input.listingId}`;
+    if (this.db.prepare("SELECT 1 FROM town_actions WHERE user_id = ? AND idempotency_key = ?").get(who.userId, key)) return;
+    if (!town.hasListingTrade(this.state, input.listingId)) {
+      town.settleListingCash(this.state, input.listingId, input.merchantId, who.userId, who.name, input.totalCc, input.item, input.quantity, input.unitPriceCc);
+      this.checkpoint();
+    }
+    const reason = `Sold ${input.quantity.toLocaleString("en-US")} ${ITEMS[input.item].units} to ${town.merchantConfig(input.merchantId)?.person ?? "a Vesper merchant"} at ₡${(input.unitPriceCc / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} each`;
+    const applied = rsvc.act(h, { type: "TOWN_SETTLE", ref: `resource-sale:${input.listingId}`, reason, cc: input.totalCc, income: true }, `resource-listing-credit:${input.listingId}`, "system");
+    if (!applied.ok) throw new ApiError("INTERNAL", `The sale cleared on chain but local credits did not reconcile: ${applied.error?.message ?? "unknown error"}`);
+    this.db.prepare("INSERT INTO town_actions (user_id, idempotency_key, kind, request_json, result_json, created_at) VALUES (?, ?, 'resource-fill', ?, '{}', ?)").run(who.userId, key, JSON.stringify(input), nowIso());
+    this.checkpoint();
+    this.broadcast();
+  }
 }
 
 export function startTownDriver(tsvc: TownService, ms = 1_000): () => void {

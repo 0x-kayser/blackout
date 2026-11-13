@@ -37,6 +37,7 @@ export function fakeEconomyConfig(): EconomyConfig {
 
 export class FakeChain implements ChainGateway {
   accounts = new Set<string>();
+  registered = new Set<string>();
   bal = new Map<string, number>();
   grants = new Map<string, { bucket: string; receiver: string; amount: number }>();
   grantedTo = new Set<string>();
@@ -45,16 +46,24 @@ export class FakeChain implements ChainGateway {
   epochs = new Set<string>();
   plants = new Map<string, string>();
   sales = new Map<string, { seller: string; price: number }>();
-  calls: { signer: string; method: string; args: Record<string, unknown> }[] = [];
+  resourceListings = new Map<string, { seller: string; token: string; amount: number; unitPriceCc: number; status: string; buyer?: string }>();
+  calls: { signer: string; method: string; args: Record<string, unknown>; depositYocto?: string }[] = [];
   npcPaused = false;
   private n = 0;
   /** Test hooks: make the next call(s) behave differently. */
   failNext: string | null = null;
+  failNextMethod: { method: string; detail: string } | null = null;
   pendingNext = false;
 
   constructor(readonly cfg: EconomyConfig) {
     this.buckets = new Map(TREASURY_PLAN.buckets.map((b) => [b.name, { cap: b.cap, granted: 0, max: b.maxPerGrant, once: b.oncePerAccount }]));
     this.bal.set(`credit:vesper|${cfg.treasuryId}`, TREASURY_PLAN.totalSupply);
+    for (const account of [cfg.contractId, cfg.operator?.accountId, cfg.playerParent?.accountId, cfg.treasuryId, cfg.gridId, cfg.worldId, ...Object.values(cfg.npcs).map((npc) => npc.accountId)]) {
+      if (account) {
+        this.accounts.add(account);
+        this.registered.add(account);
+      }
+    }
     // the bootstrap mints the market's item custody stock to the world account
     for (const t of ["fuel:natural-gas", "fuel:diesel", "permit:carbon", "certificate:renewable", "material:steel", "part:turbine"]) this.bal.set(`${t}|${cfg.worldId}`, 1e12);
   }
@@ -110,11 +119,23 @@ export class FakeChain implements ChainGateway {
     }, onSigned);
   }
 
-  async call(s: Signer, method: string, a: Record<string, unknown>, opts: { onSigned?: (h: string) => void } = {}): Promise<GatewayResult> {
+  async call(s: Signer, method: string, a: Record<string, unknown>, opts: { depositYocto?: bigint; onSigned?: (h: string) => void } = {}): Promise<GatewayResult> {
     const signer = this.signerId(s);
-    this.calls.push({ signer, method, args: a });
+    this.calls.push({ signer, method, args: a, ...(opts.depositYocto === undefined ? {} : { depositYocto: String(opts.depositYocto) }) });
+    if (this.failNextMethod?.method === method) {
+      this.failNext = this.failNextMethod.detail;
+      this.failNextMethod = null;
+    }
     return this.result(signer, () => {
       switch (method) {
+        case "storage_deposit": {
+          if (signer !== this.cfg.playerParent!.accountId) throw new Error("Only the player account provisioner can sponsor storage");
+          const account = String(a.account_id);
+          if (!this.accounts.has(account)) throw new Error("Unknown account");
+          if ((opts.depositYocto ?? 0n) < 10_000_000_000_000_000_000_000n) throw new Error("Attach at least 0.01 NEAR for storage");
+          this.registered.add(account);
+          return;
+        }
         case "treasury_grant": {
           if (signer !== this.cfg.operator!.accountId) throw new Error("Only the game operator");
           const id = String(a.grant_id);
@@ -125,6 +146,7 @@ export class FakeChain implements ChainGateway {
           if (b.granted + amt > b.cap) throw new Error("This treasury bucket is exhausted");
           const once = `${a.bucket}|${a.receiver_id}`;
           if (b.once && this.grantedTo.has(once)) throw new Error("This account already received its starting capital");
+          if (!this.registered.has(String(a.receiver_id))) throw new Error("Receiver not registered for storage");
           this.move("credit:vesper", this.cfg.treasuryId!, String(a.receiver_id), amt);
           b.granted += amt;
           if (b.once) this.grantedTo.add(once);
@@ -165,6 +187,7 @@ export class FakeChain implements ChainGateway {
             for (const [token, legs] of entries) {
               if (legs.reduce((s, [, d]) => s + Number(d), 0) !== 0) throw new Error("Epoch deltas must sum to zero");
               for (const [acct, d] of legs) if (Number(d) < 0 && this.released.has(acct)) throw new Error("Debit from an account that didn't consent to game custody");
+              for (const [acct, d] of legs) if (Number(d) > 0 && !this.registered.has(acct)) throw new Error("Receiver not registered for storage");
               for (const [acct, d] of legs) if (Number(d) < 0) this.move(token, acct, this.cfg.contractId!, -Number(d));
               for (const [acct, d] of legs) if (Number(d) > 0) this.move(token, this.cfg.contractId!, acct, Number(d));
             }
@@ -173,6 +196,40 @@ export class FakeChain implements ChainGateway {
             throw e;
           }
           this.epochs.add(id);
+          return;
+        }
+        case "resource_listing_create": {
+          if (signer !== this.cfg.operator!.accountId) throw new Error("Only the game operator");
+          const id = String(a.listing_id);
+          if (this.resourceListings.has(id)) throw new Error("Listing already exists");
+          const seller = String(a.seller_id);
+          if (!this.accounts.has(seller) || !seller.endsWith(`.${this.cfg.playerParent!.accountId}`) || this.released.has(seller)) throw new Error("Seller is not an active custodial player wallet");
+          const token = String(a.token_id);
+          const amount = Number(a.amount);
+          const unitPriceCc = Number(a.unit_price_cc);
+          this.move(token, seller, this.cfg.contractId!, amount);
+          this.resourceListings.set(id, { seller, token, amount, unitPriceCc, status: "active" });
+          return;
+        }
+        case "resource_listing_cancel": {
+          if (signer !== this.cfg.operator!.accountId) throw new Error("Only the game operator");
+          const listing = this.resourceListings.get(String(a.listing_id));
+          if (!listing || listing.status !== "active") throw new Error("Unknown or inactive listing");
+          this.move(listing.token, this.cfg.contractId!, listing.seller, listing.amount);
+          listing.status = "cancelled";
+          return;
+        }
+        case "resource_listing_fill": {
+          if (signer !== this.cfg.operator!.accountId) throw new Error("Only the game operator");
+          const listing = this.resourceListings.get(String(a.listing_id));
+          const buyer = String(a.buyer_id);
+          if (!listing || listing.status !== "active") throw new Error("Unknown or inactive listing");
+          if (!Object.values(this.cfg.npcs).some((n) => n.accountId === buyer)) throw new Error("Buyer is not a registered NPC");
+          const payment = listing.amount * listing.unitPriceCc;
+          this.move(listing.token, this.cfg.contractId!, buyer, listing.amount);
+          this.move("credit:vesper", buyer, listing.seller, payment);
+          listing.status = "filled";
+          listing.buyer = buyer;
           return;
         }
         case "plant_mint": {
@@ -219,11 +276,13 @@ export class FakeChain implements ChainGateway {
   }
 
   async view<T>(method: string, a: Record<string, unknown>): Promise<T> {
+    if (method === "storage_balance_of") return (this.registered.has(String(a.account_id)) ? "10000000000000000000000" : null) as T;
     if (method === "grant") return (this.grants.get(String(a.grant_id)) ?? null) as T;
     if (method === "power_order") return (this.orders.get(String(a.order_id)) ?? null) as T;
     if (method === "epoch") return (this.epochs.has(String(a.epoch_id)) ? { epoch_id: a.epoch_id } : null) as T;
     if (method === "is_released") return this.released.has(String(a.account_id)) as T;
     if (method === "plant_sale") return (this.sales.get(String(a.token_id)) ?? null) as T;
+    if (method === "listing") return (this.resourceListings.get(String(a.listing_id)) ?? null) as T;
     if (method === "nft_token") return (this.plants.has(String(a.token_id)) ? { owner_id: this.plants.get(String(a.token_id)) } : null) as T;
     if (method === "mt_batch_balance_of") return (a.token_ids as string[]).map((t) => String(this.balance(String(a.account_id), t))) as T;
     if (method === "mt_balance_of") return String(this.balance(String(a.account_id), String(a.token_id))) as T;

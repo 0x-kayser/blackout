@@ -638,6 +638,24 @@
 .regional-reserve small { font-size: 11px; }
 .reserve-alert { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; margin: 6px 0; border-left: 3px solid var(--warn); background: rgba(255, 255, 255, 0.035); }
 .reserve-alert p { margin: 3px 0 0; }
+.resource-exchange-count { border: 1px solid var(--edge); border-radius: 999px; padding: 3px 8px; color: var(--gold); font-size: 10px; font-weight: 700; }
+.resource-market-form { display: grid; grid-template-columns: minmax(150px, 1.25fr) minmax(110px, .8fr) minmax(120px, .9fr) minmax(100px, .7fr) auto; gap: 8px; align-items: end; margin: 10px 0 12px; }
+.resource-market-form label { display: grid; gap: 4px; color: var(--mute); font-size: 11px; font-weight: 700; }
+.resource-market-form label small { font-size: 10px; font-weight: 500; }
+.resource-market-form select, .resource-market-form input { width: 100%; min-width: 0; min-height: 36px; background: #0b1222; border: 1px solid var(--edge); color: var(--ink); border-radius: 8px; padding: 7px 9px; font: inherit; }
+.resource-market-form select:focus, .resource-market-form input:focus { outline: 2px solid rgba(96,165,250,.7); outline-offset: 1px; }
+.resource-market-total { display: grid; gap: 3px; color: var(--mute); font-size: 10px; }
+.resource-market-total b { color: var(--gold); font-size: 14px; white-space: nowrap; }
+.resource-sale-list { display: grid; gap: 6px; }
+.resource-sale { display: grid; grid-template-columns: minmax(135px, .9fr) minmax(160px, 1.3fr) auto; gap: 9px; align-items: center; padding: 9px; border: 1px solid var(--edge); border-radius: 9px; background: rgba(255,255,255,.025); }
+.resource-sale.mine { border-color: rgba(251,191,36,.24); }
+.resource-sale-main, .resource-sale-state { display: grid; gap: 2px; min-width: 0; }
+.resource-sale-main > span { color: var(--mute); font-size: 11px; }
+.resource-sale-state small { overflow-wrap: anywhere; }
+.resource-sale-status { color: var(--mute); font-size: 11px; font-weight: 700; }
+.resource-sale-status.listed { color: var(--gold); }
+.resource-sale-status.sold { color: var(--ok); }
+.resource-sale-status.failed { color: var(--warn); }
 .replay-actions { display: grid; gap: 7px; margin: 10px 0; }
 @media (max-width: 760px) {
   .operation-hud { top: 142px; left: 8px; right: 8px; width: auto; gap: 6px; padding: 10px 11px; border-radius: 13px; }
@@ -654,4 +672,9 @@
   .ops-body { padding: 14px 16px 18px; }
   .reserve-grid { grid-template-columns: 1fr; }
   .reserve-alert { align-items: flex-start; flex-direction: column; }
+  .resource-market-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .resource-market-form > button { grid-column: 1 / -1; }
+  .resource-sale { grid-template-columns: 1fr auto; }
+  .resource-sale-state { grid-column: 1 / -1; grid-row: 2; }
+  .resource-sale > button { grid-column: 2; grid-row: 1; }
 }

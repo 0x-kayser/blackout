@@ -23,6 +23,7 @@ import { loadEconomyConfig, type EconomyConfig } from "./economy/config.ts";
 import { NearGateway, type ChainGateway } from "./economy/gateway.ts";
 import { EconomyService } from "./economy/service.ts";
 import { PlantMarket } from "./economy/plantMarket.ts";
+import { ResourceMarket, startResourceMarketDriver } from "./economy/resourceMarket.ts";
 import { LiveWorldInputs, StaticWorldInputs, type WorldInputProvider } from "./world.ts";
 import { pathToFileURL } from "node:url";
 
@@ -51,7 +52,7 @@ export interface BuildOptions {
   economy?: { cfg?: EconomyConfig; gateway?: ChainGateway | null };
 }
 
-export async function buildServer(opts: BuildOptions = {}): Promise<{ app: FastifyInstance; db: Db; svc: RunService; chain: ChainConfig; auth: AuthService; xsvc: ExchangeService; rsvc: RegionService; tsvc: TownService; economy: EconomyService; plants: PlantMarket }> {
+export async function buildServer(opts: BuildOptions = {}): Promise<{ app: FastifyInstance; db: Db; svc: RunService; chain: ChainConfig; auth: AuthService; xsvc: ExchangeService; rsvc: RegionService; tsvc: TownService; economy: EconomyService; plants: PlantMarket; resourceMarket: ResourceMarket }> {
   const db = openDb(opts.dbPath ?? process.env.DATABASE_PATH ?? "data/blackout.sqlite");
   const chain = opts.chain ?? loadChainConfig();
   const svc = new RunService(db, chain, opts.now);
@@ -72,6 +73,7 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
   const economy = new EconomyService(db, ecoCfg, ecoGw, rsvc, tsvc, (uid) => auth.player(uid)?.kind === "registered");
   tsvc.economy = economy;
   const plants = new PlantMarket(db, economy, rsvc);
+  const resourceMarket = new ResourceMarket(db, economy, rsvc, tsvc);
   const app = Fastify({
     // structured JSON logs; credentials and cookies are redacted, never logged
     logger: opts.logger ? { level: process.env.LOG_LEVEL ?? "info", redact: ["req.headers.authorization", "req.headers.cookie", "res.headers[\"set-cookie\"]"] } : false,
@@ -86,7 +88,7 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
     reply.header("x-request-id", req.id);
   });
   await app.register(cors, { origin: allowedOrigins, credentials: true });
-  registerRoutes(app, { db, svc, chain, auth, allowedOrigins, secureCookies: process.env.COOKIE_SECURE === "true", xsvc, exchangeAllowGuests, rsvc, relayer, economy, plants, guestPlay: opts.guestPlay ?? process.env.ALLOW_GUEST_PLAY === "true" });
+  registerRoutes(app, { db, svc, chain, auth, allowedOrigins, secureCookies: process.env.COOKIE_SECURE === "true", xsvc, exchangeAllowGuests, rsvc, relayer, economy, plants, resourceMarket, guestPlay: opts.guestPlay ?? process.env.ALLOW_GUEST_PLAY === "true" });
   const dist = opts.webDist === undefined ? (process.env.WEB_DIST ?? resolve(import.meta.dirname, "../../../dist")) : opts.webDist;
   if (dist && existsSync(resolve(dist, "index.html"))) {
     await app.register(fastifyStatic, { root: resolve(dist), prefix: "/", wildcard: false });
@@ -96,7 +98,7 @@ export async function buildServer(opts: BuildOptions = {}): Promise<{ app: Fasti
       return reply.sendFile("index.html");
     });
   }
-  return { app, db, svc, chain, auth, xsvc, rsvc, tsvc, economy, plants };
+  return { app, db, svc, chain, auth, xsvc, rsvc, tsvc, economy, plants, resourceMarket };
 }
 
 /** The economy's worker: open the market on chain once, queue settlement, submit and reconcile operations. */
@@ -122,12 +124,13 @@ export function startEconomyWorker(economy: EconomyService, ms = 3_000): () => v
 }
 
 async function main() {
-  const { app, db, svc, chain, auth, xsvc, rsvc, tsvc, economy } = await buildServer({ logger: process.env.LOG_JSON !== "false" });
+  const { app, db, svc, chain, auth, xsvc, rsvc, tsvc, economy, resourceMarket } = await buildServer({ logger: process.env.LOG_JSON !== "false" });
   const stopRegion = startRegionDriver(rsvc);
   const stopTown = startTownDriver(tsvc);
   // the legacy per-identity settlement never runs alongside the economy's batch settlement
   const stopSettlement = !economy.live && process.env.NEAR_SETTLEMENT_ENABLED === "true" ? startSettlementWorker(db, chain) : () => undefined;
   const stopEconomy = startEconomyWorker(economy);
+  const stopResourceMarket = startResourceMarketDriver(resourceMarket);
   const stopDriver = startDriver(svc);
   const stopExchange = startExchangeDriver(xsvc);
   const stopChain = startChainWorker(db, svc, chain, 2_000, xsvc);
@@ -147,6 +150,7 @@ async function main() {
     tsvc.checkpoint();
     stopSettlement();
     stopEconomy();
+    stopResourceMarket();
     rsvc.shutdown();
     stopExchange();
     stopChain();

@@ -286,6 +286,8 @@ export interface TradeInput {
   quantity: number;
   /** Pay from (and deliver to) this ledger account instead of the player's: an NPC company's own wallet. */
   account?: string;
+  /** Exact accepted limit price for a player listing; normal trades keep their averaged quote. */
+  executionPriceCc?: number;
 }
 
 /** A player (or bot) buys from or sells to a merchant. Throws a SimError with a friendly reason if it can't. */
@@ -311,7 +313,11 @@ export function townTrade(t: TownState, ctx: TCtx, inp: TradeInput): TownTrade {
     if (room <= 0) throw new SimError("INVALID_STATE", `${m.person}'s warehouse is full of ${PLURAL[inp.item]}. Try another merchant or wait.`);
     if (qty > room) throw new SimError("INVALID_STATE", `${m.person} has room for only ${room.toLocaleString("en-US")} more ${unit}.`);
   }
-  const { unitCc, totalCc } = tradePrice(t, inp.merchantId, inp.item, inp.side, qty);
+  const quoted = tradePrice(t, inp.merchantId, inp.item, inp.side, qty);
+  const unitCc = inp.executionPriceCc ?? quoted.unitCc;
+  if (!Number.isSafeInteger(unitCc) || unitCc <= 0) throw new SimError("VALIDATION_FAILED", "The accepted price must be a positive whole credit unit.");
+  const totalCc = unitCc * qty;
+  if (!Number.isSafeInteger(totalCc)) throw new SimError("VALIDATION_FAILED", "That order is too large.");
   const pacc = inp.account ?? PACC(inp.playerId);
   if (inp.account && inp.side === "buy" && tbal(t, "cc", inp.account) < totalCc) throw new SimError("INSUFFICIENT_CREDITS", `${inp.name} can't afford that.`);
   if (inp.side === "buy") {
@@ -328,6 +334,60 @@ export function townTrade(t: TownState, ctx: TCtx, inp: TradeInput): TownTrade {
   st.lastTradeAt = t.tick;
   t.names[inp.playerId] = inp.name;
   return record(t, ctx, { label: inp.name, merchantId: inp.merchantId, who: inp.playerId, whoKind: inp.kind ?? "player", item: inp.item, side: inp.side, quantity: qty, priceCc: unitCc, totalCc });
+}
+
+/** Reserve NPC cash while an atomic on-chain player-resource purchase is awaiting finality. */
+export function reserveListingCash(t: TownState, listingId: string, merchantId: string, totalCc: number): void {
+  const account = MACC(merchantId);
+  const reserve = `ext:resource-listing:${listingId}`;
+  if (!Number.isSafeInteger(totalCc) || totalCc <= 0) throw new SimError("INVALID_STATE", "That purchase is invalid.");
+  if (tbal(t, "cc", reserve) === totalCc) return;
+  if (tbal(t, "cc", reserve) !== 0) throw new SimError("INVALID_STATE", "That purchase has a conflicting cash reservation.");
+  if (tbal(t, "cc", account) < totalCc) throw new SimError("INSUFFICIENT_CREDITS", "The merchant no longer has enough available cash.");
+  move(t, "cc", account, reserve, totalCc);
+  recordDirect(t, "cc", townIdentity(account), -totalCc);
+  recordDirect(t, "cc", "world", totalCc);
+}
+
+/** Release a failed NPC purchase's local cash reservation without creating an on-chain movement. */
+export function releaseListingCash(t: TownState, listingId: string, merchantId: string, totalCc: number): void {
+  const account = MACC(merchantId);
+  const reserve = `ext:resource-listing:${listingId}`;
+  if (tbal(t, "cc", reserve) < totalCc) return;
+  move(t, "cc", reserve, account, totalCc);
+  recordDirect(t, "cc", "world", -totalCc);
+  recordDirect(t, "cc", townIdentity(account), totalCc);
+}
+
+/** Complete a confirmed atomic player-resource purchase from its reserved local cash. */
+export function settleListingCash(t: TownState, listingId: string, merchantId: string, playerId: string, playerName: string, totalCc: number, item: ItemId, quantity: number, unitPriceCc: number): void {
+  if (t.trades.some((trade) => trade.listingId === listingId)) return;
+  const merchant = merchantConfig(merchantId);
+  if (!merchant?.items.some((x) => x.item === item && x.buys)) throw new SimError("INVALID_STATE", "This merchant does not buy that resource.");
+  const reserve = `ext:resource-listing:${listingId}`;
+  if (tbal(t, "cc", reserve) < totalCc) throw new SimError("INTERNAL", "The NPC cash reservation is missing.");
+  const player = PACC(playerId);
+  move(t, item, player, MACC(merchantId), quantity);
+  move(t, "cc", reserve, player, totalCc);
+  const st = t.merchants[merchantId];
+  t.names[playerId] = playerName;
+  st.recentNet[item] = (st.recentNet[item] ?? 0) - quantity;
+  st.lastTradeAt = t.tick;
+  recordDirect(t, "cc", "world", -totalCc);
+  recordDirect(t, "cc", `player:${playerId}`, totalCc);
+  recordDirect(t, item, `player:${playerId}`, -quantity);
+  recordDirect(t, item, merchant.chainName, quantity);
+  const trade = record(t, newTCtx(), { label: playerName, merchantId, who: playerId, whoKind: "player", item, side: "sell", quantity, priceCc: unitPriceCc, totalCc });
+  trade.listingId = listingId;
+}
+
+export const hasListingTrade = (t: TownState, listingId: string): boolean => t.trades.some((trade) => trade.listingId === listingId);
+
+function recordDirect(t: TownState, asset: string, account: string, delta: number): void {
+  const ledger = (t.direct ??= {});
+  const entries = (ledger[asset] ??= {});
+  entries[account] = (entries[account] ?? 0) + delta;
+  if (entries[account] === 0) delete entries[account];
 }
 
 function record(t: TownState, ctx: TCtx, tr: Omit<TownTrade, "seq" | "tick">): TownTrade {

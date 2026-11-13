@@ -106,6 +106,21 @@ describe("Vesper Market", () => {
     expect(lena.items[0].why.lines.length).toBeGreaterThanOrEqual(4);
     expect(v.merchants.find((m) => m.merchantId === "bayo")!.items[0].bidCc).toBeNull();
   });
+
+  it("does not enqueue a second credit or resource settlement for an externally settled listing fill", () => {
+    const t = createTown({ seed: 7 });
+    townTrade(t, newTCtx(), { playerId: "seller", name: "Seller", merchantId: "kettle", item: "fuel:diesel", side: "buy", quantity: 5 });
+    t.tick += 1;
+    town.forceCloseTownEpoch(t);
+    const priceCc = 100;
+    const totalCc = priceCc * 5;
+    town.reserveListingCash(t, "listing-1", "kettle", totalCc);
+    town.settleListingCash(t, "listing-1", "kettle", "seller", "Seller", totalCc, "fuel:diesel", 5, priceCc);
+    t.tick += town.townConfig.EPOCH_TICKS;
+    town.forceCloseTownEpoch(t);
+    expect(t.epochs.at(-1)?.tokens).toEqual([]);
+    expect(t.trades.filter((trade) => trade.listingId === "listing-1")).toHaveLength(1);
+  });
 });
 
 describe("watch a week", () => {

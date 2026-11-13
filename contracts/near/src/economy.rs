@@ -113,7 +113,7 @@ pub struct PowerOrder {
     pub closed_at_block: u64,
 }
 
-fn blackout_event(event: &str, data: serde_json::Value) {
+pub(crate) fn blackout_event(event: &str, data: serde_json::Value) {
     let ev = serde_json::json!({ "standard": "blackout", "version": "1.0.0", "event": event, "data": [data] });
     env::log_str(&format!("EVENT_JSON:{}", ev));
 }

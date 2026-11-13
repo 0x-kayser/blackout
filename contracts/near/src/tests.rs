@@ -1,4 +1,5 @@
 use super::*;
+use crate::economy::BucketInput;
 use near_sdk::test_utils::{get_logs, VMContextBuilder};
 use near_sdk::{testing_env, NearToken};
 
@@ -15,6 +16,7 @@ fn ctx(pred: &str, deposit: u128) {
 }
 
 const D: &str = "DIESEL_100ML";
+const CREDIT: &str = "credit:vesper";
 
 fn setup() -> Contract {
     ctx("owner.testnet", 0);
@@ -29,6 +31,26 @@ fn setup() -> Contract {
     c.mt_mint(acc("lantern.testnet"), vec![D.into()], vec![U128(300)], None);
     c.register_npc(acc("lantern.testnet"), U128(200));
     c.register_npc(acc("ember.testnet"), U128(200));
+    c
+}
+
+fn setup_player_market() -> Contract {
+    let mut c = setup();
+    ctx("owner.testnet", 0);
+    c.register_token(CREDIT.into(), "Vesper credits".into(), "cc".into());
+    c.init_economy(
+        acc("treasury.testnet"),
+        acc("players.testnet"),
+        U128(20_000),
+        vec![BucketInput { name: "market".into(), cap: U128(20_000), max_per_grant: U128(20_000), once_per_account: false }],
+        U128(0),
+    );
+    ctx("p1.players.testnet", STORAGE_DEPOSIT.as_yoctonear());
+    assert!(c.storage_deposit(None));
+    ctx("owner.testnet", 0);
+    c.mt_mint(acc("p1.players.testnet"), vec![D.into()], vec![U128(100)], None);
+    ctx("vault.testnet", 0);
+    c.treasury_grant("market-1".into(), "market".into(), acc("ember.testnet"), U128(10_000), "NPC resource buying float".into());
     c
 }
 
@@ -111,6 +133,45 @@ fn listing_cannot_be_filled_by_non_npc_or_filled_twice() {
     c.custodial_fill_listing("listing-3".into(), acc("ember.testnet"));
     let duplicate = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.custodial_fill_listing("listing-3".into(), acc("ember.testnet"))));
     assert!(duplicate.is_err());
+}
+
+#[test]
+fn root_player_listing_escrows_owned_resources_and_atomically_pays_on_fill() {
+    let mut c = setup_player_market();
+    ctx("vault.testnet", 0);
+    c.resource_listing_create(acc("p1.players.testnet"), "root-1".into(), D.into(), U128(40), U128(25));
+    assert_eq!(c.mt_balance_of(acc("p1.players.testnet"), D.into()).0, 60);
+    assert_eq!(c.mt_balance_of(acc("resources.testnet"), D.into()).0, 40);
+
+    ctx("vault.testnet", 0);
+    c.resource_listing_fill("root-1".into(), acc("ember.testnet"));
+    assert_eq!(c.mt_balance_of(acc("resources.testnet"), D.into()).0, 0);
+    assert_eq!(c.mt_balance_of(acc("ember.testnet"), D.into()).0, 40);
+    assert_eq!(c.mt_balance_of(acc("p1.players.testnet"), CREDIT.into()).0, 1_000);
+    assert_eq!(c.mt_balance_of(acc("ember.testnet"), CREDIT.into()).0, 9_000);
+    let listing = c.listing("root-1".into()).unwrap();
+    assert_eq!(listing.seller_id, "p1.players.testnet");
+    assert_eq!(listing.status, "filled");
+    assert_eq!(listing.buyer_id, Some(acc("ember.testnet")));
+}
+
+#[test]
+fn root_player_listing_cancel_returns_resources_and_foreign_wallets_cannot_be_listed() {
+    let mut c = setup_player_market();
+    ctx("vault.testnet", 0);
+    c.resource_listing_create(acc("p1.players.testnet"), "root-cancel".into(), D.into(), U128(20), U128(50));
+    c.resource_listing_cancel("root-cancel".into());
+    assert_eq!(c.mt_balance_of(acc("p1.players.testnet"), D.into()).0, 100);
+    assert_eq!(c.mt_balance_of(acc("resources.testnet"), D.into()).0, 0);
+    assert_eq!(c.listing("root-cancel".into()).unwrap().status, "cancelled");
+
+    ctx("vault.testnet", 0);
+    let foreign = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c.resource_listing_create(acc("player.testnet"), "foreign".into(), D.into(), U128(1), U128(50));
+    }));
+    assert!(foreign.is_err());
+    let duplicate_cancel = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.resource_listing_cancel("root-cancel".into())));
+    assert!(duplicate_cancel.is_err());
 }
 
 #[test]

@@ -30,6 +30,8 @@ import { GRID_TRANCHE_CC, NPC_IDENTITIES, STARTER_GRANT_CC, TOPUP_BELOW_BPS, WOR
 import { newWalletKey, openKey, sealKey, walletAccountId } from "./wallets.ts";
 
 const CREDIT = "credit:vesper";
+// NEP-245 storage is paid once per player account; the player-parent sponsors it so signup stays wallet-free.
+const PLAYER_STORAGE_DEPOSIT_YOCTO = "10000000000000000000000";
 const ITEM_TOKENS = Object.keys(region.regionConfig.TOWN_UNITS);
 const RETRYABLE = /Insufficient|exhausted|timeout|TIMEOUT|broadcast|nonce|InvalidNonce|Expired|LackBalanceForState|NotEnoughBalance|allowance/i;
 /** Settle the market at most this often, and players' region earnings at most this often (fewer, bigger batches). */
@@ -70,6 +72,7 @@ interface WalletRow {
   resource_pending_interval: number | null;
   resource_pending_town_tick: number | null;
   resource_pending_op_id: string | null;
+  storage_verified_at: string | null;
   detail: string | null;
   created_at: string;
 }
@@ -85,6 +88,8 @@ export class EconomyService {
   private applied = new Set<string>();
   /** The plant market's callbacks for its own operations (player-to-player sales). */
   saleHooks: { settled: (row: OpRow) => void; failed: (row: OpRow, detail: string) => void } | null = null;
+  /** Player resource market callbacks for escrow creation, cancellation and NPC fills. */
+  resourceMarketHooks: { settled: (row: OpRow) => void; failed: (row: OpRow, detail: string) => void } | null = null;
   /** When each in-flight operation was first seen unconfirmed (to tell "slow" from "never arrived"). */
   private inflightSince = new Map<string, number>();
 
@@ -129,7 +134,7 @@ export class EconomyService {
   /** The wallet that receives a player's money, once it has opened. */
   activeAccount(userId: string): string | null {
     const w = this.wallet(userId);
-    return w && w.status === "active" ? w.account_id : null;
+    return w && w.status === "active" && w.storage_verified_at !== null ? w.account_id : null;
   }
 
   /**
@@ -160,16 +165,24 @@ export class EconomyService {
 
   /** The wallet exists on NEAR: close both ledgers' epochs at this instant, then fund it to match the game. */
   private openWallet(userId: string): void {
-    const w = this.wallet(userId);
-    if (!w || w.status !== "creating") return;
-    const h = this.rsvc.liveFor(userId);
-    const fromInterval = region.forceCloseEpoch(h.state);
-    const fromTick = town.forceCloseTownEpoch(this.tsvc.state);
-    this.rsvc.checkpoint(h);
-    this.tsvc.persistEpochsNow();
-    this.tsvc.checkpoint();
-    const cash = region.rbal(h.state, "cc", "player");
-    this.db.prepare("UPDATE player_wallets SET status = 'opening', region_id = ?, opened_interval = ?, opened_town_tick = ?, opening_cash_cc = ?, updated_at = ? WHERE player_id = ?").run(h.regionId, fromInterval, fromTick, cash, nowIso(), userId);
+    let w = this.wallet(userId);
+    if (!w || (w.status !== "creating" && w.status !== "opening")) return;
+    if (w.status === "creating") {
+      const h = this.rsvc.liveFor(userId);
+      const fromInterval = region.forceCloseEpoch(h.state);
+      const fromTick = town.forceCloseTownEpoch(this.tsvc.state);
+      this.rsvc.checkpoint(h);
+      this.tsvc.persistEpochsNow();
+      this.tsvc.checkpoint();
+      const cash = region.rbal(h.state, "cc", "player");
+      this.db.prepare("UPDATE player_wallets SET status = 'opening', region_id = ?, opened_interval = ?, opened_town_tick = ?, opening_cash_cc = ?, updated_at = ? WHERE player_id = ? AND status = 'creating'").run(h.regionId, fromInterval, fromTick, cash, nowIso(), userId);
+      w = this.wallet(userId);
+      if (!w) return;
+    }
+    // Re-enqueue by deterministic ids if a process stopped after the account was marked opening.
+    const fromInterval = w.opened_interval ?? 0;
+    const fromTick = w.opened_town_tick ?? 0;
+    const cash = w.opening_cash_cc ?? 0;
     // starting capital: once per account, from the players' bucket, never minted
     this.enqueue({ opId: `grant:start:${userId}`, kind: "grant", subject: `wallet:${userId}`, signer: "operator", method: "treasury_grant", args: { grant_id: `start:${userId}`, bucket: "players", receiver_id: w.account_id, amount: String(STARTER_GRANT_CC), memo: "starting capital for a new power company" } });
     // what the company has earned or spent since it started (as a guest, or before this server had a wallet for it)
@@ -231,6 +244,9 @@ export class EconomyService {
     this.busy = true;
     let n = 0;
     try {
+      // A process may stop after NEAR finalizes but before local after-effects are checkpointed.
+      const unapplied = this.db.prepare("SELECT * FROM chain_ops WHERE status = 'settled' AND effects_applied = 0 ORDER BY rowid LIMIT 24").all() as unknown as OpRow[];
+      for (const row of unapplied) this.onSettled(row);
       // each signer gets its own share of the pass, so one busy signer (the operator) never starves another
       const rows = this.db
         .prepare(
@@ -305,7 +321,10 @@ export class EconomyService {
         const send = Object.fromEntries(Object.entries(args).filter(([k]) => !k.startsWith("_")));
         if (row.kind === "account") r = await gw.createSubAccount(String(args.account_id), String(args.public_key), onSigned);
         else if (row.kind === "fund") r = await gw.sendNear(String(args.receiver_id), String(args.near), onSigned);
-        else r = await gw.call(this.signerOf(row.signer), row.method, send, { onSigned });
+        else r = await gw.call(this.signerOf(row.signer), row.method, send, {
+          depositYocto: args._deposit_yocto === undefined ? 0n : BigInt(String(args._deposit_yocto)),
+          onSigned,
+        });
       } catch (e) {
         r = { status: "failed", txHash: null, signerId: row.signer, detail: (e as Error).message };
       }
@@ -354,6 +373,7 @@ export class EconomyService {
     const a = JSON.parse(row.args_json) as Record<string, unknown>;
     try {
       if (row.kind === "account") return await gw.accountExists(String(a.account_id));
+      if (row.method === "storage_deposit") return (await gw.view<unknown | null>("storage_balance_of", { account_id: a.account_id })) !== null;
       if (row.kind === "grant") return !!(await gw.view<unknown>("grant", { grant_id: a.grant_id }));
       if (row.kind === "order") return !!(await gw.view<unknown>("power_order", { order_id: a.order_id }));
       if (row.kind === "confirm" || row.kind === "expire") {
@@ -364,6 +384,12 @@ export class EconomyService {
       if (row.kind === "batch") return !!(await gw.view<unknown>("epoch", { epoch_id: a.epoch_id }));
       if (row.kind === "release") return await gw.view<boolean>("is_released", { account_id: a._account_id });
       if (row.kind === "fund") return (await gw.nearBalance(String(a.receiver_id))) >= Number(a.near) * 0.5;
+      if (row.kind === "market") {
+        const listing = await gw.view<{ status: string } | null>("listing", { listing_id: a.listing_id });
+        if (row.method === "resource_listing_create") return !!listing;
+        if (row.method === "resource_listing_cancel") return listing?.status === "cancelled";
+        if (row.method === "resource_listing_fill") return listing?.status === "filled";
+      }
       if (row.kind === "plant") {
         if (row.method === "plant_list") return !!(await gw.view<unknown>("plant_sale", { token_id: a.token_id }));
         if (row.method === "plant_cancel_listing") return !(await gw.view<unknown>("plant_sale", { token_id: a.token_id }));
@@ -385,9 +411,12 @@ export class EconomyService {
       for (const item of a._resource_wallets as { playerId: string; interval: number; townTick: number }[])
         open.run(item.interval, item.townTick, nowIso(), item.playerId, row.op_id);
     }
-    this.db.prepare("UPDATE chain_ops SET effects_applied = 1 WHERE op_id = ?").run(row.op_id);
     const user = row.subject?.startsWith("wallet:") ? row.subject.slice(7) : null;
-    if (row.kind === "account" && user) this.openWallet(user);
+    if (row.kind === "account" && user) this.ensurePlayerStorageRegistration(user);
+    if (row.method === "storage_deposit" && user) {
+      this.db.prepare("UPDATE player_wallets SET storage_verified_at = ?, updated_at = ? WHERE player_id = ?").run(nowIso(), nowIso(), user);
+      this.openWallet(user);
+    }
     if (user && (row.kind === "grant" || row.kind === "batch")) this.maybeActivate(user);
     if (row.kind === "batch" && Array.isArray(a._epochs)) {
       const upd = this.db.prepare("UPDATE settlement_epochs SET status = 'confirmed', tx_hash = ?, updated_at = ? WHERE epoch_id = ?");
@@ -405,7 +434,9 @@ export class EconomyService {
     // carry it into the seller's region now, not at the next market tick
     if (row.kind === "order" || row.kind === "confirm") this.afterTownTick();
     if (row.subject?.startsWith("sale:")) this.saleHooks?.settled(row);
+    if (row.subject?.startsWith("resource-sale:")) this.resourceMarketHooks?.settled(row);
     if (row.subject?.startsWith("leave:")) this.leaveStep(row.subject.slice(6), row);
+    this.db.prepare("UPDATE chain_ops SET effects_applied = 1 WHERE op_id = ?").run(row.op_id);
   }
 
   private onFailed(row: OpRow, detail: string): void {
@@ -419,6 +450,11 @@ export class EconomyService {
     if (row.subject?.startsWith("sale:") && !(this.retryable(row, detail) && row.attempts < 8)) this.saleHooks?.failed(row, detail);
     const user = row.subject?.startsWith("wallet:") ? row.subject.slice(7) : null;
     if (this.retryable(row, detail) && row.attempts < 8) return; // the worker tries again later
+    if (row.method === "storage_deposit" && user) {
+      this.db.prepare("UPDATE player_wallets SET status = CASE WHEN status IN ('creating','opening') THEN 'failed' ELSE status END, detail = ?, updated_at = ? WHERE player_id = ?")
+        .run(`Resource account setup failed: ${friendly(detail)}`.slice(0, 300), nowIso(), user);
+    }
+    if (row.subject?.startsWith("resource-sale:")) this.resourceMarketHooks?.failed(row, detail);
     const a = JSON.parse(row.args_json) as Record<string, unknown>;
     if (row.subject === "resource-bootstrap" && Array.isArray(a._resource_wallets)) {
       const clear = this.db.prepare("UPDATE player_wallets SET resource_pending_interval = NULL, resource_pending_town_tick = NULL, resource_pending_op_id = NULL, updated_at = ? WHERE player_id = ? AND resource_pending_op_id = ?");
@@ -623,6 +659,7 @@ export class EconomyService {
     if (!this.live || this.settlementBusy || this.getState("resync")) return;
     this.settlementBusy = true;
     try {
+      if (!(await this.ensureExistingPlayerStorage())) return;
       const open = this.townOpened();
       if (!open) return;
       const missingBaseline = this.db.prepare("SELECT COUNT(*) AS n FROM player_wallets WHERE status = 'active' AND resource_opened_interval IS NULL").get() as { n: number };
@@ -670,6 +707,50 @@ export class EconomyService {
     } finally {
       this.settlementBusy = false;
     }
+  }
+
+  /** Register legacy active wallets before any resource or credit transfer can target them. */
+  private async ensureExistingPlayerStorage(): Promise<boolean> {
+    const wallets = this.db.prepare("SELECT * FROM player_wallets WHERE status = 'active' AND storage_verified_at IS NULL ORDER BY created_at LIMIT 12")
+      .all() as unknown as WalletRow[];
+    for (const wallet of wallets) {
+      const op = this.op(`storage:${wallet.player_id}`);
+      if (op?.status === "settled") {
+        this.db.prepare("UPDATE player_wallets SET storage_verified_at = ?, updated_at = ? WHERE player_id = ? AND storage_verified_at IS NULL")
+          .run(nowIso(), nowIso(), wallet.player_id);
+        continue;
+      }
+      if (op && op.status !== "failed") return false;
+      let registered: unknown | null;
+      try {
+        registered = await this.gateway!.view<unknown | null>("storage_balance_of", { account_id: wallet.account_id });
+      } catch {
+        return false;
+      }
+      if (registered !== null) {
+        this.db.prepare("UPDATE player_wallets SET storage_verified_at = ?, updated_at = ? WHERE player_id = ? AND storage_verified_at IS NULL")
+          .run(nowIso(), nowIso(), wallet.player_id);
+        continue;
+      }
+      if (op?.status === "failed" && op.attempts >= 8) return false;
+      this.ensurePlayerStorageRegistration(wallet.player_id);
+      return false;
+    }
+    // A full page means more unverified wallets may remain; process them on the next worker beat.
+    return wallets.length < 12;
+  }
+
+  private ensurePlayerStorageRegistration(userId: string): void {
+    const wallet = this.wallet(userId);
+    if (!wallet || wallet.status === "failed" || wallet.status === "released" || this.op(`storage:${userId}`)) return;
+    this.enqueue({
+      opId: `storage:${userId}`,
+      kind: "admin",
+      subject: `wallet:${userId}`,
+      signer: "player-parent",
+      method: "storage_deposit",
+      args: { account_id: wallet.account_id, _deposit_yocto: PLAYER_STORAGE_DEPOSIT_YOCTO },
+    });
   }
 
   /** Queues settled market epochs once the market is open on chain. */
@@ -842,7 +923,7 @@ export class EconomyService {
     const resourceLegs = new Map<string, Map<string, number>>();
     const ids: string[] = [];
     for (const w of wallets) {
-      if (!w.region_id) continue;
+      if (!w.region_id || w.storage_verified_at === null) continue;
       const rows = this.db.prepare("SELECT epoch_id, from_interval, body_json FROM settlement_epochs WHERE region_id = ? AND status IN ('pending', 'local') ORDER BY epoch_no").all(w.region_id) as { epoch_id: string; from_interval: number; body_json: string }[];
       let d = 0;
       for (const r of rows) {
@@ -923,7 +1004,7 @@ export class EconomyService {
     for (const h of this.rsvc.regions.values()) {
       if (h.mode !== "live") continue;
       const w = this.wallet(h.ownerId);
-      if (!w || w.status !== "active" || w.region_id !== h.regionId) continue;
+      if (!w || w.status !== "active" || w.storage_verified_at === null || w.region_id !== h.regionId) continue;
       for (const p of h.state.plants) {
         if (p.status === "building") continue;
         // a plant bought from another company keeps the token it already has
@@ -961,6 +1042,18 @@ export class EconomyService {
       return Number(v);
     } catch {
       return c?.cc ?? null;
+    }
+  }
+
+  /** Fresh NEP-245 balance for resource ownership and NPC purchase checks. */
+  async onChainTokenBalance(accountId: string, tokenId: string): Promise<number | null> {
+    if (!this.live) return null;
+    try {
+      const raw = await this.gateway!.view<string | number>("mt_balance_of", { account_id: accountId, token_id: tokenId });
+      const value = Number(raw);
+      return Number.isSafeInteger(value) && value >= 0 ? value : null;
+    } catch {
+      return null;
     }
   }
 
@@ -1096,6 +1189,7 @@ export class EconomyService {
    */
   async resync(): Promise<{ status: "waiting" | "done"; detail: string }> {
     if (!this.live) return { status: "done", detail: "No chain connected." };
+    if (!(await this.ensureExistingPlayerStorage())) return { status: "waiting", detail: "Waiting for active player accounts to finish NEP-245 storage registration before resync." };
     this.cfg.npcSpending = false;
     const t = this.tsvc.state;
     const busy = (t.power?.orders ?? []).filter((o) => o.status === "placing" || o.status === "open" || o.status === "awaiting").length;

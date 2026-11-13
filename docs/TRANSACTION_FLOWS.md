@@ -70,6 +70,32 @@ Live on testnet (2026-11-09): Eastside Battery, ₡20,000, one transaction
 [GBTrhzDT…](https://testnet.nearblocks.io/txns/GBTrhzDTGGq8krMmuXdca2tGo3JqURgBqSANs9sdHQU6) carrying both the `mt_transfer` (credits buyer → seller)
 and the `nft_transfer` (NFT seller → buyer); the listing was [G9cETXth…](https://testnet.nearblocks.io/txns/G9cETXthZq2A3grjnFgERDMAnPk3RPe9Phpu9hF6jdRX).
 
+## Flow E — a player sells a NEP-245 resource to an NPC
+
+This flow is implemented in the current source tree. It is not confirmed deployed to the public Railway service, and no
+live Testnet player-resource transaction hash is claimed.
+
+1. The player chooses a resource, whole quantity and ask in MARKET → Player exchange (`POST /api/resources/list`). The
+   API checks the player's available game inventory and, in live mode, requires its assigned custodial account to be
+   active with an exact matching NEP-245 balance.
+2. The API reserves the quantity in the player's region inventory and queues `resource_listing_create`. The operator
+   calls the contract, which verifies the seller account is in the registered player namespace and escrows the exact
+   resource from that player's account. The listing is exposed to NPC policy only after final confirmation.
+3. Each eligible NPC checks that its shop is open, its warehouse has room, the ask is at or below its current bid,
+   local cash remains above daily costs, and its on-chain `credit:vesper` balance can cover the full amount.
+4. If accepted, local NPC cash is reserved and the operator calls `resource_listing_fill`. In one contract execution,
+   escrowed NEP-245 resources move to the NPC and `credit:vesper` moves from the NPC to the seller. The contract marks
+   the listing filled, preventing a second sale.
+5. After final success, the game applies its local resource/cash ledger effects once (`resource-listing-fill:<id>`).
+   The local credits represent the same non-redeemable game credit token movement; they are not a cash redemption.
+6. The player can withdraw an open offer with `POST /api/resources/cancel`. The quantity remains reserved until
+   `resource_listing_cancel` finalizes and returns it to the seller. If a fill is in flight, cancellation waits for the
+   fill outcome. An unknown result is reconciled from `listing(listing_id)` before any retry or local refund.
+
+The game server evaluates NPC policy and controls the custodial operator key. The contract enforces the player wallet
+namespace, escrow, registered NPC buyer and single-use listing state. Testnet deployment and a live transaction are
+still required to demonstrate this flow to judges.
+
 ## Failure handling (tested in `tests/integration/economy.test.ts`)
 
 | What goes wrong | What happens |
@@ -77,6 +103,9 @@ and the `nft_transfer` (NFT seller → buyer); the listing was [G9cETXth…](htt
 | The company's escrow is refused (limit, balance, kill switch) | order **failed** with the reason; its reservation released; no export, no money |
 | The response is lost | op stays **submitted**; looked up later; contract read decides; never sent twice |
 | A grant or batch is retried | single-use grant/epoch ID is read back from the contract and recognised as already done |
+| A player storage registration is unknown | `storage_balance_of` decides; game credits and resources are held until registration succeeds |
+| A resource listing create/fill/cancel response is lost | `listing(listing_id)` decides whether escrow is active, filled or cancelled; local inventory stays reserved until the outcome is known |
+| An NPC listing fill fails | its local cash reservation is released after a final failure; the resource remains escrowed and the NPC can review the offer again |
 | The grid float is short | batch **failed** as transient; floats topped up from the bucket; retried |
 | A resource market batch is ahead of the inventory snapshot | Town item settlement is held until the baseline lands; later region debits wait for unsettled market item credits |
 | Nobody confirms a delivery | after the deadline anyone can call `power_order_expire`: full refund to the buyer |

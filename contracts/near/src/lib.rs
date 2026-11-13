@@ -18,9 +18,13 @@
 //!     attach deposits) can sign it. Bounded by a per-call cap set by the owner and
 //!     idempotent per `trade_id` (a replayed trade panics). It can never move anyone
 //!     else's tokens.
-//!   * custodial_list / custodial_cancel_listing / custodial_fill_listing: an operator-key
-//!     escrow path for game-authenticated player listings. Only escrowed resources can fill;
-//!     the buyer must be a registered NPC. Credits remain off-chain.
+//!   * resource_listing_create / resource_listing_cancel / resource_listing_fill: the operator
+//!     escrows resources from a registered custodial player wallet, returns them on cancel, or
+//!     atomically transfers them to an NPC buyer while paying the seller in Vesper credits.
+//!     The server authenticates the player identity; the contract enforces wallet namespace,
+//!     escrow balance, registered NPC buyer, and single-use listing state.
+//!   * custodial_list / custodial_cancel_listing / custodial_fill_listing: legacy shared-vault
+//!     adapter. Credits remain off-chain; this path is separate from the root player market.
 //!   * trade_status(trade_id): lets the game server reconcile an unknown tx outcome.
 //!   * Shared fuel exchange (every city trades on one order book):
 //!       - player balances live under ids in the operator's namespace (`p<hash>.<operator_id>`).
@@ -708,6 +712,63 @@ impl Contract {
         emit("mt_transfer", serde_json::json!({ "old_owner_id": contract_id, "new_owner_id": buyer_id, "token_ids": [listing.token_id], "amounts": [listing.amount], "memo": format!("listing_fill:{}:{}", listing_id, listing.seller_id) }));
     }
 
+    /// Escrow an owned resource from a player's server-managed Testnet account.
+    /// The API must authenticate the player and reserve the same quantity in the game ledger first.
+    pub fn resource_listing_create(&mut self, seller_id: AccountId, listing_id: String, token_id: TokenId, amount: U128, unit_price_cc: U128) {
+        self.assert_operator();
+        require!(self.is_registered_player_wallet(&seller_id), "Seller is not an active custodial player wallet");
+        require!(!listing_id.is_empty() && listing_id.len() <= 128, "Bad listing id");
+        require!(amount.0 > 0 && unit_price_cc.0 > 0, "Amount and price must be positive");
+        require!(self.supply.get(&token_id).is_some(), "Unknown token");
+        require!(self.supply.get(&plants::CREDIT.to_string()).is_some(), "Vesper credit token is not registered");
+        require!(self.listings.get(&listing_id).is_none(), "Listing already exists");
+        let contract_id = env::current_account_id();
+        self.internal_move(&seller_id, &contract_id, &token_id, amount.0);
+        self.listings.insert(listing_id.clone(), Listing {
+            listing_id: listing_id.clone(), seller_id: seller_id.to_string(), token_id: token_id.clone(),
+            amount, unit_price_cc, status: "active".to_string(), buyer_id: None, block_height: env::block_height(),
+        });
+        emit("mt_transfer", serde_json::json!({ "old_owner_id": seller_id, "new_owner_id": contract_id, "token_ids": [token_id], "amounts": [amount], "memo": format!("resource_listing:{}", listing_id) }));
+        crate::economy::blackout_event("resource_listing_created", serde_json::json!({ "listing_id": listing_id, "amount": amount, "unit_price_cc": unit_price_cc }));
+    }
+
+    /// Return escrowed resources to the seller. The game restores inventory only after this call finalizes.
+    pub fn resource_listing_cancel(&mut self, listing_id: String) {
+        self.assert_operator();
+        let mut listing = self.listings.get(&listing_id).cloned().unwrap_or_else(|| env::panic_str("Unknown listing"));
+        require!(listing.status == "active", "Listing is not active");
+        let seller_id: AccountId = listing.seller_id.parse().unwrap_or_else(|_| env::panic_str("Invalid seller account"));
+        require!(self.is_registered_player_wallet(&seller_id), "Seller wallet is no longer in game custody");
+        let contract_id = env::current_account_id();
+        self.internal_move(&contract_id, &seller_id, &listing.token_id, listing.amount.0);
+        listing.status = "cancelled".to_string();
+        listing.block_height = env::block_height();
+        self.listings.insert(listing_id.clone(), listing.clone());
+        emit("mt_transfer", serde_json::json!({ "old_owner_id": contract_id, "new_owner_id": seller_id, "token_ids": [listing.token_id], "amounts": [listing.amount], "memo": format!("resource_listing_cancel:{}", listing_id) }));
+        crate::economy::blackout_event("resource_listing_cancelled", serde_json::json!({ "listing_id": listing_id }));
+    }
+
+    /// Atomically transfer escrowed resources to a registered NPC and credits from that NPC to the seller.
+    pub fn resource_listing_fill(&mut self, listing_id: String, buyer_id: AccountId) {
+        self.assert_operator();
+        require!(self.npcs.get(&buyer_id).is_some(), "Buyer is not a registered NPC");
+        let mut listing = self.listings.get(&listing_id).cloned().unwrap_or_else(|| env::panic_str("Unknown listing"));
+        require!(listing.status == "active", "Listing is not active");
+        let seller_id: AccountId = listing.seller_id.parse().unwrap_or_else(|_| env::panic_str("Invalid seller account"));
+        require!(self.is_registered_player_wallet(&seller_id), "Seller wallet is no longer in game custody");
+        let payment = listing.amount.0.checked_mul(listing.unit_price_cc.0).unwrap_or_else(|| env::panic_str("Listing payment overflow"));
+        let contract_id = env::current_account_id();
+        self.internal_move(&contract_id, &buyer_id, &listing.token_id, listing.amount.0);
+        self.internal_move(&buyer_id, &seller_id, &plants::CREDIT.to_string(), payment);
+        listing.status = "filled".to_string();
+        listing.buyer_id = Some(buyer_id.clone());
+        listing.block_height = env::block_height();
+        self.listings.insert(listing_id.clone(), listing.clone());
+        emit("mt_transfer", serde_json::json!({ "old_owner_id": contract_id, "new_owner_id": buyer_id, "token_ids": [listing.token_id], "amounts": [listing.amount], "memo": format!("resource_listing_fill:{}", listing_id) }));
+        emit("mt_transfer", serde_json::json!({ "old_owner_id": buyer_id, "new_owner_id": seller_id, "token_ids": [plants::CREDIT], "amounts": [U128(payment)], "memo": format!("resource_listing_payment:{}", listing_id) }));
+        crate::economy::blackout_event("resource_listing_filled", serde_json::json!({ "listing_id": listing_id, "buyer_id": buyer_id, "payment_cc": U128(payment) }));
+    }
+
     pub fn listing(&self, listing_id: String) -> Option<Listing> {
         self.listings.get(&listing_id).cloned()
     }
@@ -887,6 +948,17 @@ impl Contract {
             s.len() > suffix.len() && s.ends_with(&suffix)
         };
         under(self.operator_id.as_str()) || self.economy.as_ref().map(|e| under(e.player_parent_id.as_str())).unwrap_or(false)
+    }
+
+    fn is_registered_player_wallet(&self, account_id: &AccountId) -> bool {
+        if self.released.contains(account_id) || !self.registered.contains(account_id) {
+            return false;
+        }
+        let s = account_id.as_str();
+        self.economy.as_ref().map(|e| {
+            let suffix = format!(".{}", e.player_parent_id);
+            s.len() > suffix.len() && s.ends_with(&suffix)
+        }).unwrap_or(false)
     }
 
     fn bump_open(&mut self, owner: &AccountId, delta: i64) {
