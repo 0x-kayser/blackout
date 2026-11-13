@@ -53,7 +53,7 @@ export const regionApi = {
   investQuote: (merchantId: string, amountCc: number) => call<{ ok: true; quote: InvestQuote }>('POST', '/api/town/invest-quote', { merchantId, amountCc }),
   trade: (merchantId: string, item: ItemId, side: 'buy' | 'sell', quantity: number) => call<{ ok: true; message: string; view: RegionView; town: TownView }>('POST', '/api/town/trade', { merchantId, item, side, quantity, idempotencyKey: newKey() }),
   invest: (merchantId: string, amountCc: number) => call<{ ok: true; message: string; view: RegionView; town: TownView }>('POST', '/api/town/invest', { merchantId, amountCc, idempotencyKey: newKey() }),
-  fastForward: (seed: number) => call<{ ok: true; week: FastForwardResult }>('GET', `/api/town/fastforward?seed=${seed}`),
+  fastForward: (seed: number, days: 7 | 365 = 7) => call<{ ok: true; week: FastForwardResult }>('GET', `/api/town/fastforward?seed=${seed}&days=${days}`),
   desk: () => call<{ ok: true; desk: DeskView }>('GET', '/api/economy/desk'),
   setDesk: (d: DeskView) => call<{ ok: true; desk: DeskView }>('POST', '/api/economy/desk', d),
   plantSales: () => call<{ ok: true; sales: PlantSale[] }>('GET', '/api/plants/market'),

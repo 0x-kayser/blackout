@@ -1,4 +1,5 @@
-import type { FuelId, RegionView, SupplierView } from '@blackout/shared'
+import type { FuelId, RegionView, SupplierView, TownView } from '@blackout/shared'
+import { ITEMS } from '@blackout/shared'
 import { credits, pct, price } from '../format'
 import { Section } from './Bits'
 import type { ChallengeInfo } from '../api'
@@ -32,9 +33,16 @@ function campaignObjective(v: RegionView) {
 }
 
 function activeFuelShock(v: RegionView): SupplierView | null {
-  return [...v.suppliers]
+  const liveShock = [...v.suppliers]
     .filter((supplier) => supplier.disrupted || supplier.rationing)
-    .sort((a, b) => Number(b.rationing) - Number(a.rationing) || b.scarcityPremiumPct - a.scarcityPremiumPct || a.stock / Math.max(1, a.capacity) - b.stock / Math.max(1, b.capacity))[0] ?? null
+    .sort((a, b) => Number(b.rationing) - Number(a.rationing) || b.scarcityPremiumPct - a.scarcityPremiumPct || a.stock / Math.max(1, a.capacity) - b.stock / Math.max(1, b.capacity))[0]
+  if (liveShock) return liveShock
+  const tightFuel = !v.resourceReserve.legacy && (["gas", "diesel"] as const).find((fuel) => {
+    const reserve = v.resourceReserve[fuel]
+    return reserve.total > 0 && reserve.remaining <= reserve.total * 0.25
+  })
+  if (!tightFuel) return null
+  return [...v.suppliers].filter((supplier) => supplier.fuel === tightFuel).sort((a, b) => b.scarcityPremiumPct - a.scarcityPremiumPct)[0] ?? null
 }
 
 function currentPowerSurge(v: RegionView) {
@@ -46,12 +54,14 @@ function currentPowerSurge(v: RegionView) {
     : null
 }
 
-function CrisisBrief({ v, move, onOpenMarket, onOpenDispatch, onToggleAutoFuel, onDoMove }: { v: RegionView; move: Move | null; onOpenMarket: () => void; onOpenDispatch: () => void; onToggleAutoFuel: (fuel: FuelId, enabled: boolean) => void; onDoMove: () => void }) {
+function CrisisBrief({ v, town, move, onOpenMarket, onOpenDispatch, onToggleAutoFuel, onDoMove }: { v: RegionView; town: TownView | null; move: Move | null; onOpenMarket: () => void; onOpenDispatch: () => void; onToggleAutoFuel: (fuel: FuelId, enabled: boolean) => void; onDoMove: () => void }) {
   const supplier = activeFuelShock(v)
   const surge = currentPowerSurge(v)
+  const marketReserve = (town?.reserves ?? []).find((reserve) => !reserve.legacy && reserve.total > 0 && reserve.remainingBps <= 2_500)
+  const reserveStep = marketReserve ? (marketReserve.remainingBps <= 1_000 ? 10 : 25) : null
   const signalKey = supplier
-    ? `fuel:${supplier.supplierId}:${supplier.disrupted ? 'disrupted' : ''}:${supplier.rationing ? 'rationing' : ''}`
-    : surge ? 'power:price-surge' : null
+    ? `fuel:${supplier.supplierId}:${supplier.disrupted ? 'disrupted' : ''}:${supplier.rationing ? 'rationing' : ''}:${v.resourceReserve[supplier.fuel].remaining <= v.resourceReserve[supplier.fuel].total * 0.1 ? 'reserve-10' : v.resourceReserve[supplier.fuel].remaining <= v.resourceReserve[supplier.fuel].total * 0.25 ? 'reserve-25' : ''}`
+    : marketReserve ? `world:${marketReserve.item}:${reserveStep}` : surge ? 'power:price-surge' : null
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
   useEffect(() => setDismissedKey(null), [signalKey])
   if (!signalKey || signalKey === dismissedKey) return null
@@ -61,7 +71,11 @@ function CrisisBrief({ v, move, onOpenMarket, onOpenDispatch, onToggleAutoFuel, 
     const unit = supplier.fuel === 'gas' ? 'MMBtu' : 'L'
     const autoFuel = v.player.autoFuel[supplier.fuel]
     const running = v.plants.some((plant) => plant.mine && plant.fuel === supplier.fuel && (plant.status === 'online' || plant.status === 'starting'))
-    const scarcity = supplier.scarcityPremiumPct > 0
+    const reserve = v.resourceReserve[supplier.fuel]
+    const reserveLow = !v.resourceReserve.legacy && reserve.total > 0 && reserve.remaining <= reserve.total * 0.25
+    const scarcity = reserveLow
+      ? `${Math.round((reserve.remaining / reserve.total) * 100)}% of this grid’s fixed fuel allotment remains outside supplier tanks.`
+      : supplier.scarcityPremiumPct > 0
       ? `Low stock adds about ${supplier.scarcityPremiumPct}% above this supplier’s normal margin.`
       : 'The disruption is active; this supplier has not added a low-stock premium yet.'
     const topUpHint = !running
@@ -76,8 +90,8 @@ function CrisisBrief({ v, move, onOpenMarket, onOpenDispatch, onToggleAutoFuel, 
           <span>LIVE MARKET CRISIS · {supplier.fuel.toUpperCase()}</span>
           <button className="crisis-dismiss" aria-label="Dismiss this crisis alert" onClick={() => setDismissedKey(signalKey)}>×</button>
         </div>
-        <strong>{supplier.rationing ? `${supplier.name} is rationing ${supplier.fuel}` : `${supplier.name} imports are disrupted`}</strong>
-        <p>{supplier.note}</p>
+        <strong>{supplier.rationing ? `${supplier.name} is rationing ${supplier.fuel}` : supplier.disrupted ? `${supplier.name} imports are disrupted` : `${supplier.fuel} reserve is running low`}</strong>
+        <p>{reserveLow ? 'This saved grid is drawing down its finite allotment. The next deposit is already counted in the fixed total.' : supplier.note}</p>
         <div className="crisis-facts">
           <span>{stockPct}% stock</span>
           <span>{credits(supplier.priceCcPerUnit)} / {unit}</span>
@@ -93,6 +107,18 @@ function CrisisBrief({ v, move, onOpenMarket, onOpenDispatch, onToggleAutoFuel, 
             : <button className="btn ghost small" onClick={onOpenDispatch}>Review dispatch</button>}
         </div>
         {running && <small className="crisis-price-note">{topUpHint}</small>}
+      </section>
+    )
+  }
+
+  if (marketReserve) {
+    return (
+      <section className="crisis-brief supply" aria-label="Fixed resource reserve warning">
+        <div className="crisis-brief-top"><span>FINITE WORLD RESERVE · {ITEMS[marketReserve.item].name.toUpperCase()}</span><button className="crisis-dismiss" aria-label="Dismiss this reserve alert" onClick={() => setDismissedKey(signalKey)}>×</button></div>
+        <strong>{Math.round(marketReserve.remainingBps / 100)}% of the {ITEMS[marketReserve.item].name.toLowerCase()} endowment remains</strong>
+        <p>{marketReserve.remaining.toLocaleString('en-US')} {ITEMS[marketReserve.item].units} remain in reserve. Merchant stock and your existing inventory are still tradeable.</p>
+        <p className="crisis-choice">Choose what to protect: secure stock for the next shift, reserve steel for a build, or keep cash available for a price spike.</p>
+        <div className="crisis-actions"><button className="btn primary small" onClick={onOpenMarket}>Review reserve and quotes</button><button className="btn ghost small" onClick={onOpenDispatch}>Choose grid response</button></div>
       </section>
     )
   }
@@ -118,7 +144,7 @@ function CrisisBrief({ v, move, onOpenMarket, onOpenDispatch, onToggleAutoFuel, 
   )
 }
 
-export function LoopGoals({ v, challenge, move, onCareer, onChallenge, onLive, onDoMove, tutorialIncomplete, onResumeTutorial, onOpenMarket, onOpenDispatch, onToggleAutoFuel }: { v: RegionView; challenge: ChallengeInfo | null; move: Move | null; onCareer: (tab: OperationTab) => void; onChallenge: () => void; onLive: () => void; onDoMove: () => void; tutorialIncomplete?: boolean; onResumeTutorial?: () => void; onOpenMarket: () => void; onOpenDispatch: () => void; onToggleAutoFuel: (fuel: FuelId, enabled: boolean) => void }) {
+export function LoopGoals({ v, town, challenge, move, onCareer, onChallenge, onLive, onDoMove, tutorialIncomplete, onResumeTutorial, onOpenMarket, onOpenDispatch, onToggleAutoFuel }: { v: RegionView; town: TownView | null; challenge: ChallengeInfo | null; move: Move | null; onCareer: (tab: OperationTab) => void; onChallenge: () => void; onLive: () => void; onDoMove: () => void; tutorialIncomplete?: boolean; onResumeTutorial?: () => void; onOpenMarket: () => void; onOpenDispatch: () => void; onToggleAutoFuel: (fuel: FuelId, enabled: boolean) => void }) {
   const operation = campaignObjective(v)
   const isChallenge = v.mode === 'challenge'
   const progress = isChallenge ? Math.min(100, (v.clock.day / 3) * 100) : operation.progress
@@ -143,7 +169,7 @@ export function LoopGoals({ v, challenge, move, onCareer, onChallenge, onLive, o
           {move.button && <button className="btn primary small" onClick={onDoMove}>{move.button} <span aria-hidden>→</span></button>}
         </div>
       )}
-      <CrisisBrief v={v} move={move} onOpenMarket={onOpenMarket} onOpenDispatch={onOpenDispatch} onToggleAutoFuel={onToggleAutoFuel} onDoMove={onDoMove} />
+      <CrisisBrief v={v} town={town} move={move} onOpenMarket={onOpenMarket} onOpenDispatch={onOpenDispatch} onToggleAutoFuel={onToggleAutoFuel} onDoMove={onDoMove} />
       {tutorialIncomplete && onResumeTutorial && <button className="operation-resume-guide" onClick={onResumeTutorial}>↩ Resume the first-night guide</button>}
       <button className="operation-weekly" onClick={isChallenge ? onLive : onChallenge}>{isChallenge ? '← Return to your company' : `Play this week’s crisis · ${challenge?.name ?? '3-day run'} →`}</button>
     </section>

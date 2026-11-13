@@ -37,7 +37,7 @@ const loadPrefs = (): Prefs => {
 }
 
 const CUE_FOR: Record<string, Cue> = { BLACKOUT: 'siren', RESTORED: 'restore', PLANT_TRIPPED: 'fail', PRICE_SPIKE: 'ping', BUILD_STARTED: 'coin', PLANT_COMMISSIONED: 'restore', TENDER_MET: 'coin', LICENCE: 'coin', PLANT_SOLD: 'coin', BUSINESS_CLOSED: 'fail', VOLTLINE_MOTHBALL: 'fail' }
-const TOAST_TYPES = new Set(['BLACKOUT', 'PLANT_TRIPPED', 'PRICE_SPIKE', 'HEATWAVE', 'STORM', 'RATIONING', 'SUPPLY_DISRUPTION', 'CONGESTION', 'BUSINESS_DISTRESS', 'BUSINESS_CLOSED', 'LAYOFFS', 'STEEL_SHORTAGE', 'VOLTLINE_DISTRESS', 'VOLTLINE_MOTHBALL', 'VOLTLINE_BUILDS', 'ASSET_FOR_SALE', 'TENDER_POSTED', 'TENDER_MET', 'TENDER_MISSED', 'LICENCE', 'PLANT_COMMISSIONED', 'LINE_UPGRADED', 'REGULATOR_FINE', 'REGULATOR_MITIGATION', 'BLACKOUT_IMPACT', 'DEMAND_RESPONSE', 'CHALLENGE_ENDED', 'FORECLOSURE', 'BUSINESS_REOPENED'])
+const TOAST_TYPES = new Set(['BLACKOUT', 'PLANT_TRIPPED', 'PRICE_SPIKE', 'HEATWAVE', 'STORM', 'RATIONING', 'SUPPLY_DISRUPTION', 'RESOURCE_DEPOSIT', 'RESOURCE_SCARCITY', 'CONGESTION', 'BUSINESS_DISTRESS', 'BUSINESS_CLOSED', 'LAYOFFS', 'STEEL_SHORTAGE', 'VOLTLINE_DISTRESS', 'VOLTLINE_MOTHBALL', 'VOLTLINE_BUILDS', 'ASSET_FOR_SALE', 'TENDER_POSTED', 'TENDER_MET', 'TENDER_MISSED', 'LICENCE', 'PLANT_COMMISSIONED', 'LINE_UPGRADED', 'REGULATOR_FINE', 'REGULATOR_MITIGATION', 'BLACKOUT_IMPACT', 'DEMAND_RESPONSE', 'CHALLENGE_ENDED', 'FORECLOSURE', 'BUSINESS_REOPENED'])
 
 export default function RegionApp() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
@@ -64,7 +64,7 @@ export default function RegionApp() {
       setTutorialSkippedFor(null)
     }
   }, [player?.playerId])
-  const [watching, setWatching] = useState(false)
+  const [watching, setWatching] = useState<7 | 365 | null>(null)
   const viewRef = useRef<RegionView>(null as unknown as RegionView)
   if (view) viewRef.current = view
 
@@ -480,7 +480,7 @@ export default function RegionApp() {
       </Suspense>
       <PulseBar v={view} simple={simple} company={player?.companyNamed ? player.displayName : null} onCompany={() => setRenaming(true)} player={player} conn={conn} onSettings={() => { setOperations(false); setSettingsTab('account'); setSettings(true) }} onSignOut={signOut} onHome={() => { setSelection(null); setFocus({ kind: 'home', id: '', nonce: Date.now() }) }} sound={prefs.sound} onSound={() => setPrefs({ ...prefs, sound: !prefs.sound })} />
       {simple && mission && <MissionBanner m={mission} onAction={runMission} onSkip={skipFirstNight} />}
-      {!simple && !mode && !selection && !renaming && <LoopGoals v={view} challenge={challengeInfo} move={move} onCareer={showOperations} onChallenge={() => showOperations('weekly')} onLive={() => void returnToLive()} onDoMove={() => void doMove()} tutorialIncomplete={!view.onboarding.done} onResumeTutorial={resumeFirstNight} onOpenMarket={() => { setFeed(false); setMode('market') }} onOpenDispatch={() => { setFeed(false); setMode('dispatch') }} onToggleAutoFuel={(fuel, enabled) => void doAct({ type: 'SET_AUTO_FUEL', fuel, enabled })} />}
+      {!simple && !mode && !selection && !renaming && <LoopGoals v={view} town={town} challenge={challengeInfo} move={move} onCareer={showOperations} onChallenge={() => showOperations('weekly')} onLive={() => void returnToLive()} onDoMove={() => void doMove()} tutorialIncomplete={!view.onboarding.done} onResumeTutorial={resumeFirstNight} onOpenMarket={() => { setFeed(false); setMode('market') }} onOpenDispatch={() => { setFeed(false); setMode('dispatch') }} onToggleAutoFuel={(fuel, enabled) => void doAct({ type: 'SET_AUTO_FUEL', fuel, enabled })} />}
       {!simple && !mode && !selection && <NewsTicker town={town} onMerchant={(id) => select({ kind: 'merchant', id })} />}
       {celebrate && <Celebration text={celebrate} />}
       {renaming && !mode && (
@@ -499,10 +499,10 @@ export default function RegionApp() {
           <button className="close" onClick={() => setMode(null)} aria-label="Close">
             ×
           </button>
-          <MarketSheet v={view} town={town} trade={trade} onMerchant={(id) => select({ kind: 'merchant', id })} onWatch={() => setWatching(true)} onAutoFuel={(fuel, enabled) => void doAct({ type: 'SET_AUTO_FUEL', fuel, enabled })} desk={desk} onDesk={setDesk} />
+          <MarketSheet v={view} town={town} trade={trade} onMerchant={(id) => select({ kind: 'merchant', id })} onWatch={setWatching} onAutoFuel={(fuel, enabled) => void doAct({ type: 'SET_AUTO_FUEL', fuel, enabled })} desk={desk} onDesk={setDesk} />
         </div>
       )}
-      {watching && <WatchAWeek onClose={() => setWatching(false)} />}
+      {watching !== null && <WatchAWeek days={watching} onClose={() => setWatching(null)} />}
       {mode && mode !== 'market' && <ModeSheet mode={mode} v={view} act={doAct} onClose={() => { setMode(null); setBuildNode(null) }} onSelect={select} onMode={setMode} building={building} setBuilding={(b) => { setBuilding(b); if (!b) setBuildNode(null) }} buildNode={buildNode} />}
       {feed && !mode && <Feed v={view} onSelect={select} onClose={() => setFeed(false)} />}
       {selection?.kind === 'merchant' && town ? (

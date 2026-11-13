@@ -17,6 +17,25 @@ export const WAREHOUSE_FULL_X = 4;
 /** Share of cash above the cushion paid out as dividends each day. */
 export const DIVIDEND_BPS = 4_000;
 
+/**
+ * Fixed Vesper endowment for resources that can be depleted. Day 0 stock is available at genesis; later lots are
+ * already part of the endowment and only move from sealed deposits into the market reserve on schedule.
+ * Renewable certificates are deliberately excluded: they are produced by solar generation.
+ */
+export const RESOURCE_ENDOWMENT: Partial<Record<ItemId, { total: number; deposits: { day: number; quantity: number; name: string }[] }>> = {
+  "fuel:natural-gas": { total: 25_000_000, deposits: [{ day: 0, quantity: 11_250_000, name: "Harbor gas caverns" }, { day: 90, quantity: 5_000_000, name: "East seam" }, { day: 210, quantity: 8_750_000, name: "Deep Vesper reserve" }] },
+  "fuel:diesel": { total: 75_000_000, deposits: [{ day: 0, quantity: 33_750_000, name: "Port fuel tanks" }, { day: 90, quantity: 15_000_000, name: "Inland depot" }, { day: 210, quantity: 26_250_000, name: "Sealed strategic stock" }] },
+  "permit:carbon": { total: 900_000, deposits: [{ day: 0, quantity: 405_000, name: "Initial carbon allowance" }, { day: 90, quantity: 180_000, name: "Midyear allowance" }, { day: 210, quantity: 315_000, name: "Final allowance" }] },
+  "material:steel": { total: 180_000, deposits: [{ day: 0, quantity: 81_000, name: "Port steel stock" }, { day: 90, quantity: 36_000, name: "Eastern mill stock" }, { day: 210, quantity: 63_000, name: "Reclaimed city steel" }] },
+  "part:turbine": { total: 5_000, deposits: [{ day: 0, quantity: 2_250, name: "Workshop parts" }, { day: 90, quantity: 1_000, name: "Port spares" }, { day: 210, quantity: 1_750, name: "Reclaimed turbine kits" }] },
+};
+
+export const reserveAvailableAccount = (item: ItemId) => `reserve:${item}:available`;
+export const reserveSealedAccount = (item: ItemId, day: number) => `reserve:${item}:sealed:${day}`;
+export const reserveRemainingAt = (item: ItemId, balances: Record<string, number>): number => Object.entries(balances)
+  .filter(([account]) => account === reserveAvailableAccount(item) || account.startsWith(`reserve:${item}:sealed:`))
+  .reduce((sum, [, amount]) => sum + amount, 0);
+
 export interface MerchantItemConfig {
   item: ItemId;
   sells: boolean;

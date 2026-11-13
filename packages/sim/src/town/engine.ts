@@ -13,7 +13,7 @@ import { ITEMS } from "@blackout/shared";
 import { rngInt, seedRng, type RngState } from "../prng.ts";
 import { SimError } from "../state.ts";
 import { canonical, sha256 } from "../region/settlement.ts";
-import { CLOSE_BELOW_DAY_BPS, DIVIDEND_BPS, EPOCH_TICKS, MERCHANTS, REOPEN_DAYS, RESCUE_AFTER_DAYS, TICKS_PER_DAY, WAREHOUSE_FULL_X, referenceCc, type MerchantConfig, type MerchantItemConfig } from "./config.ts";
+import { CLOSE_BELOW_DAY_BPS, DIVIDEND_BPS, EPOCH_TICKS, MERCHANTS, REOPEN_DAYS, RESOURCE_ENDOWMENT, RESCUE_AFTER_DAYS, TICKS_PER_DAY, WAREHOUSE_FULL_X, referenceCc, reserveAvailableAccount, reserveRemainingAt, reserveSealedAccount, type MerchantConfig, type MerchantItemConfig } from "./config.ts";
 import { priceItem, rationLimit, type Quote } from "./merchantPricing.ts";
 import { NEWS_EVERY, NEWS_LASTS, NEWS_MAX_ACTIVE, STORIES, effectLabel, storyById, type NewsEffect } from "./news.ts";
 import { FACC, FIRMS, FIRM, ensureFirms, firmsTick, minuteOfDay, spendable, type FirmState, type PowerEnv, type PowerOrderState } from "./firms.ts";
@@ -75,6 +75,8 @@ export interface TownState {
   sky?: { cloudPct: number };
   /** Credit flows already settled directly on chain (escrowed power payments) since the last epoch, by identity. */
   direct?: Record<string, Record<string, number>>;
+  /** Fixed resource endowment metadata. Balances live in reserve:* accounts in the double-entry ledger. */
+  resourceLedger?: { totals: Partial<Record<ItemId, number>>; legacy: boolean; noticeBps: Partial<Record<ItemId, number>> };
 }
 
 export interface TCtx {
@@ -90,6 +92,30 @@ export const PACC = (playerId: string) => `ext:player:${playerId}`;
 const isExt = (a: string) => a.startsWith("ext:");
 const cr = (cc: number) => `₡${Math.round(cc / 100).toLocaleString("en-US")}`;
 const PLURAL: Record<ItemId, string> = { "fuel:natural-gas": "natural gas", "fuel:diesel": "diesel", "permit:carbon": "carbon permits", "certificate:renewable": "renewable certificates", "material:steel": "steel", "part:turbine": "turbine parts" };
+
+export function resourceReserve(t: TownState, item: ItemId): { total: number; remaining: number; remainingBps: number; legacy: boolean; nextReleaseDay: number | null; nextReleaseQuantity: number } {
+  ensureTownResources(t);
+  const config = RESOURCE_ENDOWMENT[item];
+  const total = t.resourceLedger!.totals[item] ?? 0;
+  const remaining = reserveRemainingAt(item, t.balances[item] ?? {});
+  const next = config?.deposits.find((d) => d.day > Math.floor(t.tick / TICKS_PER_DAY) && tbal(t, item, reserveSealedAccount(item, d.day)) > 0);
+  return { total, remaining, remainingBps: total > 0 ? Math.round((remaining * 10_000) / total) : 0, legacy: t.resourceLedger!.legacy, nextReleaseDay: next?.day ?? null, nextReleaseQuantity: next ? Math.min(next.quantity, tbal(t, item, reserveSealedAccount(item, next.day))) : 0 };
+}
+
+function reserveMultiplier(t: TownState, item: ItemId): number {
+  const reserve = resourceReserve(t, item);
+  if (reserve.total <= 0 || reserve.legacy) return 1;
+  const extracted = Math.max(0, 1 - reserve.remaining / reserve.total);
+  return Math.round(Math.min(3.5, 1 + extracted * extracted * 2.5) * 100) / 100;
+}
+
+/** Existing saves already contain finite holdings. Record their historical imports once, then stop creating new stock. */
+export function ensureTownResources(t: TownState): void {
+  if (t.resourceLedger) return;
+  const totals: Partial<Record<ItemId, number>> = {};
+  for (const item of Object.keys(RESOURCE_ENDOWMENT) as ItemId[]) totals[item] = Math.max(0, -tbal(t, item, "ext:imports"));
+  t.resourceLedger = { totals, legacy: true, noticeBps: {} };
+}
 
 export function tbal(t: TownState, asset: TAsset, acct: string): number {
   return t.balances[asset]?.[acct] ?? 0;
@@ -136,13 +162,22 @@ export function createTown(opts: { seed: number; world?: Pick<WorldSnapshot, "ga
     names: {},
     epochs: [],
     epochStart: { tick: 0, balances: {} },
+    resourceLedger: { totals: {}, legacy: false, noticeBps: {} },
   };
+  for (const [item, endowment] of Object.entries(RESOURCE_ENDOWMENT) as [ItemId, NonNullable<(typeof RESOURCE_ENDOWMENT)[ItemId]>][]) {
+    t.resourceLedger!.totals[item] = endowment.total;
+    for (const deposit of endowment.deposits) {
+      move(t, item, "ext:genesis", deposit.day === 0 ? reserveAvailableAccount(item) : reserveSealedAccount(item, deposit.day), deposit.quantity);
+    }
+  }
   for (const m of MERCHANTS) {
     move(t, "cc", "ext:owners", MACC(m.merchantId), m.cashCc);
     const st: MerchantState = { open: true, closedSince: -1, closedReason: null, recentNet: {}, history: {}, investors: [], cashAtDayStart: m.cashCc, inflowToday: 0, lastTradeAt: -1 };
     t.merchants[m.merchantId] = st;
     for (const it of m.items) {
-      move(t, it.item, "ext:imports", MACC(m.merchantId), Math.round((it.target * it.startBps) / 10_000));
+      const start = Math.round((it.target * it.startBps) / 10_000);
+      const finite = RESOURCE_ENDOWMENT[it.item] !== undefined;
+      move(t, it.item, finite ? reserveAvailableAccount(it.item) : "ext:imports", MACC(m.merchantId), start);
       st.recentNet[it.item] = 0;
     }
   }
@@ -169,7 +204,7 @@ function newsMult(t: TownState, merchantId: string, item: ItemId, key: "imports"
 
 /** The outside price a merchant starts from today, after any story that moves it. */
 function refOf(t: TownState, merchantId: string, item: ItemId): number {
-  return Math.round(referenceCc(item, t.world) * newsMult(t, merchantId, item, "outside"));
+  return Math.round(referenceCc(item, t.world) * newsMult(t, merchantId, item, "outside") * reserveMultiplier(t, item));
 }
 
 /** Ends stories that have run their course and, every minute or so, breaks a new one. */
@@ -224,7 +259,10 @@ export function quote(t: TownState, merchantId: string, item: ItemId, stockDelta
     markupBps: it.markupBps,
     spreadBps: it.spreadBps,
     rivalShort: rivalShort(t, merchantId, item),
-    news: effectsOn(t, merchantId, item).map((x) => ({ label: `News: ${x.headline}`, factor: effectLabel(x.e) })),
+    news: [
+      ...effectsOn(t, merchantId, item).map((x) => ({ label: `News: ${x.headline}`, factor: effectLabel(x.e) })),
+      ...(RESOURCE_ENDOWMENT[item] ? [{ label: `Vesper reserve: ${resourceReserve(t, item).remaining.toLocaleString("en-US")} of ${resourceReserve(t, item).total.toLocaleString("en-US")} remain`, factor: `×${reserveMultiplier(t, item).toFixed(2)}` }] : []),
+    ],
   });
 }
 
@@ -346,7 +384,9 @@ function perTick(t: TownState, perDay: number): number {
 const DECAY = Math.pow(0.5, 1 / 36);
 
 export function townTick(t: TownState, ctx: TCtx, env: PowerEnv = {}): void {
+  ensureTownResources(t);
   t.tick += 1;
+  resourceReserveStep(t, ctx);
   newsStep(t, ctx);
   for (const m of MERCHANTS) {
     const st = t.merchants[m.merchantId];
@@ -374,6 +414,28 @@ export function townTick(t: TownState, ctx: TCtx, env: PowerEnv = {}): void {
   maybeCloseTownEpoch(t);
 }
 
+function resourceReserveStep(t: TownState, ctx: TCtx): void {
+  const day = Math.floor(t.tick / TICKS_PER_DAY);
+  for (const [item, config] of Object.entries(RESOURCE_ENDOWMENT) as [ItemId, NonNullable<(typeof RESOURCE_ENDOWMENT)[ItemId]>][]) {
+    for (const deposit of config.deposits) {
+      if (deposit.day === 0 || day < deposit.day) continue;
+      const sealed = reserveSealedAccount(item, deposit.day);
+      const quantity = tbal(t, item, sealed);
+      if (quantity <= 0) continue;
+      move(t, item, sealed, reserveAvailableAccount(item), quantity);
+      emit(t, ctx, { kind: "resource", severity: "info", title: `${deposit.name} enters Vesper's reserve`, detail: `${quantity.toLocaleString("en-US")} ${ITEMS[item].units} released from the world's fixed endowment. No new stock was created.`, merchantId: null });
+    }
+    const reserve = resourceReserve(t, item);
+    if (reserve.total <= 0 || reserve.legacy) continue;
+    const previous = t.resourceLedger!.noticeBps[item] ?? 10_000;
+    const current = reserve.remainingBps;
+    if (previous > 0 && current <= 0) emit(t, ctx, { kind: "resource", severity: "crisis", title: `Vesper's ${ITEMS[item].name.toLowerCase()} reserve is fully allocated`, detail: `No unallocated units remain. The market can only trade resources already held by merchants and players.`, merchantId: null });
+    else if (previous > 1_000 && current <= 1_000) emit(t, ctx, { kind: "resource", severity: "crisis", title: `Vesper's ${ITEMS[item].name.toLowerCase()} is nearly exhausted`, detail: `${reserve.remaining.toLocaleString("en-US")} ${ITEMS[item].units} remain in the sealed and market-ready reserve.`, merchantId: null });
+    else if (previous > 2_500 && current <= 2_500) emit(t, ctx, { kind: "resource", severity: "warn", title: `${ITEMS[item].name} reserve falls below a quarter`, detail: `Only ${reserve.remaining.toLocaleString("en-US")} ${ITEMS[item].units} remain unreleased. Prices and supplier stock now reflect the tighter world supply.`, merchantId: null });
+    t.resourceLedger!.noticeBps[item] = Math.min(previous, current);
+  }
+}
+
 function flows(t: TownState, m: MerchantConfig, it: MerchantItemConfig): void {
   const acct = MACC(m.merchantId);
   const ref = refOf(t, m.merchantId, it.item);
@@ -386,9 +448,11 @@ function flows(t: TownState, m: MerchantConfig, it: MerchantItemConfig): void {
     const unit = Math.round(ref * 0.92);
     // a merchant keeps a day of costs in reserve: it won't spend the rent on stock
     q = Math.min(q, it.target - stock, Math.floor(Math.max(0, tbal(t, "cc", acct) - m.fixedCcPerDay) / Math.max(1, unit)));
+    if (RESOURCE_ENDOWMENT[it.item]) q = Math.min(q, tbal(t, it.item, reserveAvailableAccount(it.item)));
     if (q > 0) {
       move(t, "cc", acct, "ext:imports", q * unit);
-      move(t, it.item, "ext:imports", acct, q);
+      const finite = RESOURCE_ENDOWMENT[it.item] !== undefined;
+      move(t, it.item, finite ? reserveAvailableAccount(it.item) : "ext:imports", acct, q);
     }
   }
   const qte = quote(t, m.merchantId, it.item);
@@ -622,6 +686,7 @@ export function townClock(tick: number): string {
 }
 
 export function toTownView(t: TownState, viewer: string | null): TownView {
+  ensureTownResources(t);
   const merchants: MerchantView[] = MERCHANTS.map((m) => {
     const st = t.merchants[m.merchantId];
     const acct = MACC(m.merchantId);
@@ -667,6 +732,7 @@ export function toTownView(t: TownState, viewer: string | null): TownView {
     players: Object.keys(t.names).filter((k) => !k.startsWith("bot:") && !k.startsWith("firm:") && k !== "vesper-holdings").length,
     you: viewer ? { investedCc: invested, dividendsCcTotal: t.dividendsTotal[viewer] ?? 0, pendingCc: t.owed[viewer] ?? 0 } : null,
     steelSupplyBps: t.steelSupplyBps,
+    reserves: (Object.keys(RESOURCE_ENDOWMENT) as ItemId[]).map((item) => ({ item, ...resourceReserve(t, item) })),
     companies: firmsView(t, viewer),
     news: (t.news ?? []).map((n) => {
       const story = storyById(n.storyId)!;

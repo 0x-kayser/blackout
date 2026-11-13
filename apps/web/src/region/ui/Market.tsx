@@ -23,6 +23,14 @@ const LOTS: Record<ItemId, number[]> = {
   'material:steel': [50, 200],
   'part:turbine': [1, 4],
 }
+const RESERVE_SHOP: Partial<Record<ItemId, string>> = { 'fuel:natural-gas': 'bayo', 'fuel:diesel': 'dayo', 'permit:carbon': 'ruth', 'material:steel': 'pavel', 'part:turbine': 'nkechi' }
+const RESERVE_DECISION: Partial<Record<ItemId, string>> = {
+  'fuel:natural-gas': 'Store fuel before a shortage, or prepare generation that does not depend on gas.',
+  'fuel:diesel': 'Decide whether to hold diesel or keep solar, batteries and other units ready.',
+  'permit:carbon': 'Thermal plants face tighter allowance supply. Preserve permits or price emissions into your offers.',
+  'material:steel': 'Prioritize your next plant build or corridor upgrade while steel is available.',
+  'part:turbine': 'Repair kits are scarce. Keep cash ready or plan around longer plant downtime.',
+}
 
 export function held(v: RegionView, item: ItemId): number {
   const p = v.player
@@ -324,15 +332,49 @@ export function NewsTicker({ town, onMerchant }: { town: TownView | null; onMerc
   )
 }
 
-export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, desk, onDesk }: { v: RegionView; town: TownView | null; trade: Trade; onMerchant: (id: string) => void; onWatch: () => void; onAutoFuel: (fuel: 'gas' | 'diesel', on: boolean) => void; desk: DeskView | null; onDesk: (d: DeskView) => void }) {
+export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, desk, onDesk }: { v: RegionView; town: TownView | null; trade: Trade; onMerchant: (id: string) => void; onWatch: (days: 7 | 365) => void; onAutoFuel: (fuel: 'gas' | 'diesel', on: boolean) => void; desk: DeskView | null; onDesk: (d: DeskView) => void }) {
   const { busy, msg, run } = useBusy()
   if (!town) return <p className="fine">Opening the market…</p>
+  const strainedReserves = (town.reserves ?? []).filter((reserve) => reserve.total > 0 && reserve.remainingBps <= 2_500)
+  const reserveAlerts = town.events.filter((event) => event.kind === 'resource').slice(-4).reverse()
   return (
     <>
       <h3>Vesper Market</h3>
       <p className="fine">
         {town.clock} · {town.players} {town.players === 1 ? 'company' : 'companies'} trading · prices move with each merchant’s stock and recent demand. Tap a stall to see the quote and price reasoning.
       </p>
+      <Section title="Vesper’s fixed resource endowment">
+        <p className="fine">The world’s gas, diesel, carbon permits, steel and turbine parts were set aside at genesis. Sealed deposits enter circulation on schedule; nothing is replenished from an unlimited importer.</p>
+        <div className="reserve-grid">
+          {(town.reserves ?? []).map((reserve) => (
+            <div className="reserve-card" key={reserve.item}>
+              <div className="reserve-head"><b>{ITEMS[reserve.item].icon} {ITEMS[reserve.item].name}</b><span>{reserve.total > 0 ? Math.round((reserve.remainingBps / 100)) : 0}% left</span></div>
+              <Bar value={reserve.remaining} max={reserve.total} tone={reserve.remainingBps <= 2_500 ? 'crisis' : 'gold'} label={`${ITEMS[reserve.item].name} reserve remaining`} />
+              <small className="fine">{reserve.remaining.toLocaleString('en-US')} of {reserve.total.toLocaleString('en-US')} {ITEMS[reserve.item].units} still in reserve</small>
+              {reserve.nextReleaseDay !== null && <small className="fine">Next deposit: market day {reserve.nextReleaseDay} · {reserve.nextReleaseQuantity.toLocaleString('en-US')} already counted in the endowment</small>}
+              {reserve.legacy && <small className="warn-line">This saved market predates the reserve ledger. Historical stock is carried forward; no new supply is added.</small>}
+            </div>
+          ))}
+        </div>
+        <div className="regional-reserve">
+          <b>This grid’s local fuel allotment</b>
+          <span>Natural gas {v.resourceReserve.gas.remaining.toLocaleString('en-US')} / {v.resourceReserve.gas.total.toLocaleString('en-US')} MMBtu · Diesel {v.resourceReserve.diesel.remaining.toLocaleString('en-US')} / {v.resourceReserve.diesel.total.toLocaleString('en-US')} L</span>
+          <small className="fine">Local supplier refills draw from this saved grid’s fixed allocation. Your player-owned plants buy through the shared market above.</small>
+        </div>
+      </Section>
+      {strainedReserves.length > 0 && (
+        <Section title="Your next decision">
+          {strainedReserves.map((reserve) => {
+            const merchantId = RESERVE_SHOP[reserve.item]
+            return (
+              <div className="reserve-alert" key={reserve.item}>
+                <div><b>{ITEMS[reserve.item].name} · {Math.round(reserve.remainingBps / 100)}% remains</b><p className="fine">{RESERVE_DECISION[reserve.item]}</p></div>
+                {merchantId && <button className="btn small" onClick={() => onMerchant(merchantId)}>Review {town.merchants.find((m) => m.merchantId === merchantId)?.person.split(' ')[0]}'s quote</button>}
+              </div>
+            )
+          })}
+        </Section>
+      )}
       <Section title="Choose a stall to trade">
         <p className="fine">Tap a merchant to review a quote, check your cash and confirm a buy or sale.</p>
         {town.merchants.map((m) => (
@@ -392,9 +434,15 @@ export function MarketSheet({ v, town, trade, onMerchant, onWatch, onAutoFuel, d
           })}
         </Section>
       )}
-      <button className="btn primary wide" onClick={onWatch}>
-        ⏩ Watch a week of trading in a minute
-      </button>
+      {reserveAlerts.length > 0 && (
+        <Section title="Resource discoveries and warnings">
+          {reserveAlerts.map((event) => <p key={event.seq} className={`market-event ${event.severity}`}><b>{event.title}</b> {event.detail}</p>)}
+        </Section>
+      )}
+      <div className="replay-actions">
+        <button className="btn primary wide" onClick={() => onWatch(7)}>Watch 7 days · about 1 minute</button>
+        <button className="btn wide" onClick={() => onWatch(365)}>Simulate 1 year · same rules, about 1 minute</button>
+      </div>
       <CompaniesSection c={town.companies} desk={desk} onDesk={onDesk} />
       <TradeFeed town={town} />
     </>
@@ -423,7 +471,7 @@ export function TradeFeed({ town }: { town: TownView }) {
 }
 
 /** Seven market days in sixty seconds: the shops, their prices and their cash, moving. */
-export function WatchAWeek({ onClose }: { onClose: () => void }) {
+export function WatchAWeek({ days = 7, onClose }: { days?: 7 | 365; onClose: () => void }) {
   const [week, setWeek] = useState<FastForwardResult | null>(null)
   const [i, setI] = useState(0)
   const [playing, setPlaying] = useState(true)
@@ -437,8 +485,8 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [onClose])
   useEffect(() => {
-    regionApi.fastForward(42).then((r) => setWeek(r.week), (e) => setErr((e as Error).message))
-  }, [])
+    regionApi.fastForward(42, days).then((r) => setWeek(r.week), (e) => setErr((e as Error).message))
+  }, [days])
   useEffect(() => {
     if (!week || !playing) return
     timer.current = setInterval(() => setI((x) => (x >= week.frames.length - 1 ? x : x + 1)), 1_000)
@@ -450,6 +498,7 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
     return (
       <div className="modal-back" onClick={onClose}>
         <div className="modal watch">
+          <button className="close" onClick={onClose} aria-label="Close">×</button>
           <p className="warn-line">{err}</p>
         </div>
       </div>
@@ -470,13 +519,13 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
   }
   return (
     <div className="modal-back">
-      <div className="modal watch" role="dialog" aria-label="Watch a week">
+      <div className="modal watch" role="dialog" aria-label={days === 365 ? 'Simulate one year' : 'Watch a week'}>
         <button className="close" onClick={onClose} aria-label="Close">
           ×
         </button>
         <div className="modal-body">
-          <p className="eyebrow">Fast-forward · same rules, four bot companies, three NPC power companies, a storm on day 2 · seed {week?.seed ?? 42}</p>
-          <h3>{f ? f.label : 'Simulating a week of Vesper Market…'}</h3>
+          <p className="eyebrow">Deterministic replay · same market rules, fixed resource endowment, four trading companies, three NPC power companies · seed {week?.seed ?? 42}</p>
+          <h3>{f ? f.label : `Simulating ${days === 365 ? 'one year' : 'a week'} of Vesper Market…`}</h3>
           {week && (
             <>
               <div className="ff-progress">
@@ -551,6 +600,33 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
                   </p>
                 ))}
               </Section>
+              {shown.some((e) => e.kind === 'resource') && (
+                <Section title="Deposits and scarcity">
+                  {shown.filter((e) => e.kind === 'resource').slice(-4).reverse().map((e) => (
+                    <p key={e.seq} className={`market-event ${e.severity}`}>
+                      <b>{e.title}</b> {e.detail}
+                    </p>
+                  ))}
+                </Section>
+              )}
+              {f!.reserves && (
+                <Section title="Finite reserves · unallocated stock">
+                  <div className="reserve-grid replay-reserves">
+                    {Object.entries(f!.reserves).map(([item, reserve]) => {
+                      if (!reserve) return null
+                      const history = week.frames.map((frame) => frame.reserves?.[item as ItemId]?.remaining ?? 0)
+                      return (
+                        <div className="reserve-card" key={item}>
+                          <div className="reserve-head"><b>{ITEMS[item as ItemId].icon} {ITEMS[item as ItemId].name}</b><span>{Math.round((reserve.remaining / Math.max(1, reserve.total)) * 100)}% left</span></div>
+                          <Bar value={reserve.remaining} max={reserve.total} tone={reserve.remaining / Math.max(1, reserve.total) <= 0.25 ? 'crisis' : 'gold'} label={`${ITEMS[item as ItemId].name} reserve remaining`} />
+                          <small className="fine">{reserve.remaining.toLocaleString('en-US')} / {reserve.total.toLocaleString('en-US')} {ITEMS[item as ItemId].units}</small>
+                          <Spark values={history.slice(0, i + 1)} height={24} tone="amber" />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </Section>
+              )}
               {shown.some((e) => e.kind === 'power') && (
                 <Section title="What the power companies did">
                   {shown.filter((e) => e.kind === 'power').slice(-3).reverse().map((e) => (
@@ -570,7 +646,7 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
                 </Section>
               )}
               {done && (
-                <Section title="The bots after a week">
+                <Section title={`The economy after ${days === 365 ? 'one year' : 'one week'}`}>
                   {week.bots.map((b) => (
                     <Stat key={b.name} label={`${b.name}: ${b.strategy}`} value={credits(b.netWorthCc)} />
                   ))}
@@ -584,7 +660,7 @@ export function WatchAWeek({ onClose }: { onClose: () => void }) {
                   ) : (
                     <p className="fine">Start a plant before watching and your company joins the week, selling its spare power to these companies.</p>
                   )}
-                  <p className="fine">{week.trades.toLocaleString('en-US')} player trades · trace {week.traceHash.slice(0, 12)}… (same seed, same week, every time)</p>
+                  <p className="fine">{week.trades.toLocaleString('en-US')} player trades · trace {week.traceHash.slice(0, 12)}… (same seed and policies, same replay)</p>
                 </Section>
               )}
             </>

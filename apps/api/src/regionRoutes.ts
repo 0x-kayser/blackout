@@ -234,8 +234,9 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
     const r = t.invest({ userId: u.userId, name: rsvc.nameOf(u.userId) }, h, rsvc, body, body.idempotencyKey);
     return { ...r, view: rsvc.view(h), town: t.view(u.userId) };
   });
-  app.get<{ Querystring: { seed?: string } }>("/api/town/fastforward", async (req) => {
+  app.get<{ Querystring: { seed?: string; days?: string } }>("/api/town/fastforward", async (req) => {
     const seed = Math.max(1, Math.min(999_999, Number(req.query.seed ?? 42) || 42));
+    const days: 7 | 365 = req.query.days === "365" ? 365 : 7;
     // a signed-in player's company joins the week with what its plants have spare right now
     let you: { name: string; kw: number; priceCcPerMWh: number } | null = null;
     try {
@@ -246,7 +247,7 @@ export function registerRegionRoutes(app: FastifyInstance, d: RegionRouteDeps): 
     } catch {
       /* watching without a session: the week runs without you */
     }
-    return { ok: true, week: townOrFail().fastForward(seed, you) };
+    return { ok: true, week: townOrFail().fastForward(seed, you, days) };
   });
 
   /** GameIdentity: who is playing, however they signed in (§25). */

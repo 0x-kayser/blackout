@@ -6,7 +6,7 @@
 import type { FuelId, LoadBid, NodeId } from "@blackout/shared";
 import { rngInt } from "../prng.ts";
 import { SimError } from "../state.ts";
-import { ACTORS, BANKS, BATTERY_EFF_BPS, HOUSEHOLD_SPEND, INTERVALS_PER_DAY, NODES, OWNERS, SUPPLIERS, TECHS, WAGE_SHARE_BPS, WAGE_SPLIT, intervalCc } from "./config.ts";
+import { ACTORS, BANKS, BATTERY_EFF_BPS, HOUSEHOLD_SPEND, INTERVALS_PER_DAY, NODES, OWNERS, REGIONAL_FUEL_ENDOWMENT, regionalReserveAvailable, regionalReserveSealed, SUPPLIERS, TECHS, WAGE_SHARE_BPS, WAGE_SPLIT, intervalCc } from "./config.ts";
 import { addPlant, assetIdOf, transferPlant } from "./engine.ts";
 import { actorQuote, close, cooled, cr, emit, mw, open, openKeys, supplierQuote } from "./events.ts";
 import type { ClearingResult } from "./market.ts";
@@ -296,6 +296,7 @@ export function disruptSupplier(s: RegionState, ctx: RCtx, supplierId: string): 
 }
 
 export function suppliersStep(s: RegionState, ctx: RCtx, init: boolean): void {
+  if (!init) regionalReserveStep(s, ctx);
   // a disruption roughly every few days, never during the first game hours
   if (!init && s.interval > 72 && s.interval % 96 === 48) {
     if (rngInt(s.rng, 1000) < 330) disruptSupplier(s, ctx, SUPPLIERS[rngInt(s.rng, SUPPLIERS.length)].supplierId);
@@ -317,10 +318,11 @@ export function suppliersStep(s: RegionState, ctx: RCtx, init: boolean): void {
       if (sp.stock < c.capacity * wantFill && room > 0) {
         const buyPrice = Math.round(world * 0.92);
         const cashCap = Math.floor((rbal(s, "cc", RACC.supplier(c.supplierId)) * 1000) / Math.max(1, buyPrice));
-        const qty = Math.max(0, Math.min(sp.importPerInterval, room, cashCap));
+        const reserve = regionalReserveAvailable(c.fuel);
+        const qty = Math.max(0, Math.min(sp.importPerInterval, room, cashCap, rbal(s, fuelAsset(c.fuel), reserve)));
         if (qty > 0) {
           rtransfer(s, ctx, "cc", RACC.supplier(c.supplierId), RACC.extImports, Math.round((qty * buyPrice) / 1000), "fuel imports");
-          rtransfer(s, ctx, fuelAsset(c.fuel), RACC.extImports, RACC.supplier(c.supplierId), qty, "fuel imports");
+          rtransfer(s, ctx, fuelAsset(c.fuel), reserve, RACC.supplier(c.supplierId), qty, "finite regional fuel reserve");
           sp.stock += qty;
         }
       }
@@ -329,13 +331,47 @@ export function suppliersStep(s: RegionState, ctx: RCtx, init: boolean): void {
     const scarcity = 1 + (Math.max(0, 0.4 - fill) / 0.4) * 1.2;
     let markup = c.markupBps;
     if (c.supplierId === "okafor" && anyRationing && fill > 0.5) markup += 2_500;
-    sp.priceCc = Math.round(world * (1 + markup / 10_000) * scarcity);
+    const totalReserve = s.resourceLedger?.totals[c.fuel] ?? 0;
+    const reserveLeft = regionalReserveRemaining(s, c.fuel);
+    const extractedBps = totalReserve > 0 ? Math.max(0, 10_000 - Math.round((reserveLeft * 10_000) / totalReserve)) : 0;
+    const reservePressure = 1 + (extractedBps / 10_000) ** 2 * 2.5;
+    sp.priceCc = Math.round(world * (1 + markup / 10_000) * scarcity * reservePressure);
     const rKey = `ration:${c.supplierId}`;
     const wasRationing = sp.rationing;
     sp.rationing = fill * 10_000 < c.rationBps;
     if (sp.rationing && !wasRationing && !init && cooled(s, rKey, 144)) {
       emit(s, ctx, { type: "RATIONING", severity: "warn", title: `${c.person} is rationing ${c.fuel}`, detail: `${c.name} is down to ${Math.round(fill * 100)}% and sells at most a share per buyer. ${c.fuel === "gas" ? "Gas plants" : "Diesel peakers"} that can't buy elsewhere run short.`, causeKeys: [`supply:${c.supplierId}`, "spike", "heat"], quote: supplierQuote(c.supplierId, "ration", { fillPct: Math.round(fill * 100), priceCc: sp.priceCc }) }, rKey);
     } else if (!sp.rationing && open(s, rKey) && fill * 10_000 > c.rationBps * 2) close(s, rKey);
+  }
+}
+
+function regionalReserveRemaining(s: RegionState, fuel: FuelId): number {
+  const prefix = `reserve:regional:${fuel}:`;
+  return Object.entries(s.balances[fuelAsset(fuel)] ?? {}).filter(([account]) => account.startsWith(prefix)).reduce((sum, [, amount]) => sum + amount, 0);
+}
+
+function regionalReserveStep(s: RegionState, ctx: RCtx): void {
+  const day = Math.floor(s.interval / INTERVALS_PER_DAY);
+  for (const fuel of ["gas", "diesel"] as const) {
+    const config = REGIONAL_FUEL_ENDOWMENT[fuel];
+    for (const deposit of config.deposits) {
+      if (deposit.day === 0 || day < deposit.day) continue;
+      const sealed = regionalReserveSealed(fuel, deposit.day);
+      const quantity = rbal(s, fuelAsset(fuel), sealed);
+      if (quantity <= 0) continue;
+      rtransfer(s, ctx, fuelAsset(fuel), sealed, regionalReserveAvailable(fuel), quantity, "scheduled finite resource release");
+      emit(s, ctx, { type: "RESOURCE_DEPOSIT", severity: "info", title: `${deposit.name} reaches local suppliers`, detail: `${Math.round(quantity / 1000).toLocaleString("en-US")} ${fuel === "gas" ? "MMBtu of gas" : "L of diesel"} released from this region's fixed allotment.`, quote: { person: "Vesper Resource Office", face: "🏛️", text: "This stock was sealed into the city's opening endowment; the release adds none to the world's total." } });
+    }
+    const total = s.resourceLedger?.totals[fuel] ?? 0;
+    if (total <= 0) continue;
+    const remaining = regionalReserveRemaining(s, fuel);
+    const current = Math.max(0, Math.round((remaining * 10_000) / total));
+    const previous = s.resourceLedger!.noticeBps[fuel] ?? 10_000;
+    const label = fuel === "gas" ? "natural gas" : "diesel";
+    if (previous > 0 && current === 0) emit(s, ctx, { type: "RESOURCE_SCARCITY", severity: "crisis", title: `No unallocated ${label} remains`, detail: `The regional allotment is exhausted; existing supplier and owner inventories are all that remain.`, quote: { person: "Vesper Resource Office", face: "🏛️", text: "Trade and stored fuel are the only remaining sources." } });
+    else if (previous > 1_000 && current <= 1_000) emit(s, ctx, { type: "RESOURCE_SCARCITY", severity: "crisis", title: `${label} reserve nearly exhausted`, detail: `Only ${Math.round(remaining / 1000).toLocaleString("en-US")} ${fuel === "gas" ? "MMBtu" : "L"} remain in sealed or market-ready storage.`, quote: { person: "Vesper Resource Office", face: "🏛️", text: "No new fuel will be created. Prepare generation that does not depend on this stock." } });
+    else if (previous > 2_500 && current <= 2_500) emit(s, ctx, { type: "RESOURCE_SCARCITY", severity: "warn", title: `${label} reserve below 25%`, detail: `${Math.round(remaining / 1000).toLocaleString("en-US")} ${fuel === "gas" ? "MMBtu" : "L"} remain outside supplier tanks. Your plants may need stored fuel, solar or batteries.`, quote: { person: "Vesper Resource Office", face: "🏛️", text: "Deliveries now depend on the remaining fixed reserve." } });
+    s.resourceLedger!.noticeBps[fuel] = Math.min(previous, current);
   }
 }
 

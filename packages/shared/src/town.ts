@@ -133,7 +133,7 @@ export interface TownEvent {
   detail: string;
   merchantId: string | null;
   /** "news" for stories from outside the market (news.ts), "power" for the power desk; shop events leave it unset. */
-  kind?: "news" | "power";
+  kind?: "news" | "power" | "resource";
   /** For power events: the seller ("player:<id>" or "firm:<id>"), so a player sees their own deals. */
   who?: string;
 }
@@ -161,10 +161,22 @@ export interface TownView {
   /** Your stake and what you're owed. */
   you: { investedCc: number; dividendsCcTotal: number; pendingCc: number } | null;
   steelSupplyBps: number;
+  /** Unreleased stock from Vesper's fixed world endowment, separate from merchant inventories. */
+  reserves?: ResourceReserveView[];
   /** Stories in the news right now and what each does to the market. */
   news?: TownNews[];
   /** Vesper's NPC companies and the power desk. */
   companies?: CompaniesView;
+}
+
+export interface ResourceReserveView {
+  item: ItemId;
+  total: number;
+  remaining: number;
+  remainingBps: number;
+  legacy: boolean;
+  nextReleaseDay: number | null;
+  nextReleaseQuantity: number;
 }
 
 export interface CompanyView {
@@ -225,6 +237,7 @@ export interface FastForwardFrame {
   cloudPct?: number;
   /** What your company had earned from the power desk so far in this week (projected). */
   youEarnedCc?: number;
+  reserves?: Partial<Record<ItemId, { remaining: number; total: number }>>;
 }
 
 export interface FastForwardResult {
@@ -239,4 +252,5 @@ export interface FastForwardResult {
   you?: { name: string; kw: number; priceCcPerMWh: number; earnedCc: number; deals: number } | null;
   trades: number;
   traceHash: string;
+  reserves?: Partial<Record<ItemId, { total: number; remaining: number }>>;
 }

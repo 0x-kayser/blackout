@@ -1,11 +1,11 @@
 /**
- * "Watch a week" (fast-forward): seven market days of Vesper Market with four bot companies trading by simple, visible
- * rules, in about a second of compute and a minute of playback. Same seed → same week.
+ * Market replay: seven days or one year of Vesper Market with four bot companies trading by visible rules. Same seed,
+ * endowment and policy → same replay trace.
  */
 import type { FastForwardResult, ItemId, TownEvent } from "@blackout/shared";
 import { canonical, sha256 } from "../region/settlement.ts";
 import { BOTS, MERCHANTS, TICKS_PER_DAY, referenceCc } from "./config.ts";
-import { bestMerchant, createTown, MACC, newTCtx, quote, reopenCc, tbal, townClock, townInvest, townTick, townTrade, tradePrice, type TCtx, type TownState } from "./engine.ts";
+import { bestMerchant, createTown, MACC, newTCtx, quote, reopenCc, resourceReserve, tbal, townClock, townInvest, townTick, townTrade, tradePrice, type TCtx, type TownState } from "./engine.ts";
 import { FACC, FIRMS, ensureFirms } from "./firms.ts";
 import { WINDOW_TICKS, type PowerOffer } from "./firmPolicy.ts";
 
@@ -109,6 +109,7 @@ export function fastForwardWeek(seed = 42, days = 7, world?: TownState["world"],
         companies: FIRMS.map((f) => ({ firmId: f.firmId, name: f.name, open: t.firms![f.firmId].open, cashCc: tbal(t, "cc", FACC(f.firmId)), productionBps: t.firms![f.firmId].productionBps })),
         cloudPct: t.sky?.cloudPct,
         youEarnedCc: t.balances.cc?.["ext:player:you"] ?? 0,
+        reserves: Object.fromEntries((Object.keys(t.resourceLedger?.totals ?? {}) as ItemId[]).map((item) => [item, { remaining: resourceReserve(t, item).remaining, total: resourceReserve(t, item).total }])),
       });
   }
   const allPower = events.filter((e) => e.kind === "power");
@@ -118,11 +119,12 @@ export function fastForwardWeek(seed = 42, days = 7, world?: TownState["world"],
     days,
     frames,
     // the shops' story (closures, rescues, dividends) and the news are kept apart so neither crowds out the other
-    events: [...events.filter((e) => e.severity !== "info" && !e.kind).slice(-40), ...events.filter((e) => e.kind === "news" && e.severity !== "info").slice(-20), ...events.filter((e) => e.kind === "power" && e.title.includes(" buys ")).slice(-20)].sort((a, b) => a.seq - b.seq),
+    events: [...events.filter((e) => e.severity !== "info" && !e.kind).slice(-40), ...events.filter((e) => e.kind === "news" && e.severity !== "info").slice(-20), ...events.filter((e) => e.kind === "power" && e.title.includes(" buys ")).slice(-20), ...events.filter((e) => e.kind === "resource").slice(-40)].sort((a, b) => a.seq - b.seq),
     bots: bots.map((b) => ({ name: b.name, strategy: b.strategy, cashCc: b.cashCc, netWorthCc: worth(b) })),
     companies: FIRMS.map((f) => ({ firmId: f.firmId, name: f.name, startCc: startCash[f.firmId], endCc: tbal(t, "cc", FACC(f.firmId)), boughtMWh: Math.round(t.firms![f.firmId].boughtKwh / 1000), soldMWh: Math.round(t.firms![f.firmId].soldKwh / 1000), open: t.firms![f.firmId].open })),
     you: you && you.kw > 0 ? { ...you, earnedCc: t.balances.cc?.["ext:player:you"] ?? 0, deals: allPower.filter((e) => e.who === "player:you" && / buys /.test(e.title)).length } : null,
     trades,
     traceHash: sha256(canonical(frames)),
+    reserves: Object.fromEntries((Object.keys(t.resourceLedger?.totals ?? {}) as ItemId[]).map((item) => [item, { total: resourceReserve(t, item).total, remaining: resourceReserve(t, item).remaining }])),
   };
 }

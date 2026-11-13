@@ -13,7 +13,7 @@ import { SimError } from "../state.ts";
 import {
   ACTORS, BANKS, BATTERY_EFF_BPS, BATTERY_WEAR_BPS_PER_CYCLE, CHALLENGE_DAYS, CHALLENGE_SNAPSHOT, CORRIDORS, DEFAULT_SNAPSHOT, FIXED_OM_CC_PER_KW_DAY,
   FLEET, GENESIS_TREASURY_CC, HISTORY_LEN, INTERVALS_PER_DAY, LICENCES, MITIGATION_FLOOR_CC, NODES, OWNERS, PRICE_CAP_CC, REFERENCE_NODE, STARTER_GRANT_CC,
-  SUPPLIERS, TECHS, VOLTLINE_DEBT_CC, VOLTLINE_RATE_BPS, WITHHOLDING_CC_PER_MW_INTERVAL, intervalCc, intervalKwh,
+  SUPPLIERS, TECHS, REGIONAL_FUEL_ENDOWMENT, regionalReserveAvailable, regionalReserveSealed, VOLTLINE_DEBT_CC, VOLTLINE_RATE_BPS, WITHHOLDING_CC_PER_MW_INTERVAL, intervalCc, intervalKwh,
   creditsForCc, steelForCc, PARTS_FOR_REPAIR, NO_PERMIT_PENALTY_BPS, TOWN_UNITS,
 } from "./config.ts";
 import type { ItemId } from "@blackout/shared";
@@ -55,6 +55,7 @@ export function createRegion(opts: { regionId: string; seed: number; mode?: "liv
     player: { autoFuel: { gas: true, diesel: true }, licence: 1, deliveredKwh: 0, emissionsKg: 0, servedShareWindow: [], profitCcToday: 0, revenueCcToday: 0, profitCcTotal: 0, starterGrantCc: STARTER_GRANT_CC },
     economy: { steelIndexBps: 10_000, steelWindow: [] },
     balances: { cc: {}, gas: {}, diesel: {}, permit: {}, cert: {}, steel: {}, parts: {} },
+    resourceLedger: { totals: { gas: REGIONAL_FUEL_ENDOWMENT.gas.total * 1000, diesel: REGIONAL_FUEL_ENDOWMENT.diesel.total * 1000 }, legacy: false, noticeBps: {} },
     townItemFlow: {},
     ledgerSeq: 0,
     events: [],
@@ -84,10 +85,17 @@ export function createRegion(opts: { regionId: string; seed: number; mode?: "liv
     s.actors[a.actorId] = { actorId: a.actorId, demandKw: 0, servedKw: 0, flexKw: 0, essentialKw: 0, productionBps: 10_000, healthBps: 8_000, state: "operating", employees: a.employees, inventoryDays: 6, closedSince: -1, energyCostCcToday: 0, profitCcToday: 0, incomeIndexBps: 10_000, lastQuote: "", shedStreak: 0 };
     if (a.debtCc > 0) s.loans.push({ loanId: `L${s.nextLoanNo++}`, bankId: a.kind === "industry" ? "meridian" : "vesper_savings", borrower: RACC.actor(a.actorId), principalCc: a.debtCc, rateBps: 30 });
   }
+  for (const fuel of ["gas", "diesel"] as const) {
+    const asset = fuelAsset(fuel);
+    for (const deposit of REGIONAL_FUEL_ENDOWMENT[fuel].deposits) {
+      const account = deposit.day === 0 ? regionalReserveAvailable(fuel) : regionalReserveSealed(fuel, deposit.day);
+      rtransfer(s, ctx, asset, RACC.extGenesis, account, deposit.quantity * 1000, "fixed regional fuel endowment");
+    }
+  }
   for (const sp of SUPPLIERS) {
     rtransfer(s, ctx, "cc", RACC.extGenesis, RACC.supplier(sp.supplierId), sp.cashCc, "opening balance");
     const stock = Math.round((sp.capacity * sp.stockBps) / 10_000);
-    rtransfer(s, ctx, fuelAsset(sp.fuel), RACC.extImports, RACC.supplier(sp.supplierId), stock, "opening stock");
+    rtransfer(s, ctx, fuelAsset(sp.fuel), regionalReserveAvailable(sp.fuel), RACC.supplier(sp.supplierId), stock, "opening stock");
     s.suppliers[sp.supplierId] = { supplierId: sp.supplierId, stock, priceCc: 0, rationing: false, importPerInterval: sp.importPerInterval, soldThisInterval: {}, disruptionUntil: 0 };
   }
   for (const b of BANKS) rtransfer(s, ctx, "cc", RACC.extGenesis, RACC.bank(b.bankId), b.cashCc, "opening balance");
@@ -105,8 +113,8 @@ export function createRegion(opts: { regionId: string; seed: number; mode?: "liv
     need[acct][fuel] += Math.round(p.capacityKw * burnPerKwInterval(p) * 48);
   }
   for (const [acct, q] of Object.entries(need)) {
-    rtransfer(s, ctx, "gas", RACC.extImports, acct, q.gas, "opening fuel");
-    rtransfer(s, ctx, "diesel", RACC.extImports, acct, q.diesel, "opening fuel");
+    rtransfer(s, ctx, "gas", regionalReserveAvailable("gas"), acct, q.gas, "opening fuel");
+    rtransfer(s, ctx, "diesel", regionalReserveAvailable("diesel"), acct, q.diesel, "opening fuel");
   }
   suppliersStep(s, ctx, true);
   // the first settlement epoch carries the genesis distribution (treasury → everyone, starter grant included),
@@ -169,6 +177,22 @@ export function addPlant(s: RegionState, p: { plantId: string; name: string; tec
 /** Older saves predate market items: give them the new (empty) accounts. */
 export function ensureRegion(s: RegionState): RegionState {
   for (const a of R_ASSETS) s.balances[a] ??= {};
+  if (!s.resourceLedger) {
+    const totals = { gas: 0, diesel: 0 };
+    for (const fuel of ["gas", "diesel"] as const) {
+      const asset = fuelAsset(fuel);
+      const held = Object.entries(s.balances[asset]).filter(([account]) => !account.startsWith("ext:")).reduce((sum, [, balance]) => sum + Math.max(0, balance), 0);
+      const total = Math.max(REGIONAL_FUEL_ENDOWMENT[fuel].total * 1000, held);
+      const grant = Math.max(0, total - held);
+      if (grant > 0) {
+        const available = regionalReserveAvailable(fuel);
+        s.balances[asset][RACC.extGenesis] = (s.balances[asset][RACC.extGenesis] ?? 0) - grant;
+        s.balances[asset][available] = (s.balances[asset][available] ?? 0) + grant;
+      }
+      totals[fuel] = total;
+    }
+    s.resourceLedger = { totals, legacy: true, noticeBps: {} };
+  }
   return s;
 }
 

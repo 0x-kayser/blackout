@@ -183,6 +183,8 @@ export interface RegionState {
   balances: Record<RAsset, Record<string, number>>;
   /** Cumulative market item movements recorded by TOWN_SETTLE, keyed by market item ID. */
   townItemFlow?: Partial<Record<ItemId, number>>;
+  /** Fixed allotment for this private regional grid simulation; balances live in reserve:regional:* accounts. */
+  resourceLedger?: { totals: Record<FuelId, number>; legacy: boolean; noticeBps: Partial<Record<FuelId, number>> };
   ledgerSeq: number;
   events: RegionEvent[];
   eventSeq: number;
@@ -244,6 +246,7 @@ export const RACC = {
   extExports: "ext:exports",
   extSpending: "ext:spending",
   extImports: "ext:imports",
+  regionalReserve: "reserve:regional",
   extConstruction: "ext:construction",
   extOm: "ext:om",
   extBurned: "ext:burned",

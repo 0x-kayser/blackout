@@ -96,7 +96,11 @@ export class RegionService {
     const row = this.db.prepare("SELECT owner_id, mode, week, state_json FROM regions WHERE region_id = ?").get(regionId) as { owner_id: string; mode: "live" | "challenge"; week: string | null; state_json: string } | undefined;
     if (!row) throw new ApiError("NOT_FOUND", "No such region.");
     const seq = (this.db.prepare("SELECT COALESCE(MAX(seq), 0) AS n FROM region_actions WHERE region_id = ?").get(regionId) as { n: number }).n;
-    return this.handle(regionId, row.owner_id, row.mode, row.week, region.ensureRegion(JSON.parse(row.state_json) as RegionState), seq);
+    const state = JSON.parse(row.state_json) as RegionState;
+    const migrateResources = !state.resourceLedger;
+    const h = this.handle(regionId, row.owner_id, row.mode, row.week, region.ensureRegion(state), seq);
+    if (migrateResources) this.checkpoint(h);
+    return h;
   }
 
   requireOwner(regionId: string, userId: string): RegionHandle {

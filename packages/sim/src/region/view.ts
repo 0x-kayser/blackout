@@ -3,7 +3,7 @@
  */
 import type { ActorView, CorridorView, NodeView, PlantView, PriceComponent, RegionView, SettlementEpochView, TechView } from "@blackout/shared";
 import { TECH_IDS } from "@blackout/shared";
-import { ACTORS, BANKS, BATTERY_EFF_BPS, CORRIDORS, EPOCH_INTERVALS, LICENCES, NODES, OWNERS, PARTS_FOR_REPAIR, PRICE_CAP_CC, REFERENCE_NODE, SUPPLIERS, TECHS, creditsForCc, steelForCc } from "./config.ts";
+import { ACTORS, BANKS, BATTERY_EFF_BPS, CORRIDORS, EPOCH_INTERVALS, LICENCES, NODES, OWNERS, PARTS_FOR_REPAIR, PRICE_CAP_CC, REFERENCE_NODE, REGIONAL_FUEL_ENDOWMENT, SUPPLIERS, TECHS, creditsForCc, steelForCc } from "./config.ts";
 import { batteryThresholds, corridorLimitKw, loanOffer, ONBOARDING, regionOutputBps, regionScore, reliabilityBps, assetIdOf, marginalName } from "./engine.ts";
 import { bookValue, buildCostBps, fuelMarketCc, playerBookValue } from "./economy.ts";
 import { cr, mw } from "./events.ts";
@@ -25,6 +25,12 @@ export function toRegionView(s: RegionState, opts: ViewOptions = {}): RegionView
   const solarBps = solarFactorBps(s, clk.minuteOfDay);
   const ref = s.nodes[REFERENCE_NODE].priceCc;
   const anyRationing = Object.values(s.suppliers).some((supplier) => supplier.rationing);
+  const regionalReserve = (fuel: "gas" | "diesel") => {
+    const prefix = `reserve:regional:${fuel}:`;
+    const asset = fuelAsset(fuel);
+    const remaining = Object.entries(s.balances[asset] ?? {}).filter(([account]) => account.startsWith(prefix)).reduce((sum, [, amount]) => sum + amount, 0);
+    return { total: Math.round((s.resourceLedger?.totals[fuel] ?? REGIONAL_FUEL_ENDOWMENT[fuel].total * 1000) / 1000), remaining: Math.round(remaining / 1000) };
+  };
 
   const plantMc = (p: RPlant) => marginalCost(s, p, TECHS[p.tech].fuel ? fuelMarketCc(s, TECHS[p.tech].fuel!) : 0);
 
@@ -243,6 +249,7 @@ export function toRegionView(s: RegionState, opts: ViewOptions = {}): RegionView
       const disrupted = s.interval < sp.disruptionUntil;
       return { supplierId: c.supplierId, name: c.name, person: c.person, face: c.face, fuel: c.fuel, stock: Math.round(sp.stock / 1000), capacity: Math.round(c.capacity / 1000), priceCcPerUnit: sp.priceCc, scarcityPremiumPct, rationing: sp.rationing, disrupted, importPerInterval: Math.round(sp.importPerInterval / 1000), cashCc: rbal(s, "cc", RACC.supplier(c.supplierId)), note: disrupted ? `Imports disrupted for ${Math.round(((sp.disruptionUntil - s.interval) * 5) / 60)} more game hours.` : c.note };
     }),
+    resourceReserve: { gas: regionalReserve("gas"), diesel: regionalReserve("diesel"), legacy: s.resourceLedger?.legacy ?? true },
     banks: BANKS.map((b) => {
       const o = loanOffer(s, b.bankId);
       return { bankId: b.bankId, name: b.name, person: b.person, cashCc: rbal(s, "cc", RACC.bank(b.bankId)), rateBps: o.rateBps, offerToPlayerCc: o.maxCc, stance: b.maxLeverageBps <= 5_000 ? "Cautious: lends up to half your assets." : "Aggressive: lends up to 70% of your assets, at a price." };

@@ -278,6 +278,12 @@ export interface SupplierView {
   note: string;
 }
 
+export interface RegionalFuelReserveView {
+  gas: { total: number; remaining: number };
+  diesel: { total: number; remaining: number };
+  legacy: boolean;
+}
+
 export interface BankView {
   bankId: string;
   name: string;
@@ -369,6 +375,8 @@ export interface RegionView {
   plants: PlantView[];
   actors: ActorView[];
   suppliers: SupplierView[];
+  /** Unallocated portion of this saved regional grid's fixed gas and diesel endowment. */
+  resourceReserve: RegionalFuelReserveView;
   banks: BankView[];
   loans: LoanView[];
   techs: TechView[];

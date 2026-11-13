@@ -244,6 +244,15 @@ export const SUPPLIERS: readonly SupplierConfig[] = [
   { supplierId: "okafor", name: "Okafor & Daughters", person: "Chioma Okafor", face: "👩🏾‍💼", fuel: "diesel", capacity: 700_000_000, stockBps: 8_000, importPerInterval: 1_200_000, markupBps: 1_000, rationBps: 2_500, cashCc: 18_000_000, chainName: "chioma", note: "Hoards on dips, sells into squeezes." },
 ];
 
+/** Fixed regional fuel allotment for this saved grid. Later lots are sealed from the start and released on schedule. */
+export const REGIONAL_FUEL_ENDOWMENT: Record<FuelId, { total: number; deposits: { day: number; quantity: number; name: string }[] }> = {
+  gas: { total: 36_000_000, deposits: [{ day: 0, quantity: 16_200_000, name: "Harbor gas caverns" }, { day: 90, quantity: 7_200_000, name: "Eastern gas seam" }, { day: 210, quantity: 12_600_000, name: "Deep Vesper reserve" }] },
+  diesel: { total: 60_000_000, deposits: [{ day: 0, quantity: 27_000_000, name: "Port fuel tanks" }, { day: 90, quantity: 12_000_000, name: "Inland depot" }, { day: 210, quantity: 21_000_000, name: "Strategic diesel stock" }] },
+};
+
+export const regionalReserveAvailable = (fuel: FuelId) => `reserve:regional:${fuel}:available`;
+export const regionalReserveSealed = (fuel: FuelId, day: number) => `reserve:regional:${fuel}:sealed:${day}`;
+
 export interface BankConfig {
   bankId: string;
   name: string;

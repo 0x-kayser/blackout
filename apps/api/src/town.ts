@@ -39,7 +39,9 @@ export class TownService {
   ) {
     const row = db.prepare("SELECT state_json FROM town_state WHERE id = 1").get() as { state_json: string } | undefined;
     this.state = row ? (JSON.parse(row.state_json) as town.TownState) : town.createTown({ seed: TOWN_SEED, world });
-    if (!row) this.checkpoint();
+    const migrateResources = !!row && !this.state.resourceLedger;
+    town.ensureTownResources(this.state);
+    if (!row || migrateResources) this.checkpoint();
     this.lastEpochNo = this.state.epochs.at(-1)?.epochNo ?? 0;
   }
 
@@ -322,13 +324,13 @@ export class TownService {
     }
   }
 
-  fastForward(seed: number, you: town.FastForwardYou | null = null): FastForwardResult {
-    // your offer is rounded so nearby moments share a cached week
+  fastForward(seed: number, you: town.FastForwardYou | null = null, days: 7 | 365 = 7): FastForwardResult {
+    // Your offer and replay length are rounded into explicit cache keys; this never changes the live market.
     const y = you ? { ...you, kw: Math.round(you.kw / 1000) * 1000, priceCcPerMWh: Math.round(you.priceCcPerMWh / 100) * 100 } : null;
-    const k = `${seed}:${y ? `${y.name}:${y.kw}:${y.priceCcPerMWh}` : "-"}`;
+    const k = `${seed}:${days}:${y ? `${y.name}:${y.kw}:${y.priceCcPerMWh}` : "-"}`;
     if (!this.ff.has(k)) {
       if (this.ff.size > 32) this.ff.clear();
-      this.ff.set(k, town.fastForwardWeek(seed, 7, this.state.world, y));
+      this.ff.set(k, town.fastForwardWeek(seed, days, this.state.world, y));
     }
     return this.ff.get(k)!;
   }
