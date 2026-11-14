@@ -24,12 +24,12 @@ popups, seed phrases and gas prompts.
 
 | Track requirement | BLACKOUT implementation | Evidence and status |
 |---|---|---|
-| NPCs with wallets | Merchant and power-company policies make decisions from inventory, demand, cash reserves and market rules. Merchant accounts and the existing economy contract are documented in the Testnet demo. | Historical Testnet evidence is in [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md). Local simulation/fake-chain tests do not prove a live trade. |
-| Player-owned market | The current source includes player listings, inventory reservation, NEP-245 escrow, cancellation and autonomous NPC purchase. A successful fill transfers the resource to the NPC and non-redeemable game credits to the player in one contract call. | Source and fake-chain/contract tests are present in this checkout. This listing implementation has not been deployed or verified with a live transaction. |
+| NPCs with wallets | Merchant and power-company policies make decisions from inventory, demand, cash reserves and market rules. Testnet NPCs hold independent accounts. | Historical Testnet evidence is in [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md). A direct player-listing settlement with the Halvard NPC account is recorded in [`docs/TESTNET_MARKET_RUN.md`](docs/TESTNET_MARKET_RUN.md); it verifies chain settlement, not live NPC policy selection. |
+| Player-owned market | The source includes player listings, inventory reservation, NEP-245 escrow, cancellation and NPC purchase settlement. A fill transfers the resource to the NPC and non-redeemable game credits to the player in one contract call. | A real Testnet player listing and fill finalized on 2026-11-14. The API/UI flow and NPC policy are locally implemented; the live transaction was submitted directly with the restricted operator key. |
 | Economy evolves without a developer patch | Continuous world events, finite inventories, merchant balance sheets, NPC policies and deterministic seven-day replay change prices and reliability. | Simulation source is in `packages/sim`; replay is separate from chain settlement. |
 | Social login | Guest play and Privy Google, email and Discord login are implemented; no wallet is created during signup. | Enable all three methods in the Privy dashboard and verify production login in a real browser before claiming end-to-end sign-in evidence. |
 | Players do not need to notice the chain | Registered accounts are server-provisioned and custodially managed. The game UI does not require external wallet setup. Operators can inspect transaction records through protected audit endpoints. | Custody is server-managed; do not describe player accounts as self-custodial or assets as withdrawable. |
-| NEP-245 | One multi-token contract represents resources and the Vesper credit unit. The new player listing path uses contract escrow and an atomic fill. | The deployed contract is `vesper-econ.blackout-kay.testnet`; the latest local listing methods still require deployment to that contract before live use. |
+| NEP-245 | One multi-token contract represents resources and the Vesper credit unit. Player listings use contract escrow and an atomic resource/credit fill. | `vesper-econ.blackout-kay.testnet` was updated with the listing methods on 2026-11-14. Deployment and trade hashes are in [`docs/TESTNET_MARKET_RUN.md`](docs/TESTNET_MARKET_RUN.md). |
 | NEAR Intents | Not used. Current flows do not need cross-chain conversion or solver-based settlement. | Deliberately excluded; see [`docs/NEAR_TRACK_COMPLIANCE.md`](docs/NEAR_TRACK_COMPLIANCE.md). |
 
 ## Try the game
@@ -45,9 +45,9 @@ Production URL: [blackout-production-c7fc.up.railway.app](https://blackout-produ
 5. Choose **Watch 7 days · about 1 minute** in Market to replay the same economy rules over seven simulated days. The
    replay is a sandbox and does not submit NEAR transactions.
 
-The production release revision has not been independently tied to this checkout. The player resource-listing feature
-described above is available in this source tree only until the contract and Railway service are updated and a real
-Testnet transaction is verified.
+The Testnet contract and direct listing settlement are verified. The current public Railway release and its operator
+key/configuration have not been checked for this listing flow, so use the local source and the transaction evidence
+below when demonstrating the player exchange.
 
 ## Local setup
 
@@ -76,10 +76,11 @@ listing in local mode is not an on-chain listing.
 4. **Respond to a crisis** → see the incident's effect on generation, demand, prices or reliability.
 5. **Advance the replay** → inspect the same economy rules over seven days with a fixed seed.
 
-### Player resource exchange in this checkout
+### Player resource exchange
 
-These steps require the updated API, deployed contract methods, a registered Testnet player account, and configured
-operator authorization. They are not yet available on the public Railway release.
+The contract path has a live Testnet transaction. The recorded proof used a custodial demo player and a direct restricted
+operator call; it did not exercise the game's authenticated API or prove that the NPC policy chose the purchase. The
+public Railway release has not been verified with its updated API key/configuration.
 
 1. **List an owned resource** → the API checks the player's account balance, reserves that quantity in the game ledger,
    and calls `resource_listing_create` to escrow the NEP-245 units.
@@ -87,8 +88,9 @@ operator authorization. They are not yet available on the public Railway release
    cash, daily reserve and on-chain credit balance. The offer explains its decision.
 3. **Withdraw or complete a sale** → withdrawal returns escrow after final confirmation. An accepted sale calls
    `resource_listing_fill`, which transfers the resource to the NPC and Vesper credits from NPC to player atomically.
-4. **Verify evidence** → inspect the protected operator audit and the final Testnet transaction. Do not use fake-chain
-   results or opening-balance transfers as evidence of a player market trade.
+4. **Verify evidence** → inspect the finalized resource transfer, escrow, and NPC fill in
+   [`docs/TESTNET_MARKET_RUN.md`](docs/TESTNET_MARKET_RUN.md). Do not treat this manual contract call as proof of the
+   Railway UI/API path or autonomous policy selection.
 
 ## NEAR design and trust model
 
@@ -129,19 +131,20 @@ Focused coverage for the player resource exchange is in:
 Fake-chain tests verify application behavior against a test double; they are not live Testnet evidence. Record actual
 transaction hashes only after independently checking final Testnet outcomes.
 
-Latest local verification (2026-11-13): workspace type-check passed; focused resource-market/economy tests passed
-22/22; NEAR contract tests passed 56/56; and the web build passed. All other Vitest tests passed 211/211 when the SSE
-suite was excluded. The default full run cannot start that suite because the environment denies its local listener
-(`listen EPERM 127.0.0.1`).
+Local verification: `pnpm typecheck` passed on 2026-11-14 after updating NEAR account construction to the installed
+signer API. Results from 2026-11-13: focused resource-market/economy tests passed 22/22; NEAR contract tests passed
+56/56; and the web build passed. All other Vitest tests passed 211/211 when the SSE suite was excluded. The default
+full run could not start that suite because the environment denied its local listener (`listen EPERM 127.0.0.1`).
+Live Testnet transaction evidence is recorded in [`docs/TESTNET_MARKET_RUN.md`](docs/TESTNET_MARKET_RUN.md).
 
 ## Current limitations
 
-- The new player resource listing methods, API, UI and database migration are implemented in this checkout and locally
-  tested, but are not confirmed deployed to the public Railway service.
-- The updated NEAR contract has not been deployed to the existing Testnet contract from this checkout. No live player
-  listing, fill or cancellation transaction hash is claimed.
-- The Testnet operator function-call key must allow `resource_listing_create`, `resource_listing_cancel` and
-  `resource_listing_fill`; update/rotate it using the provided key workflow when deployment is authorized.
+- The Testnet contract now includes `resource_listing_create`, `resource_listing_cancel` and `resource_listing_fill`.
+  A live listing and fill are verified, but the NPC policy did not initiate that manual test fill.
+- The new restricted Testnet operator key is saved only in the ignored local `.env.economy`. Railway has not been
+  updated with this key or verified against the new API source, so the public site's listing flow is not claimed live.
+- The local API's NEAR signer handling was corrected for the installed `near-api-js` version. The updated API still
+  needs an end-to-end browser/API run against Testnet before claiming the complete player journey.
 - Railway Testnet credentials and deployment configuration must be verified before any external deployment. Never
   commit account keys, operator keys, wallet encryption secrets or admin tokens.
 - Privy Google/email/Discord sign-in is wired in source; enable all three methods and allow the deployed Railway domain
@@ -158,6 +161,7 @@ suite was excluded. The default full run cannot start that suite because the env
 | [`docs/TRANSACTION_FLOWS.md`](docs/TRANSACTION_FLOWS.md) | Chain settlement flows and failure handling |
 | [`docs/NEAR_TRACK_COMPLIANCE.md`](docs/NEAR_TRACK_COMPLIANCE.md) | NEAR track evidence and known gaps |
 | [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md) | Historical Testnet demo transactions |
+| [`docs/TESTNET_MARKET_RUN.md`](docs/TESTNET_MARKET_RUN.md) | Verified live Testnet player listing and NPC fill |
 | [`docs/NEAR_TESTNET_SETUP.md`](docs/NEAR_TESTNET_SETUP.md) | Testnet configuration |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Hosting and deployment configuration |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Secrets and security boundaries |
