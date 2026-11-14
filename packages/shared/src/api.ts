@@ -273,9 +273,13 @@ export const PublicConfigSchema = z.object({
   }),
   pausePolicy: z.string(),
   authModes: z.array(z.string()),
-  /** Present only when the server has a Supabase project configured. The anon key is public by design. */
+  /** Authentication provider flags; the Privy App ID and Supabase anon key are public identifiers. */
   auth: z.object({
     guest: z.literal(true),
+    /** Privy handles Google/email/Discord verification; the API verifies its access token before issuing a game session. */
+    privy: z.boolean().optional(),
+    privyAppId: z.string().nullable().optional(),
+    discord: z.boolean().optional(),
     supabaseUrl: z.string().nullable(),
     supabaseAnonKey: z.string().nullable(),
     google: z.boolean(),

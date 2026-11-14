@@ -65,7 +65,7 @@ export function Title(p: TitleProps) {
   const [tourStep, setTourStep] = useState<number | null>(null)
   const auth = p.config?.auth
   const guestPlay = !!auth?.guestPlay
-  const canSignIn = !!(auth?.google || auth?.email)
+  const canSignIn = !!auth?.privy
   const host = { config: p.config, boot: p.onSignedIn, toast: () => undefined } as unknown as Game
   const signedIn = p.player?.kind === 'registered'
   const returningGuest = p.player?.kind === 'guest'

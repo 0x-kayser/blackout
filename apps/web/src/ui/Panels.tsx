@@ -419,7 +419,7 @@ export function ProfilePanel({ g, onClose, prefs, setPrefs }: { g: Game; onClose
   const [msg, setMsg] = useState<string | null>(null)
   const cfg = g.config!
   return (
-    <Drawer title={p.displayName} eyebrow={p.kind === 'guest' ? 'GUEST OPERATOR' : `SIGNED IN · ${p.loginMethod.toUpperCase()}`} onClose={onClose}>
+    <Drawer title={p.displayName} eyebrow={p.kind === 'guest' ? 'GUEST OPERATOR' : p.loginMethod === 'privy' ? 'SIGNED IN' : `SIGNED IN · ${p.loginMethod.toUpperCase()}`} onClose={onClose}>
       <p className="fine">Your city saves automatically on the server after every action and every few seconds of play. {cfg.offlinePolicy}</p>
       <label className="field">
         <span>Display name</span>
@@ -430,7 +430,7 @@ export function ProfilePanel({ g, onClose, prefs, setPrefs }: { g: Game; onClose
         <section className="upgrade-account">
           <p className="eyebrow amber">KEEP THIS CITY</p>
           <p className="fine">Sign in to play this city on any device. Your guest progress moves to the new account automatically; an account that already has a city is never overwritten.</p>
-          {cfg.auth.google || cfg.auth.email ? <SignInOptions g={g} compact onSignedIn={onClose} /> : <p className="fine">Accounts aren't available on this server yet; your city is saved on this device.</p>}
+          {cfg.auth.privy ? <SignInOptions g={g} compact onSignedIn={async () => { await g.boot(); onClose() }} /> : <p className="fine">Accounts aren't available on this server yet; your city is saved on this device.</p>}
         </section>
       )}
       {msg && <p className="ok-line">{msg}</p>}

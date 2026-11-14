@@ -27,7 +27,7 @@ popups, seed phrases and gas prompts.
 | NPCs with wallets | Merchant and power-company policies make decisions from inventory, demand, cash reserves and market rules. Merchant accounts and the existing economy contract are documented in the Testnet demo. | Historical Testnet evidence is in [`docs/TESTNET_DEMO.md`](docs/TESTNET_DEMO.md). Local simulation/fake-chain tests do not prove a live trade. |
 | Player-owned market | The current source includes player listings, inventory reservation, NEP-245 escrow, cancellation and autonomous NPC purchase. A successful fill transfers the resource to the NPC and non-redeemable game credits to the player in one contract call. | Source and fake-chain/contract tests are present in this checkout. This listing implementation has not been deployed or verified with a live transaction. |
 | Economy evolves without a developer patch | Continuous world events, finite inventories, merchant balance sheets, NPC policies and deterministic seven-day replay change prices and reliability. | Simulation source is in `packages/sim`; replay is separate from chain settlement. |
-| Social login | Guest play and Google Identity Services are implemented. Email magic-link sign-in is not enabled in production. | Production Google consent-and-return must be verified in a real browser before claiming end-to-end sign-in evidence. |
+| Social login | Guest play and Privy Google, email and Discord login are implemented; no wallet is created during signup. | Enable all three methods in the Privy dashboard and verify production login in a real browser before claiming end-to-end sign-in evidence. |
 | Players do not need to notice the chain | Registered accounts are server-provisioned and custodially managed. The game UI does not require external wallet setup. Operators can inspect transaction records through protected audit endpoints. | Custody is server-managed; do not describe player accounts as self-custodial or assets as withdrawable. |
 | NEP-245 | One multi-token contract represents resources and the Vesper credit unit. The new player listing path uses contract escrow and an atomic fill. | The deployed contract is `vesper-econ.blackout-kay.testnet`; the latest local listing methods still require deployment to that contract before live use. |
 | NEAR Intents | Not used. Current flows do not need cross-chain conversion or solver-based settlement. | Deliberately excluded; see [`docs/NEAR_TRACK_COMPLIANCE.md`](docs/NEAR_TRACK_COMPLIANCE.md). |
@@ -55,13 +55,12 @@ Requirements: Node.js 22.5 or newer and pnpm 10.
 
 ```sh
 pnpm install
-ALLOW_GUEST_PLAY=true AUTH_LOCAL_EMAIL=true AUTH_LOCAL_EMAIL_SHOW_CODE=true pnpm dev
+ALLOW_GUEST_PLAY=true pnpm dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). Local email codes are displayed in the development UI. Do not set
-`AUTH_LOCAL_EMAIL_SHOW_CODE=true` in production. Google sign-in locally also needs `GOOGLE_CLIENT_ID` and
-`http://localhost:5173` registered as an authorized JavaScript origin. The classic city game remains available at
-`/city`.
+Open [http://localhost:5173](http://localhost:5173). Guest play works locally. Google, email and Discord sign-in use
+Privy: enable all three methods in its dashboard and add `http://localhost:5173` to the app's allowed domains. The
+Privy App ID is in `packages/shared/src/privy.ts`. The classic city game remains available at `/city`.
 
 This local command runs the game without NEAR unless a complete Testnet economy configuration is supplied. A simulated
 listing in local mode is not an on-chain listing.
@@ -145,8 +144,8 @@ suite was excluded. The default full run cannot start that suite because the env
   `resource_listing_fill`; update/rotate it using the provided key workflow when deployment is authorized.
 - Railway Testnet credentials and deployment configuration must be verified before any external deployment. Never
   commit account keys, operator keys, wallet encryption secrets or admin tokens.
-- Google sign-in is configured in source and production settings; the real consent-and-return flow still needs browser
-  verification. Email sign-in is disabled in production.
+- Privy Google/email/Discord sign-in is wired in source; enable all three methods and allow the deployed Railway domain
+  in the Privy dashboard, then verify the real consent-and-return flow in a browser before claiming production auth is live.
 - NEAR Intents is not integrated.
 
 ## Project documentation

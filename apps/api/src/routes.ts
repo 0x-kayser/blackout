@@ -11,6 +11,7 @@ import {
   QuoteRequestSchema,
   ReplayRequestSchema,
   StartSessionRequestSchema,
+  PRIVY_APP_ID,
   type EconomyEvent,
   type ErrorCode,
   type PlayerProfile,
@@ -241,6 +242,27 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       if ((e as Error).message === "GOOGLE_EMAIL_UNVERIFIED") throw new ApiError("VALIDATION_FAILED", "That Google account's email isn't verified yet.");
       req.log.warn({ err: (e as Error).message }, "google sign-in refused");
       throw new ApiError("UNAUTHORIZED", "Google couldn't confirm that sign-in. Try again.");
+    }
+    if (out.token) setSessionCookie(reply, out.token, deps.secureCookies);
+    const p = auth.player(out.playerId)!;
+    return { ok: true, upgradedGuest: out.upgradedGuest, player: { playerId: p.player_id, displayName: p.display_name, kind: p.kind, activeRunId: p.active_run_id } };
+  });
+
+  /** Privy access token is verified server-side, then exchanged for BLACKOUT's HTTP-only game session. */
+  const privyLimiter = new RateLimiter(1 / 5, 10);
+  app.post("/api/auth/privy", async (req, reply) => {
+    const body = parse(z.object({ accessToken: z.string().min(100).max(8192) }), req.body);
+    if (!privyLimiter.take(`ip:${req.ip}`)) throw new ApiError("RATE_LIMITED", "Too many sign-in attempts. Wait a moment and try again.");
+    const current = await auth.authenticate(req);
+    let out;
+    try {
+      out = await auth.signInWithPrivyToken(body.accessToken, current);
+    } catch (e) {
+      if ((e as Error).message === "PRIVY_ACCOUNT_HAS_EXISTING_CITY") {
+        throw new ApiError("ACCOUNT_EXISTS", "This account already has a city. Your current guest city was left untouched.");
+      }
+      req.log.warn({ err: (e as Error).message }, "Privy sign-in refused");
+      throw new ApiError("UNAUTHORIZED", "Privy couldn't confirm that sign-in. Try again.");
     }
     if (out.token) setSessionCookie(reply, out.token, deps.secureCookies);
     const p = auth.player(out.playerId)!;
@@ -686,14 +708,17 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     pausePolicy: `The world advances 1 tick/second while you are connected. With no live connection for ${AUTO_PAUSE_MS / 1000}s the city pauses and resumes exactly where you left it. The server never fast-forwards more than 5 s of missed time.`,
     offlinePolicy:
       "Leaving pauses your city: no fuel burns, no customer bills, no rent and no bankruptcy while you are away. Contracts resume mid-delivery when you return. Economy Lab simulations never touch your save.",
-    authModes: ["guest", ...(auth.supabase.providers.google || auth.supabase.googleClientId ? ["google"] : []), ...(auth.supabase.providers.email || auth.supabase.local.enabled ? ["email"] : [])],
+    authModes: ["guest", "google", "email", "discord", "privy"],
     auth: {
       guest: true as const,
+      privy: true,
+      privyAppId: PRIVY_APP_ID,
       supabaseUrl: auth.supabase.enabled ? auth.supabase.url : null,
       supabaseAnonKey: auth.supabase.enabled ? auth.supabase.anonKey : null,
-      google: auth.supabase.providers.google || !!auth.supabase.googleClientId,
+      google: true,
       googleClientId: auth.supabase.googleClientId,
-      email: auth.supabase.providers.email || auth.supabase.local.enabled,
+      email: true,
+      discord: true,
       local: auth.supabase.local.enabled,
       guestPlay: !!deps.guestPlay,
       localShowsCode: auth.supabase.local.showCode,

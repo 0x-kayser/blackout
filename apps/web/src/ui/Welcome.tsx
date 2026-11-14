@@ -9,7 +9,7 @@ export function Welcome({ g, onPlay, onChallenge, onLab, onHelp, reducedMotion, 
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const p = g.player
-  const canSignIn = !!(g.config?.auth.google || g.config?.auth.email)
+  const canSignIn = !!g.config?.auth.privy
 
   const go = async (fn: () => Promise<void>) => {
     setBusy(true)

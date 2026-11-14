@@ -1,9 +1,17 @@
 # Auth provider decision
 
-**Decision:** Supabase Auth for Google and email (magic link), plus server-issued guest sessions. X is deferred.
+## Current implementation
+
+As of 2026-11-14, the game UI uses Privy for Google, passwordless email, and Discord login. The API verifies the Privy access
+token with Privy's public JWKS, checks issuer and audience, and exchanges it for BLACKOUT's existing HTTP-only session
+cookie. Embedded wallet creation is disabled. The Supabase and direct Google flows below are retained as legacy server
+paths; they are no longer the signup buttons in the game UI. Enable Google, Email, and Discord in the Privy dashboard and allow
+the production Railway domain before expecting the hosted sign-in flow to work.
+
+**Previous decision (superseded):** Supabase Auth for Google and email (magic link), plus server-issued guest sessions. X was deferred.
 Checked 2026-11-08.
 
-## Why Supabase
+## Supabase implementation (legacy details)
 * Maintained provider with Google OAuth and passwordless email out of the box; PKCE flow in `@supabase/supabase-js`.
 * Free plan includes 50,000 monthly active users (supabase.com/pricing). Free projects pause after one week of
   inactivity — keep the project active during judging or use a paid plan.
@@ -14,7 +22,7 @@ Checked 2026-11-08.
 * We store **no passwords and no email addresses**: only `(provider="supabase", subject=sub)`, the login method and a
   display name.
 
-## Flow
+## Previous Supabase flow (legacy)
 1. Browser loads `/api/config/public`; if the server has `SUPABASE_URL` + `SUPABASE_ANON_KEY`, it initialises
    supabase-js (PKCE, auto refresh). Buttons for providers that are not configured are **not rendered**.
 2. Google → `signInWithOAuth({provider:'google', redirectTo: origin})`; email → `signInWithOtp` (magic link).
@@ -27,13 +35,13 @@ Checked 2026-11-08.
    is attached to the guest player **only if** the account has no city yet, otherwise `409 ACCOUNT_EXISTS` and
    nothing is overwritten. The guest token is then revoked.
 
-## Security properties
+## Legacy security properties
 PKCE + state (SDK), local signature/issuer/audience/expiry checks, no client-supplied player ids (tested), HTTP-only
 `SameSite=Lax` guest cookie (`Secure` in production), origin allow-list on writes (CSRF), rate limits on writes and
 on guest creation, logout revokes guest sessions and signs out of Supabase, no secrets in the bundle (the anon key is
 public by design and served at runtime). Session renewal: supabase-js refresh tokens; guest sessions expire after 14 days.
 
-## What is verified
+## Historical verification
 * Tested: JWT verification and player mapping using a locally generated ES256 key and JWKS (wrong issuer/audience/
   signature/expiry rejected; repeat logins reuse one player; guest upgrade; conflict protection; logout).
 * **Not verified end-to-end:** a real Google or email sign-in, because no Supabase project credentials were provided.
@@ -41,7 +49,7 @@ public by design and served at runtime). Session renewal: supabase-js refresh to
   Cloud with the Supabase callback URL), add your site URL to Supabase "Redirect URLs", then set `SUPABASE_URL`,
   `SUPABASE_ANON_KEY`, `AUTH_GOOGLE_ENABLED=true`.
 
-## Sign-in that works everywhere
+## Previous sign-in UX (superseded)
 * **One tap Google.** "Continue with Google" opens Google's account picker (`prompt=select_account`) and returns to
   the same page. Google blocks sign-in inside embedded app browsers (Instagram, Facebook, LinkedIn, TikTok and
   similar), so the game detects them and offers the email code or a "Copy link" button for Safari/Chrome instead.
@@ -53,7 +61,7 @@ public by design and served at runtime). Session renewal: supabase-js refresh to
 * **No dead ends.** If the server has no Supabase project, the sign-in buttons are simply not shown; players can
   still play and their city saves on this device.
 
-## Google sign-in without Supabase (simplest)
+## Legacy direct Google flow
 The game can sign players in with Google directly. The browser shows Google's own button (Google Identity
 Services); Google gives the browser a signed ID token; the API checks it against Google's published keys (issuer
 Google, audience our client id, unexpired, verified email) and signs the player in. A guest keeps their company. We
@@ -68,7 +76,7 @@ store Google's account id only as a hash, and never the email address. Code: `Au
 4. Put the client id (`…apps.googleusercontent.com`) in the API's env as `GOOGLE_CLIENT_ID` and restart. The API logs
    `google sign-in: on`, and `GET /api/config/public` shows `googleClientId`.
 
-## Turning it on (operator checklist)
+## Legacy Supabase setup checklist
 1. Create a Supabase project. Copy the project URL and the anon (public) key into `SUPABASE_URL` and
    `SUPABASE_ANON_KEY`.
 2. **Authentication → URL configuration:** set the Site URL to your production origin and add every origin you

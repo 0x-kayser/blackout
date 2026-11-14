@@ -56,17 +56,19 @@ Waves every 30 ticks forever. `clock.wavesTotal ≤ 3` = tutorial (one request, 
 ## 3. Endpoints
 
 All responses are `{ ok: true, ... }` or `{ ok: false, error: { code, message, details? } }`.
-Auth: guest = `POST /api/session/start` (HTTP-only cookie `bo_session`, also returned as a bearer token);
-Google/email = Supabase access token as `Authorization: Bearer <jwt>` (verified against the project JWKS). SSE accepts
-`?token=` because `EventSource` cannot set headers. Player ids are always derived from the credential.
+Auth: guest = `POST /api/session/start`; Google/email/Discord = Privy access token exchanged at `POST /api/auth/privy` for an
+HTTP-only `bo_session` cookie after the API verifies Privy's signature, issuer, and audience. Legacy Supabase sessions
+may still use `Authorization: Bearer <jwt>`. SSE accepts `?token=` because `EventSource` cannot set headers. Player ids
+are always derived from the verified credential.
 The `/api/runs/*` routes remain for tools and tests; the game UI uses `/api/game/*`.
 
 | Method | Path | Auth | Purpose | Schema |
 |---|---|---|---|---|
 | POST | `/api/session/start` | – | guest session (no PII, no wallet); rate limited per IP | `StartSessionResponseSchema` |
+| POST | `/api/auth/privy` | Privy access token in body | verifies Privy identity, links a new identity to the current guest when possible, issues BLACKOUT session cookie | `{accessToken}` → `{ok, upgradedGuest, player}` |
 | GET | `/api/me` | ✓ | player profile and identities; no external wallet is required | `MeResponseSchema` |
 | PATCH | `/api/me` | ✓ | `{displayName}` | `MeResponseSchema` |
-| POST | `/api/auth/link-guest` | Supabase JWT | `{guestToken}` → move guest city to the account; `409 ACCOUNT_EXISTS` if it already has one | `MeResponseSchema` |
+| POST | `/api/auth/link-guest` | Legacy Supabase JWT | `{guestToken}` → move guest city to the account; `409 ACCOUNT_EXISTS` if it already has one | `MeResponseSchema` |
 | POST | `/api/auth/logout` | – | revokes guest session, clears cookie | `{ok}` |
 | POST | `/api/game/start` | ✓ | resume the player's city (or create one; `{fresh:true}` starts a new one) | `GameStateResponseSchema` |
 | GET | `/api/game/state`, `/api/me/game` | ✓ | the player's city + `awayMs` | `GameStateResponseSchema` |

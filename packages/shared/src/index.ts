@@ -9,3 +9,4 @@ export const CONTRACT_VERSION = "blackout-contract-v1";
 export * from "./region.ts";
 export * from "./town.ts";
 export * from "./economy.ts";
+export * from "./privy.ts";

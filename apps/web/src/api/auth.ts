@@ -1,13 +1,17 @@
-/**
- * Authentication helpers. Google can use direct Google Identity Services or Supabase Auth
- * (PKCE); email uses Supabase magic links/codes or the local email-code provider. We never
- * see or store passwords. The 6-digit email code works across devices and in-app browsers.
- */
+/** Authentication helpers. Privy handles Google and passwordless email; BLACKOUT never sees passwords. */
 import type { SupabaseClient, Session } from '@supabase/supabase-js'
 import type { PublicConfig } from './client'
 import { bearerHeader, setBearer } from './client'
 
 let client: SupabaseClient | null = null
+let privyLogout: (() => Promise<void>) | null = null
+
+export function registerPrivyLogout(logout: () => Promise<void>): () => void {
+  privyLogout = logout
+  return () => {
+    if (privyLogout === logout) privyLogout = null
+  }
+}
 
 export async function initSupabase(cfg: PublicConfig): Promise<SupabaseClient | null> {
   if (!cfg.auth.supabaseUrl || !cfg.auth.supabaseAnonKey) return null
@@ -74,12 +78,32 @@ export async function verifyEmailCode(email: string, code: string): Promise<void
 
 export async function signOutProvider(): Promise<void> {
   try {
-    if (client) await client.auth.signOut()
+    if (client) await client.auth.signOut().catch(() => undefined)
   } finally {
-    // The app session has already been revoked server-side. Clear the API token even if
-    // Supabase is temporarily offline so the next screen cannot keep making signed-in calls.
-    setBearer(null)
+    try {
+      await privyLogout?.()
+    } finally {
+      // The app session has already been revoked server-side. Clear provider state even if
+      // an auth provider is temporarily offline so the next screen cannot reuse the session.
+      setBearer(null)
+    }
   }
+}
+
+/** Exchange a Privy access token for BLACKOUT's existing HTTP-only game session. */
+export async function signInWithPrivyToken(accessToken: string): Promise<{ upgradedGuest: boolean }> {
+  // Ensure a stale legacy Supabase bearer cannot override the Privy-backed BLACKOUT cookie.
+  setBearer(null)
+  if (client) await client.auth.signOut().catch(() => undefined)
+  const res = await fetch('/api/auth/privy', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ accessToken }),
+  })
+  const json = await res.json().catch(() => null)
+  if (!json?.ok) throw new Error(json?.error?.message ?? 'Sign-in failed. Please try again.')
+  return { upgradedGuest: !!json.upgradedGuest }
 }
 
 /** Direct Google sign-in: hands the ID token Google issued in the browser to our server, which verifies it. */

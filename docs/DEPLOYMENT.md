@@ -45,9 +45,9 @@ The NEAR power-economy module is separate; do not treat it as evidence that reso
 
 ## Login providers
 
-Guest access is enabled for the initial demo. Google uses the direct Google Identity Services flow: Railway receives `GOOGLE_CLIENT_ID`, the browser returns a Google ID token, and the server verifies its signature and audience. This flow does not require a Google client secret or Supabase. In Google Cloud, register `https://blackout-production-c7fc.up.railway.app` under **Authorized JavaScript origins**; the app posts the credential to its same-origin API.
+Guest access is enabled for the initial demo. Google, passwordless email and Discord use Privy; the browser sends a Privy access token to the same-origin API, which verifies it and issues BLACKOUT's HTTP-only game-session cookie. The API does not create a wallet during signup. The public Privy App ID is in `packages/shared/src/privy.ts`.
 
-Email magic links are not configured. They require Supabase settings (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) and matching redirect URLs. Verify the deployed public config and complete a real Google sign-in before claiming provider login works.
+In the Privy dashboard, enable **Google**, **Email** and **Discord** login methods and allow `https://blackout-production-c7fc.up.railway.app` as an app domain (also allow `http://localhost:5173` for local development). Google and Discord OAuth provider settings must be configured in Privy. Verify a real consent-and-return flow before claiming deployed provider login works.
 
 ## Verify a deployment
 

@@ -116,8 +116,8 @@ export function useGame() {
       try {
         const me = await api.me()
         setPlayer(me.player)
-        // Supabase sign-in creates a separate player, so link the guest city to it. Direct Google
-        // and local email sign-in upgrade the guest player in place and need no second link call.
+        // Legacy Supabase sign-in can be linked to a guest city. Privy sign-in upgrades a new identity
+        // in place before this boot, so it needs no second link call.
         const guestToken = guestUpgradeToken()
         if (me.player.kind === 'registered' && !me.player.activeRunId && guestToken && me.player.identities.some((identity) => identity.provider === 'supabase')) {
           try {

@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { JWTVerifyGetKey } from "jose";
+import { PRIVY_APP_ID } from "@blackout/shared";
 import { AuthService, loadSupabaseConfig, type SupabaseConfig } from "./auth.ts";
 import { loadChainConfig, type ChainConfig } from "./chain.ts";
 import { openDb, type Db } from "./db.ts";
@@ -141,8 +142,8 @@ async function main() {
   console.log(`chain mode: ${chain.enabled ? `testnet (${chain.resourceContractId})` : `disabled (missing ${chain.missing.join(", ")})`}`);
   console.log(`exchange: ${xsvc.sandbox ? `sandbox (server ledger only; Testnet exchange needs ${chain.enabled ? chain.exchangeMissing.join(", ") : "chain mode"})` : "testnet"}`);
   console.log(`economy: ${economy.live ? `NEAR testnet (${economy.cfg.contractId})` : `game server only (missing ${economy.cfg.missing.slice(0, 4).join(", ")}${economy.cfg.missing.length > 4 ? ", …" : ""})`}`);
-  console.log(`google sign-in: ${auth.supabase.googleClientId ? "on (Google Identity Services)" : auth.supabase.providers.google ? "via Supabase" : "off (set GOOGLE_CLIENT_ID)"}`);
-  console.log(`auth: guest${auth.supabase.enabled ? ` + supabase (${[auth.supabase.providers.google && "google", auth.supabase.providers.email && "email"].filter(Boolean).join(", ")})` : " only (SUPABASE_URL / SUPABASE_ANON_KEY not set)"}`);
+  console.log(`Privy sign-in: enabled in source (App ID ${PRIVY_APP_ID}; Google/email/Discord methods must be enabled in the Privy dashboard)`);
+  console.log(`auth: guest + Privy${auth.supabase.enabled ? ` + legacy Supabase (${[auth.supabase.providers.google && "google", auth.supabase.providers.email && "email"].filter(Boolean).join(", ")})` : ""}`);
   const shutdown = async () => {
     stopDriver();
     stopRegion();

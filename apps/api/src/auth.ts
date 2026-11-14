@@ -3,16 +3,16 @@
  *
  *  - Guest: POST /api/session/start creates a player + opaque 256-bit session token
  *    (only sha256(token) is stored), sent as an HTTP-only cookie.
- *  - Direct Google: Google Identity Services sends an ID token to this server, which verifies
- *    it against Google's JWKS and maps the stable subject to exactly one player.
- *  - Supabase: the browser sends its access token as `Authorization: Bearer <jwt>`. We verify it
- *    against the project's JWKS and map (provider="supabase", subject=sub) to one player.
- *    We never store passwords; email sign-in is handled by Supabase magic link / OTP or the
- *    configured local email-code provider.
+ *  - Privy: the browser exchanges a Privy access token once; this server verifies its signature,
+ *    issuer and audience, then returns the existing HTTP-only game-session cookie.
+ *  - Legacy Google/Supabase: older clients can still use their existing token verification paths.
+ *    The browser sends a Supabase access token as `Authorization: Bearer <jwt>`, verified against
+ *    the project's JWKS. The frontend signup buttons no longer use these legacy paths.
  *  - The frontend never supplies a player id; it is always derived from a verified credential.
  */
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { PRIVY_APP_ID } from "@blackout/shared";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 import { nowIso, tx, type Db } from "./db.ts";
 
@@ -75,17 +75,59 @@ export function loadSupabaseConfig(env: NodeJS.ProcessEnv = process.env): Supaba
 export class AuthService {
   private jwks: JWTVerifyGetKey | null;
   private googleJwks: JWTVerifyGetKey | null;
+  private privyJwks: JWTVerifyGetKey;
 
   constructor(
     private readonly db: Db,
     readonly supabase: SupabaseConfig,
     jwks?: JWTVerifyGetKey,
     googleJwks?: JWTVerifyGetKey,
+    privyJwks?: JWTVerifyGetKey,
   ) {
     // jose caches keys and refetches on unknown `kid` (cooldown 30 s, max age 10 min), matching Supabase guidance.
     this.jwks = jwks ?? (supabase.enabled ? createRemoteJWKSet(new URL(`${supabase.issuer}/.well-known/jwks.json`), { cacheMaxAge: 600_000 }) : null);
-    // Google's published signing keys for ID tokens
+    // Legacy Google Identity Services signing keys
     this.googleJwks = googleJwks ?? (supabase.googleClientId ? createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"), { cacheMaxAge: 600_000 }) : null);
+    // Privy's published signing keys; the App ID is public and is also checked as the JWT audience.
+    this.privyJwks = privyJwks ?? createRemoteJWKSet(new URL(`https://auth.privy.io/api/v1/apps/${PRIVY_APP_ID}/jwks.json`), { cacheMaxAge: 600_000 });
+  }
+
+  // ------------------------------------------------------------ Privy
+
+  /** Verifies the Privy access token before mapping its stable user DID to a BLACKOUT player. */
+  async signInWithPrivyToken(accessToken: string, guest: AuthedUser | null): Promise<{ token: string | null; playerId: string; upgradedGuest: boolean }> {
+    const { payload } = await jwtVerify(accessToken, this.privyJwks, {
+      issuer: "privy.io",
+      audience: PRIVY_APP_ID,
+      algorithms: ["ES256"],
+      clockTolerance: 5,
+    });
+    if (!payload.sub || !payload.sub.startsWith("did:privy:")) throw new Error("PRIVY_SUBJECT_INVALID");
+
+    // Hash the provider subject at rest; no email or raw provider identifier is stored.
+    const subject = hash(`privy:${payload.sub}`);
+    const displayName = "Operator";
+    const now = nowIso();
+    return tx(this.db, () => {
+      const existing = this.db.prepare("SELECT player_id FROM auth_identities WHERE provider = 'privy' AND subject = ?").get(subject) as { player_id: string } | undefined;
+      if (existing) {
+        const activeGuestRun = guest?.kind === "guest"
+          ? (this.db.prepare("SELECT active_run_id FROM players WHERE player_id = ?").get(guest.userId) as { active_run_id: string | null } | undefined)?.active_run_id
+          : null;
+        // Don't replace a guest session that already has a city with a different existing account.
+        if (activeGuestRun && existing.player_id !== guest?.userId) throw new Error("PRIVY_ACCOUNT_HAS_EXISTING_CITY");
+        this.db.prepare("UPDATE auth_identities SET last_login_at = ? WHERE provider = 'privy' AND subject = ?").run(now, subject);
+        return { token: this.newSession(existing.player_id), playerId: existing.player_id, upgradedGuest: false };
+      }
+      if (guest && guest.kind === "guest") {
+        this.db.prepare("INSERT INTO auth_identities (provider, subject, player_id, login_method, created_at, last_login_at) VALUES ('privy', ?, ?, 'privy', ?, ?)").run(subject, guest.userId, now, now);
+        this.db.prepare("UPDATE players SET kind = 'registered', updated_at = ? WHERE player_id = ?").run(now, guest.userId);
+        return { token: null, playerId: guest.userId, upgradedGuest: true };
+      }
+      const playerId = this.createPlayer("registered", displayName);
+      this.db.prepare("INSERT INTO auth_identities (provider, subject, player_id, login_method, created_at, last_login_at) VALUES ('privy', ?, ?, 'privy', ?, ?)").run(subject, playerId, now, now);
+      return { token: this.newSession(playerId), playerId, upgradedGuest: false };
+    });
   }
 
   // ------------------------------------------------------------ Google (direct)
@@ -285,7 +327,7 @@ export class AuthService {
     return { userId: row.user_id, sessionId: row.session_id, provider: "guest", kind: row.kind, loginMethod: row.login_method };
   }
 
-  /** Resolves the caller from a guest token or a Supabase JWT. Returns null if neither verifies. */
+  /** Resolves the caller from a BLACKOUT session cookie or a legacy Supabase JWT. */
   async authenticate(req: FastifyRequest): Promise<AuthedUser | null> {
     const t = this.bearerOrCookie(req);
     if (!t || t.length > 4096) return null;
